@@ -362,8 +362,11 @@ describe("index startup skill registration", () => {
 
     expect(orchestration).toContain("retrieve or reread every listed user message");
     expect(orchestration).toContain("inspect every earlier visible valid answer");
+    expect(orchestration).toContain("Prefer one self-contained explicit answer per user request");
     expect(orchestration).toContain("apply `explain-clearly`");
     expect(orchestration).toContain("complementary addition, correction, or material completion");
+    expect(orchestration).toContain("Repeat IDs only when genuinely useful information requires");
+    expect(orchestration).toContain("collapsed presentation shows the complete answer set together");
     expect(orchestration).toContain("Final Memory closure is commentary by default");
 
     expect(workLeader).toContain("normally carries the substantive `:A:<ids>` answer");
@@ -372,6 +375,7 @@ describe("index startup skill registration", () => {
     expect(memoryLeader).toContain("materially completes, corrects, or changes the prior response");
 
     expect(launcher).toContain("Before emitting \\`:A:<ids>\\`, retrieve or reread every listed user message");
+    expect(launcher).toContain("Prefer one self-contained explicit answer per user request");
     expect(launcher).toContain("publish routine Memory closure with \\`[thread:q-N:C]\\`");
     for (const source of [orchestration, launcher]) {
       expect(source).not.toContain("Quest completion responses are answers");

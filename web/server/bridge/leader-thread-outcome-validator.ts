@@ -692,7 +692,10 @@ function buildPendingResponseReminderContent(
       : []),
     "If work is not complete, use a fresh Thread Waiting marker or same-thread needs-input notification instead of Thread Ready.",
     ...(outcomeMissing.length > 0
-      ? [`Also missing a normal Waiting/Ready/notification outcome for: ${formatThreadLabels(outcomeMissing)}.`]
+      ? [
+          `Also missing a normal Waiting/Ready/notification outcome for: ${formatThreadLabels(outcomeMissing)}.`,
+          ...buildOutcomeOnlyAuthoringGuidance(),
+        ]
       : []),
   ].join("\n");
 }
@@ -712,10 +715,18 @@ function buildOutcomeReminderContent(missing: TouchedThread[]): string {
   return [
     "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
     `Missing outcome marker for: ${formatThreadLabels(missing)}.`,
-    "This is about outcome status for already routed leader output; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
+    "This is about outcome status for already routed leader output, not a request for another answer; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
+    ...buildOutcomeOnlyAuthoringGuidance(),
     "Before marking a thread Ready, verify any promised durable action is actually complete: quest creation/refinement, board rows, needs-input notifications, worker sends, phase dispatches, Port/push, or other external records. If not, mark the thread Waiting or incomplete instead.",
     'Use `takode notify needs-input "..."` only for user-blocking prompts. For non-blocking thread status, add a standalone `{[(Thread Waiting: thread | summary)]}` or `{[(Thread Ready: thread | summary)]}` line to your assistant response.',
   ].join("\n");
+}
+
+function buildOutcomeOnlyAuthoringGuidance(): string[] {
+  return [
+    "For a thread with no pending direct-user answer that only needs an outcome marker, route any accompanying progress, status, recovery, verification, or bookkeeping prose as commentary with `[thread:main:C]` or `[thread:q-N:C]`; do not emit another `:A:<ids>` answer merely to carry that outcome.",
+    "Prefer one self-contained explicit answer per user request or grouped request set. A later same-ID answer is only for genuinely useful complementary or corrective information and should avoid repetition because the collapsed view shows the complete answer set.",
+  ];
 }
 
 function buildNeedsInputPromptReminderContent(missing: TouchedThread[]): string {

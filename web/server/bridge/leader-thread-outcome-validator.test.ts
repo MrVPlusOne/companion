@@ -402,6 +402,16 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
       "This is about outcome status for already routed leader output",
     );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "route any accompanying progress, status, recovery, verification, or bookkeeping prose as commentary",
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "do not emit another `:A:<ids>` answer merely to carry that outcome",
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "Prefer one self-contained explicit answer per user request or grouped request set",
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("collapsed view shows the complete answer set");
     expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(2);
   });
 
@@ -970,6 +980,52 @@ describe("explicit answer reminders", () => {
     expect(refreshed?.content).not.toContain("Main (u1)");
     expect(refreshed?.guard.pendingResponseTargets).toHaveLength(1);
     expect(refreshed?.guard.pendingResponseTargets[0]?.threadKey).toBe("q-42");
+  });
+
+  it("keeps outcome-only commentary guidance when a queued reminder rebuilds with mixed targets", () => {
+    // Final-delivery refresh can turn one originally pending target into an
+    // outcome-only target while another thread still needs an answer.
+    const session = {
+      id: "leader",
+      messageHistory: [
+        coveredHumanMessage("u1", 10),
+        coveredHumanMessage("u2", 11, "q-42"),
+      ] as BrowserIncomingMessage[],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+      state: { leaderThreadStatuses: {} as Record<string, LeaderThreadStatus> },
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({
+      checked: true,
+      missing: ["main", "q-42"],
+      injected: true,
+    });
+    const guard = deps.injectUserMessage.mock.calls[0]?.[4]?.leaderThreadOutcomeReminderGuard;
+    const answer = assistantMessage({
+      id: "answer-u2",
+      text: "Answered u2.",
+      timestamp: 20,
+      threadKey: "q-42",
+    }) as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    answer.leaderThreadRole = "answer";
+    answer.leaderAnswerUserMessageIds = ["u2"];
+    answer.leaderAnswerObservedHistoryLength = 2;
+    session.messageHistory.push(answer);
+    expect(finalizeRoutedLeaderResponseMessage(session, answer)).toMatchObject({ finalized: true });
+
+    const refreshed = refreshLeaderThreadOutcomeReminder(session, guard!);
+    expect(refreshed?.route.threadKey).toBe("main");
+    expect(refreshed?.content).toContain("Pending answer IDs: Main (u1)");
+    expect(refreshed?.content).toContain("Also missing a normal Waiting/Ready/notification outcome for: q-42");
+    expect(refreshed?.content).toContain(
+      "For a thread with no pending direct-user answer that only needs an outcome marker",
+    );
+    expect(refreshed?.content).toContain("do not emit another `:A:<ids>` answer merely to carry that outcome");
+    expect(refreshed?.guard.pendingResponseTargets).toHaveLength(1);
+    expect(refreshed?.guard.pendingResponseTargets[0]?.threadKey).toBe("main");
+    expect(refreshed?.guard.missingOutcomeTargets).toEqual([expect.objectContaining({ threadKey: "q-42" })]);
   });
 
   it("treats an answered needs-input notification as proof the prompt notification was created", () => {

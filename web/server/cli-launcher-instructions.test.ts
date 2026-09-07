@@ -642,16 +642,21 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(leader).toContain("`[thread:main:C]`");
     expect(leader).toContain("`[thread:q-N:A:u1,u2]`");
     expect(leader).toContain(
-      "Commentary includes quest creation or refinement, approval, dispatch, Alignment, progress, recovery, verification, waiting, User Checkpoints, and asynchronous Memory work",
+      "Commentary includes quest creation or refinement, approval, dispatch, Alignment, progress, status, recovery, verification, bookkeeping, waiting, User Checkpoints, and asynchronous Memory work",
     );
     expect(leader).toContain("implementation is still owed");
     expect(leader).toContain("they are answers only when setup or dispatch itself fully satisfies the request");
     expect(leader).toContain("cannot satisfy answer coverage");
     expect(leader).toContain("Every direct human message delivered to a leader has an `id:uN` source-envelope field");
     expect(leader).toContain("Before emitting `:A:<ids>`, retrieve or reread every listed user message");
+    expect(leader).toContain(
+      "Prefer one self-contained explicit answer per user request or intentionally grouped request set",
+    );
     expect(leader).toContain("inspect every earlier visible valid answer");
     expect(leader).toContain("Apply `explain-clearly` for substantial answers");
     expect(leader).toContain("complementary addition, correction, or material completion");
+    expect(leader).toContain("Repeat IDs only when genuinely useful information requires");
+    expect(leader).toContain("collapsed presentation shows the complete answer set together");
     expect(leader).toContain("Answers may cover multiple consecutive IDs");
     expect(leader).toContain("becomes current coverage authority only for repeated IDs");
     expect(leader).toContain("every valid answer remains visible in source chronology");

@@ -23,6 +23,7 @@ import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helper
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../shared/thread-outcome-reminder.js";
+import { buildLeaderThreadResponseState } from "./leader-thread-response.js";
 import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
@@ -868,6 +869,145 @@ describe("CLI message routing", () => {
     ) as any;
     expect(reminder?.content).toContain("Pending answer IDs: Main (u1).");
     expect(reminder?.threadKey).toBe("main");
+  });
+
+  it("assistant: keeps a substantive answer current after commentary-only outcome bookkeeping", () => {
+    // Producer-shaped regression for the reported flow: a completed answer
+    // triggers an outcome-only reminder, then commentary carries the Ready marker.
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true })),
+    } as any);
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "Confirm whether the restarted process loaded my instructions.",
+      }),
+    );
+
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-substantive-answer",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [
+            {
+              type: "text",
+              text: "[thread:main:A:u1]\nYes. The restarted process loaded the complete instruction set, including the repository guidance.",
+            },
+          ],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 15, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        session_id: "s1",
+      }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: "",
+        is_error: false,
+        stop_reason: "end_turn",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+        session_id: "s1",
+      }),
+    );
+
+    const reminder = bridge
+      .getSession("s1")!
+      .messageHistory.find(
+        (entry: any) =>
+          entry.type === "user_message" && entry.agentSource?.sessionId === THREAD_OUTCOME_REMINDER_SOURCE_ID,
+      ) as any;
+    expect(reminder?.content).toContain(
+      "route any accompanying progress, status, recovery, verification, or bookkeeping prose as commentary",
+    );
+    expect(reminder?.content).toContain("do not emit another `:A:<ids>` answer merely to carry that outcome");
+
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-outcome-commentary",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [
+            {
+              type: "text",
+              text: "[thread:main:C]\nOutcome status recorded.\n\n{[(Thread Ready: main | substantive answer delivered)]}",
+            },
+          ],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 8, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        session_id: "s1",
+      }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: "",
+        is_error: false,
+        stop_reason: "end_turn",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+        session_id: "s1",
+      }),
+    );
+
+    const session = bridge.getSession("s1")!;
+    const substantive = session.messageHistory.find(
+      (entry: any) => entry.type === "assistant" && entry.message.id === "msg-substantive-answer",
+    ) as any;
+    const commentary = session.messageHistory.find(
+      (entry: any) => entry.type === "assistant" && entry.message.id === "msg-outcome-commentary",
+    ) as any;
+    expect(substantive).toMatchObject({
+      leaderThreadRole: "answer",
+      threadAnswer: { answerUserMessageIds: ["u1"] },
+    });
+    expect(commentary).toMatchObject({
+      leaderThreadRole: "commentary",
+      threadStatusMarkers: [expect.objectContaining({ kind: "ready", threadKey: "main" })],
+    });
+    expect(commentary.threadAnswer).toBeUndefined();
+    expect(buildLeaderThreadResponseState(session, "main").projection).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [
+        {
+          currentMessageId: "msg-substantive-answer",
+          answerUserMessageIds: ["u1"],
+          coveredAnswerUserMessageIds: ["u1"],
+        },
+      ],
+    });
+    expect(session.state.leaderThreadStatuses?.main).toMatchObject({
+      kind: "ready",
+      messageId: "msg-outcome-commentary",
+    });
+    expect(
+      session.messageHistory.filter(
+        (entry: any) =>
+          entry.type === "user_message" && entry.agentSource?.sessionId === THREAD_OUTCOME_REMINDER_SOURCE_ID,
+      ),
+    ).toHaveLength(1);
   });
 
   it("assistant: does not inject reminder after SDK leader interrupt (stop_reason=end_turn)", () => {
