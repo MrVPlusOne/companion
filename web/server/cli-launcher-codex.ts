@@ -20,6 +20,7 @@ import { join, resolve, relative, dirname, basename } from "node:path";
 import { homedir, hostname } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
 import { seedCodexResumeRollout } from "./codex-resume-rollout.js";
+import { codexComputerUseLaunchArgs } from "./codex-computer-use.js";
 import {
   NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS,
   stripInheritedTelemetryEnv,
@@ -1815,6 +1816,7 @@ export async function prepareCodexSpawn(
       args.push("-c", `model_reasoning_summary=${reasoningSummaryLaunchMode}`);
     }
     appendCodexContextLaunchArgs(args, leaderLaunchConfig);
+    args.push(...(await codexComputerUseLaunchArgs(resolvedConfigToml, info.cwd, options)));
     args.push("app-server");
     if (leaderLaunchConfig) {
       console.info(

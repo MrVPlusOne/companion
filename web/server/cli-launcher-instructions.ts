@@ -146,6 +146,14 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
       "Do not notify for routine progress or intermediate steps.",
   );
 
+  if (opts?.backend === "codex") {
+    parts.push(
+      "## Native Computer Use\n\n" +
+        "Native computer-use capability is available by default on supported Codex setups. Availability is not permission to access an app. Before first inspecting, capturing, or controlling each new app, name the app and intended use, request explicit approval from the human user through the existing `takode notify needs-input` workflow, and wait for that approval before accessing the app. If a leader coordinates your work, ask the leader to obtain the human user's approval; an agent's own authorization is not user approval.\n\n" +
+        "Earlier explicit human approval covers only the named app and granted actions. Reuse it within that scope; a new app or broader use requires fresh approval. Full Access, OS permissions, tool availability, and implementation or validation assignments do not bypass this requirement. Use the configured app-bundled Node REPL with the public `@oai/sky` API; if the native runtime or required permissions are unavailable, report the limitation instead of installing software or changing OS grants.",
+    );
+  }
+
   parts.push(
     "## Personal To-dos\n\n" +
       "`takode todo` manages the user's durable personal reminder list. It is separate from Questmaster quests (durable agent/project work managed through Questmaster) and from a model's ephemeral TodoWrite/task checklist. Use context rather than silently treating ambiguous generic ‘tasks’ or ‘todos’ as one system: explicit personal-list or `takode todo` requests belong here, while Questmaster/project work belongs in `quest`.\n\n" +

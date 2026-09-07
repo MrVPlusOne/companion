@@ -492,6 +492,48 @@ describe("getOrchestratorGuardrails", () => {
 });
 
 describe("buildInjectedSystemPromptForDebug", () => {
+  it.each([
+    ["leader", { isOrchestrator: true }],
+    ["worker", { worktree: { branch: "jiayi-worker", repoRoot: "/repo", parentBranch: "jiayi" } }],
+    ["ordinary session", {}],
+  ] as const)("requires human approval per app in the loaded Codex %s prompt", (_role, options) => {
+    // This uses the launch generator so backend or role composition cannot silently drop the approval rule.
+    const result = buildInjectedSystemPromptForDebug({ sessionNum: 7, backend: "codex", ...options });
+
+    expect(result.match(/## Native Computer Use/g)).toHaveLength(1);
+    expect(result).toContain("available by default on supported Codex setups");
+    expect(result).toContain("Availability is not permission to access an app");
+    expect(result).toContain("Before first inspecting, capturing, or controlling each new app");
+    expect(result).toContain("name the app and intended use");
+    expect(result).toContain("request explicit approval from the human user");
+    expect(result).toContain("through the existing `takode notify needs-input` workflow");
+    expect(result).toContain("wait for that approval before accessing the app");
+    expect(result).toContain("an agent's own authorization is not user approval");
+    expect(result).toContain("Earlier explicit human approval covers only the named app and granted actions");
+    expect(result).toContain("Reuse it within that scope; a new app or broader use requires fresh approval");
+    expect(result).toContain(
+      "Full Access, OS permissions, tool availability, and implementation or validation assignments do not bypass this requirement",
+    );
+    expect(result).toContain(
+      "Use the configured app-bundled Node REPL with the public `@oai/sky` API; if the native runtime or required permissions are unavailable, report the limitation instead of installing software or changing OS grants",
+    );
+  });
+
+  it.each([
+    ["leader", { isOrchestrator: true }],
+    ["worker", { worktree: { branch: "jiayi-worker", repoRoot: "/repo", parentBranch: "jiayi" } }],
+    ["ordinary session", {}],
+  ] as const)("excludes native computer-use instructions from the Claude %s prompt", (_role, options) => {
+    // Explicit Claude and the default backend both stay outside the Codex-only capability and policy.
+    for (const backend of ["claude", undefined] as const) {
+      const result = buildInjectedSystemPromptForDebug({ sessionNum: 7, backend, ...options });
+
+      expect(result).not.toContain("## Native Computer Use");
+      expect(result).not.toContain("Native computer-use capability");
+      expect(result).not.toContain("Before first inspecting, capturing, or controlling each new app");
+    }
+  });
+
   it("builds a full offline leader prompt without a live server", () => {
     const result = buildInjectedSystemPromptForDebug({
       sessionNum: 7,
