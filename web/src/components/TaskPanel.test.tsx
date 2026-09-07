@@ -14,6 +14,8 @@ const { mockApi } = vi.hoisted(() => ({
     getSessionUsageLimits: vi.fn().mockRejectedValue(new Error("skip")),
     getPRStatus: vi.fn().mockRejectedValue(new Error("skip")),
     getClaudeMdFiles: vi.fn().mockResolvedValue({ cwd: "/repo", files: [] }),
+    getSessionInfo: vi.fn().mockResolvedValue({ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1 }),
+    getSessionSystemPrompt: vi.fn().mockResolvedValue({ prompt: null }),
     getAutoApprovalConfigForPath: vi.fn().mockResolvedValue({ config: null }),
     getHerdDiagnostics: vi.fn().mockResolvedValue({
       herdDispatcher: { pendingEventCount: 0, eventHistory: [] },
@@ -191,12 +193,21 @@ vi.mock("../store.js", () => {
   };
 });
 
-import { TaskPanel, CodexRateLimitsSection, CodexTokenDetailsSection, ClaudeMdCollapsible } from "./TaskPanel.js";
+import {
+  TaskPanel,
+  CodexInstructionsCollapsible,
+  CodexRateLimitsSection,
+  CodexTokenDetailsSection,
+  ClaudeMdCollapsible,
+  SystemPromptCollapsible,
+} from "./TaskPanel.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   mockApi.getClaudeMdFiles.mockResolvedValue({ cwd: "/repo", files: [] });
+  mockApi.getSessionInfo.mockResolvedValue({ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1 });
+  mockApi.getSessionSystemPrompt.mockResolvedValue({ prompt: null });
   mockApi.getAutoApprovalConfigForPath.mockResolvedValue({ config: null });
   resetStore();
 });
@@ -276,8 +287,9 @@ describe("TaskPanel", () => {
     expect(mockApi.getSessionUsageLimits).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(mockApi.getPRStatus).toHaveBeenCalledWith("/projected/cwd", "projected-branch");
-      expect(mockApi.getClaudeMdFiles).toHaveBeenCalledWith("/projected/cwd");
-      expect(mockApi.getAutoApprovalConfigForPath).toHaveBeenCalledWith("/projected/cwd", "/projected/root");
+      expect(mockApi.getSessionInfo).toHaveBeenCalledWith("s1");
+      expect(mockApi.getClaudeMdFiles).not.toHaveBeenCalled();
+      expect(mockApi.getAutoApprovalConfigForPath).not.toHaveBeenCalled();
     });
   });
 
@@ -571,6 +583,209 @@ describe("TaskPanel", () => {
     expect(screen.getByText("Memory")).toBeInTheDocument();
     expect(screen.getByText("3/3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "#12" })).toBeInTheDocument();
+  });
+
+  it("shows the exact Codex-loaded instruction snapshot with global provenance", async () => {
+    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    mockApi.getSessionInfo.mockResolvedValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      codexInstructionSnapshot: {
+        threadId: "thread-123",
+        capturedAt: Date.UTC(2026, 8, 7, 12, 0, 0),
+        lifecycle: "thread_resume",
+        instructionSourcesReported: true,
+        developerInstructionsConfigured: true,
+        configLayers: [{ kind: "user", path: "/session-home/config.toml" }],
+        instructionSources: [
+          {
+            path: "/session-home/AGENTS.md",
+            kind: "global",
+            sourcePath: "/Users/me/.codex/AGENTS.md",
+            delivery: "copied_snapshot",
+          },
+          { path: "/repo/AGENTS.md", kind: "project", delivery: "direct" },
+        ],
+      },
+    });
+
+    render(<CodexInstructionsCollapsible sessionId="s1" />);
+
+    expect(await screen.findByText("/Users/me/.codex/AGENTS.md")).toBeInTheDocument();
+    expect(screen.getByText("Loaded snapshot:")).toBeInTheDocument();
+    expect(screen.getByText("/repo/AGENTS.md")).toBeInTheDocument();
+    expect(screen.getByText("Global")).toBeInTheDocument();
+    expect(screen.getByText("Repository")).toBeInTheDocument();
+    expect(screen.getByText(/Resumed thread thread-123/)).toBeInTheDocument();
+  });
+
+  it("refreshes the snapshot when the Codex launch identity changes without painting stale sources", async () => {
+    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    mockApi.getSessionInfo.mockResolvedValueOnce({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      codexInstructionSnapshot: {
+        threadId: "thread-old",
+        capturedAt: 1,
+        lifecycle: "thread_resume",
+        instructionSourcesReported: true,
+        developerInstructionsConfigured: true,
+        configLayers: [],
+        instructionSources: [{ path: "/repo/old/AGENTS.md", kind: "project", delivery: "direct" }],
+      },
+    });
+
+    const { rerender } = render(
+      <CodexInstructionsCollapsible sessionId="s1" refreshKey="pid-1:thread-old:connected" />,
+    );
+    expect(await screen.findByText("/repo/old/AGENTS.md")).toBeInTheDocument();
+
+    mockApi.getSessionInfo.mockResolvedValueOnce({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      codexInstructionSnapshot: {
+        threadId: "thread-old",
+        capturedAt: 2,
+        lifecycle: "thread_resume",
+        instructionSourcesReported: true,
+        developerInstructionsConfigured: true,
+        configLayers: [],
+        instructionSources: [{ path: "/repo/new/AGENTS.md", kind: "project", delivery: "direct" }],
+      },
+    });
+    rerender(<CodexInstructionsCollapsible sessionId="s1" refreshKey="pid-2:thread-old:connected" />);
+
+    expect(screen.queryByText("/repo/old/AGENTS.md")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(await screen.findByText("/repo/new/AGENTS.md")).toBeInTheDocument();
+    expect(mockApi.getSessionInfo).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders unknown instruction origins without calling them repository files", () => {
+    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    render(
+      <CodexInstructionsCollapsible
+        sessionId="s1"
+        fetchWhenMissing={false}
+        snapshot={{
+          threadId: "thread-unknown",
+          capturedAt: 1,
+          lifecycle: "thread_start",
+          instructionSourcesReported: true,
+          developerInstructionsConfigured: false,
+          configLayers: [],
+          instructionSources: [{ path: "/unclassified/AGENTS.md", kind: "unknown", delivery: "direct" }],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Other")).toBeInTheDocument();
+    expect(screen.queryByText("Repository")).not.toBeInTheDocument();
+  });
+
+  it("does not retry a failed instruction-detail request in a render loop", async () => {
+    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    mockApi.getSessionInfo.mockRejectedValue(new Error("unavailable"));
+
+    render(<CodexInstructionsCollapsible sessionId="s1" />);
+
+    expect(await screen.findByText("Could not load the instruction snapshot.")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(mockApi.getSessionInfo).toHaveBeenCalledOnce();
+  });
+
+  it("does not fetch Codex instruction details until the collapsed section is opened", async () => {
+    localStorage.setItem("cc-collapse-codex-instructions", "1");
+    render(<CodexInstructionsCollapsible sessionId="s1" />);
+    expect(mockApi.getSessionInfo).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Codex Instructions" }));
+    await waitFor(() => expect(mockApi.getSessionInfo).toHaveBeenCalledWith("s1"));
+  });
+
+  it("keeps TaskPanel developer instructions lazy until their separate section is opened", async () => {
+    render(
+      <SystemPromptCollapsible
+        sessionId="s1"
+        title="Developer Instructions"
+        collapseKey="test-codex-developer-instructions"
+        defaultCollapsed
+      />,
+    );
+
+    const sectionButton = screen.getByRole("button", { name: "Developer Instructions" });
+    expect(sectionButton).toHaveAttribute("type", "button");
+    expect(sectionButton).toHaveAttribute("aria-expanded", "false");
+    expect(mockApi.getSessionSystemPrompt).not.toHaveBeenCalled();
+    fireEvent.click(sectionButton);
+    await waitFor(() => expect(mockApi.getSessionSystemPrompt).toHaveBeenCalledWith("s1"));
+  });
+
+  it("distinguishes a developer-instruction load failure from an empty prompt", async () => {
+    mockApi.getSessionSystemPrompt.mockRejectedValue(new Error("unavailable"));
+    render(
+      <SystemPromptCollapsible
+        sessionId="s1"
+        title="Developer Instructions"
+        collapseKey="test-failed-developer-instructions"
+      />,
+    );
+
+    expect(await screen.findByText("Could not load the recorded instructions.")).toBeInTheDocument();
+    expect(screen.queryByText("No system prompt recorded")).not.toBeInTheDocument();
+  });
+
+  it("does not show one Codex session's developer instructions after switching sessions", async () => {
+    mockApi.getSessionSystemPrompt.mockResolvedValueOnce({ prompt: "session one private guidance" });
+    const { rerender } = render(
+      <SystemPromptCollapsible
+        sessionId="s1"
+        title="Developer Instructions"
+        rowLabel="Takode-generated instructions"
+        modalTitle="Developer Instructions"
+        collapseKey="test-session-isolated-developer-instructions"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Takode-generated instructions" }));
+    expect(screen.getByText("session one private guidance")).toBeInTheDocument();
+
+    mockApi.getSessionSystemPrompt.mockResolvedValueOnce({ prompt: "session two private guidance" });
+    rerender(
+      <SystemPromptCollapsible
+        sessionId="s2"
+        title="Developer Instructions"
+        rowLabel="Takode-generated instructions"
+        modalTitle="Developer Instructions"
+        collapseKey="test-session-isolated-developer-instructions"
+      />,
+    );
+
+    expect(screen.queryByText("session one private guidance")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Takode-generated instructions" }));
+    expect(screen.getByText("session two private guidance")).toBeInTheDocument();
+  });
+
+  it("keeps Claude files out of the Codex task panel", async () => {
+    localStorage.setItem("cc-collapse-codex-instructions", "1");
+    resetStore({
+      sessions: new Map([["s1", { backend_type: "codex", cwd: "/repo" }]]),
+      sdkSessions: [{ sessionId: "s1", backendType: "codex", cwd: "/repo" }],
+    });
+
+    render(<TaskPanel sessionId="s1" />);
+
+    expect(screen.getByRole("button", { name: "Codex Instructions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Developer Instructions" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "CLAUDE.md" })).not.toBeInTheDocument();
+    expect(mockApi.getClaudeMdFiles).not.toHaveBeenCalled();
   });
 
   it("shows Auto-Approval Rules in CLAUDE.md section when config exists", async () => {

@@ -111,6 +111,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Diff Viewer",
     "Session Creation Progress",
     "Session Creation View",
+    "Codex Instruction Sources",
     "CLAUDE.md Editor",
     "Cat Theme Elements",
     "Session Search",

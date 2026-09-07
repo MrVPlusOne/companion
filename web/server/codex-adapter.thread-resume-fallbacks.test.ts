@@ -132,6 +132,51 @@ describe("CodexAdapter", () => {
     });
   });
 
+  it("records the cached instruction sources returned by thread/resume", async () => {
+    const mock = createMockProcess();
+    const snapshots: Array<{ lifecycle?: string; instructionSources?: unknown[] }> = [];
+    const adapter = new CodexAdapter(mock.proc as never, "test-session", {
+      cwd: "/workspace",
+      threadId: "thr_existing_sources",
+      instructionContext: {
+        globalSources: [
+          {
+            loadedPath: "/session/AGENTS.override.md",
+            sourcePath: "/Users/me/.codex/AGENTS.override.md",
+            delivery: "copied_snapshot",
+          },
+        ],
+        configLayers: [{ kind: "user", path: "/session/config.toml" }],
+      },
+    });
+    adapter.onSessionMeta((meta) => {
+      if (meta.instructionSnapshot) snapshots.push(meta.instructionSnapshot);
+    });
+
+    await tick();
+    mock.stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    mock.stdout.push(
+      JSON.stringify({
+        id: 2,
+        result: {
+          thread: { id: "thr_existing_sources", status: { type: "idle" }, turns: [] },
+          instructionSources: ["/session/AGENTS.override.md", "/workspace/AGENTS.md"],
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({
+      lifecycle: "thread_resume",
+      instructionSources: [
+        { kind: "global", sourcePath: "/Users/me/.codex/AGENTS.override.md" },
+        { kind: "project", path: "/workspace/AGENTS.md" },
+      ],
+    });
+  });
+
   it("configures developer instructions before resuming a thread", async () => {
     // Regression: relaunched leader sessions resume an existing thread, so they
     // need the same guardrails configured before thread/resume.

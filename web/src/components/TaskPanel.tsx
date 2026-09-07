@@ -62,6 +62,8 @@ export function SectionHeader({
   return (
     <div className="shrink-0 px-4 py-2.5 border-b border-cc-border flex items-center justify-between">
       <button
+        type="button"
+        aria-expanded={!collapsed}
         onClick={onToggle}
         className="flex items-center gap-1.5 text-[12px] font-semibold text-cc-fg cursor-pointer select-none hover:text-cc-primary transition-colors"
       >
@@ -643,28 +645,217 @@ export function ClaudeMdCollapsible({ cwd, repoRoot }: { cwd: string; repoRoot?:
   );
 }
 
+function codexConfigLayerLabel(
+  layer: NonNullable<SdkSessionInfo["codexInstructionSnapshot"]>["configLayers"][number],
+): string {
+  if (layer.label) return layer.label;
+  if (layer.kind === "user") return layer.profile ? `Session config · profile ${layer.profile}` : "Session config";
+  if (layer.kind === "project") return "Project config";
+  if (layer.kind === "system") return "System config";
+  if (layer.kind === "managed") return "Managed config";
+  if (layer.kind === "legacy_managed") return "Legacy managed config";
+  return "Config source";
+}
+
+function codexInstructionSourceLabel(kind: "global" | "project" | "unknown"): string {
+  if (kind === "global") return "Global";
+  if (kind === "project") return "Repository";
+  return "Other";
+}
+
+interface CodexInstructionFetchState {
+  key: string;
+  status: "loading" | "loaded" | "failed";
+  snapshot?: SdkSessionInfo["codexInstructionSnapshot"];
+}
+
+export function CodexInstructionsCollapsible({
+  sessionId,
+  snapshot,
+  fetchWhenMissing = true,
+  refreshKey = "",
+  snapshotLoading = false,
+  snapshotFailed = false,
+}: {
+  sessionId: string;
+  snapshot?: SdkSessionInfo["codexInstructionSnapshot"];
+  fetchWhenMissing?: boolean;
+  refreshKey?: string;
+  snapshotLoading?: boolean;
+  snapshotFailed?: boolean;
+}) {
+  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-codex-instructions");
+  const detailKey = `${sessionId}\u0000${refreshKey}`;
+  const [fetchState, setFetchState] = useState<CodexInstructionFetchState | null>(null);
+  const currentFetchState = fetchState?.key === detailKey ? fetchState : null;
+  const resolvedSnapshot = snapshot ?? currentFetchState?.snapshot;
+  const awaitingInitialFetch = !collapsed && fetchWhenMissing && snapshot === undefined && !currentFetchState;
+  const loading = snapshotLoading || currentFetchState?.status === "loading" || awaitingInitialFetch;
+  const failed = snapshotFailed || currentFetchState?.status === "failed";
+
+  useEffect(() => {
+    if (collapsed || !fetchWhenMissing || snapshot !== undefined) return;
+    let cancelled = false;
+    setFetchState({ key: detailKey, status: "loading" });
+    api
+      .getSessionInfo(sessionId)
+      .then((detail) => {
+        if (!cancelled) {
+          setFetchState({ key: detailKey, status: "loaded", snapshot: detail.codexInstructionSnapshot });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFetchState({ key: detailKey, status: "failed" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [collapsed, detailKey, fetchWhenMissing, sessionId, snapshot]);
+
+  const sources = resolvedSnapshot?.instructionSources ?? [];
+  const configLayers = resolvedSnapshot?.configLayers ?? [];
+  return (
+    <>
+      <SectionHeader title="Codex Instructions" collapsed={collapsed} onToggle={toggle} />
+      {!collapsed && (
+        <div className="space-y-3 px-3 py-2" data-testid="codex-instruction-sources">
+          {loading ? (
+            <div className="px-2 text-[11px] text-cc-muted">Loading…</div>
+          ) : failed ? (
+            <div className="px-2 text-[11px] text-cc-error">Could not load the instruction snapshot.</div>
+          ) : !resolvedSnapshot ? (
+            <div className="px-2 text-[11px] leading-snug text-cc-muted">
+              No captured instruction snapshot for this Codex thread. A fresh start or relaunch records one.
+            </div>
+          ) : (
+            <>
+              {configLayers.length > 0 && (
+                <div className="space-y-1">
+                  <div className="px-2 text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">
+                    Takode launch configuration
+                  </div>
+                  <div className="px-2 text-[10px] leading-snug text-cc-muted/75">
+                    Launcher-known, path-only provenance; not an exhaustive Codex config dump.
+                  </div>
+                  {configLayers.map((layer, index) => (
+                    <div
+                      key={`${layer.kind}-${layer.path ?? layer.label ?? index}`}
+                      className="rounded-md px-2 py-1.5 text-[11px]"
+                    >
+                      <div className="font-medium text-cc-fg/90">{codexConfigLayerLabel(layer)}</div>
+                      {layer.path && <div className="mt-0.5 break-all font-mono-code text-cc-muted">{layer.path}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-1">
+                <div className="px-2 text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">
+                  Loaded instruction files
+                </div>
+                {!resolvedSnapshot.instructionSourcesReported ? (
+                  <div className="px-2 text-[11px] text-cc-muted">
+                    This Codex version did not report loaded sources.
+                  </div>
+                ) : sources.length === 0 ? (
+                  <div className="px-2 text-[11px] text-cc-muted">No AGENTS instruction files were loaded.</div>
+                ) : (
+                  sources.map((source, index) => {
+                    const displayPath = source.sourcePath ?? source.path;
+                    const sourceLabel = codexInstructionSourceLabel(source.kind);
+                    return (
+                      <div key={`${source.path}-${index}`} className="min-w-0 rounded-md bg-cc-hover/25 px-2 py-1.5">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                              source.kind === "global"
+                                ? "bg-blue-500/10 text-blue-400"
+                                : source.kind === "project"
+                                  ? "bg-cc-primary/10 text-cc-primary"
+                                  : "bg-cc-hover text-cc-muted"
+                            }`}
+                          >
+                            {sourceLabel}
+                          </span>
+                          <span className="truncate font-mono-code text-[11px] text-cc-fg/90">
+                            {displayPath.split(/[\\/]/).pop()}
+                          </span>
+                        </div>
+                        <div className="mt-1 break-all font-mono-code text-[10px] leading-relaxed text-cc-muted">
+                          {displayPath}
+                        </div>
+                        {source.sourcePath && source.path !== source.sourcePath && (
+                          <div className="mt-1 break-all text-[10px] leading-relaxed text-cc-muted/75">
+                            Loaded snapshot: <span className="font-mono-code">{source.path}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="border-t border-cc-border/40 px-2 pt-2 text-[10px] leading-snug text-cc-muted/80">
+                {resolvedSnapshot.lifecycle === "thread_resume" ? "Resumed" : "Started"} thread{" "}
+                {resolvedSnapshot.threadId}
+                {` · captured ${new Date(resolvedSnapshot.capturedAt).toLocaleString()}`}. The loaded-file list is
+                Codex’s thread snapshot, not a live filesystem scan. Global copies refresh when Takode launches or
+                relaunches the Codex process.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Section showing the Companion-injected system prompt for a session.
  *  Renders as a clickable row that opens a read-only modal (same UX as Claude.md files). */
-export function SystemPromptCollapsible({ sessionId }: { sessionId: string }) {
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-sysprompt");
-  const [prompt, setPrompt] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+interface SystemPromptFetchState {
+  sessionId: string;
+  status: "loading" | "loaded" | "failed";
+  prompt: string | null;
+}
+
+export function SystemPromptCollapsible({
+  sessionId,
+  title = "System Prompt",
+  rowLabel = "Injected system prompt",
+  modalTitle = "System Prompt",
+  modalDescription = "Companion-injected instructions (read-only)",
+  emptyLabel = "No system prompt recorded",
+  collapseKey = "cc-collapse-sysprompt",
+  defaultCollapsed = false,
+}: {
+  sessionId: string;
+  title?: string;
+  rowLabel?: string;
+  modalTitle?: string;
+  modalDescription?: string;
+  emptyLabel?: string;
+  collapseKey?: string;
+  defaultCollapsed?: boolean;
+}) {
+  const [collapsed, toggle] = usePersistedCollapse(collapseKey, defaultCollapsed);
+  const [fetchState, setFetchState] = useState<SystemPromptFetchState | null>(null);
+  const [modalSessionId, setModalSessionId] = useState<string | null>(null);
+  const currentFetchState = fetchState?.sessionId === sessionId ? fetchState : null;
+  const loading = !collapsed && (!currentFetchState || currentFetchState.status === "loading");
+  const failed = currentFetchState?.status === "failed";
+  const prompt = currentFetchState?.prompt ?? null;
+  const modalOpen = modalSessionId === sessionId;
 
   useEffect(() => {
     if (collapsed) return;
     let cancelled = false;
-    setLoading(true);
+    setFetchState({ sessionId, status: "loading", prompt: null });
+    setModalSessionId(null);
     api
       .getSessionSystemPrompt(sessionId)
       .then((res) => {
-        if (!cancelled) setPrompt(res.prompt);
+        if (!cancelled) setFetchState({ sessionId, status: "loaded", prompt: res.prompt });
       })
       .catch(() => {
-        if (!cancelled) setPrompt(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setFetchState({ sessionId, status: "failed", prompt: null });
       });
     return () => {
       cancelled = true;
@@ -673,33 +864,52 @@ export function SystemPromptCollapsible({ sessionId }: { sessionId: string }) {
 
   return (
     <>
-      <SectionHeader title="System Prompt" collapsed={collapsed} onToggle={toggle} />
+      <SectionHeader title={title} collapsed={collapsed} onToggle={toggle} />
       {!collapsed && (
         <div className="px-3 py-2 space-y-1">
           {loading ? (
             <span className="text-[11px] text-cc-muted">Loading…</span>
+          ) : failed ? (
+            <span className="text-[11px] text-cc-error">Could not load the recorded instructions.</span>
           ) : prompt ? (
             <button
-              onClick={() => setModalOpen(true)}
+              onClick={() => setModalSessionId(sessionId)}
               className="flex items-center gap-2 w-full px-2 py-1.5 text-[11px] text-cc-fg/80 hover:bg-cc-hover rounded-md transition-colors cursor-pointer"
             >
               <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-muted shrink-0">
                 <path d="M4 1.5a.5.5 0 01.5-.5h7a.5.5 0 01.354.146l2 2A.5.5 0 0114 3.5v11a.5.5 0 01-.5.5h-11a.5.5 0 01-.5-.5v-13z" />
               </svg>
-              <span className="truncate font-mono-code">Injected system prompt</span>
+              <span className="truncate font-mono-code">{rowLabel}</span>
             </button>
           ) : (
-            <span className="text-[11px] text-cc-muted italic px-2">No system prompt recorded</span>
+            <span className="text-[11px] text-cc-muted italic px-2">{emptyLabel}</span>
           )}
         </div>
       )}
-      {modalOpen && prompt && <SystemPromptModal prompt={prompt} onClose={() => setModalOpen(false)} />}
+      {modalOpen && prompt && (
+        <SystemPromptModal
+          prompt={prompt}
+          title={modalTitle}
+          description={modalDescription}
+          onClose={() => setModalSessionId(null)}
+        />
+      )}
     </>
   );
 }
 
 /** Full-screen read-only modal for viewing the injected system prompt. */
-function SystemPromptModal({ prompt, onClose }: { prompt: string; onClose: () => void }) {
+function SystemPromptModal({
+  prompt,
+  title,
+  description,
+  onClose,
+}: {
+  prompt: string;
+  title: string;
+  description: string;
+  onClose: () => void;
+}) {
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -729,8 +939,8 @@ function SystemPromptModal({ prompt, onClose }: { prompt: string; onClose: () =>
               </svg>
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-cc-fg">System Prompt</h2>
-              <p className="text-[11px] text-cc-muted">Companion-injected instructions (read-only)</p>
+              <h2 className="text-sm font-semibold text-cc-fg">{title}</h2>
+              <p className="text-[11px] text-cc-muted">{description}</p>
             </div>
           </div>
           <button
@@ -1087,7 +1297,17 @@ export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
 }
 
 export function TaskPanel({ sessionId }: { sessionId: string }) {
-  const { tasks, taskPanelOpen, setTaskPanelOpen, backendType, cwd, repoRoot, isLeaderSession, hasSession } = useStore(
+  const {
+    tasks,
+    taskPanelOpen,
+    setTaskPanelOpen,
+    backendType,
+    cwd,
+    repoRoot,
+    isLeaderSession,
+    codexInstructionRefreshKey,
+    hasSession,
+  } = useStore(
     useShallow((s) => {
       const session = s.sessions.get(sessionId);
       const resolved = resolveSessionNavigation(s, sessionId);
@@ -1099,6 +1319,9 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
         cwd: resolved?.viewModel.cwd ?? null,
         repoRoot: resolved?.viewModel.repoRoot,
         isLeaderSession: resolved?.sidebarItem.isOrchestrator === true,
+        codexInstructionRefreshKey: resolved
+          ? `${resolved.viewModel.pid ?? ""}:${resolved.viewModel.cliSessionId ?? ""}:${resolved.viewModel.cliConnected === true ? "connected" : "disconnected"}`
+          : "",
         hasSession: !!session,
       };
     }),
@@ -1138,8 +1361,24 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
         {/* MCP servers */}
         <McpCollapsible sessionId={sessionId} />
 
-        {/* CLAUDE.md files */}
-        {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={repoRoot} />}
+        {/* Backend-specific instruction sources */}
+        {isCodex ? (
+          <>
+            <CodexInstructionsCollapsible sessionId={sessionId} refreshKey={codexInstructionRefreshKey} />
+            <SystemPromptCollapsible
+              sessionId={sessionId}
+              title="Developer Instructions"
+              rowLabel="Takode-generated instructions"
+              modalTitle="Developer Instructions"
+              modalDescription="Takode session-scoped developer instructions (read-only)"
+              emptyLabel="No developer instructions recorded"
+              collapseKey="cc-collapse-taskpanel-codex-developer-instructions"
+              defaultCollapsed
+            />
+          </>
+        ) : (
+          cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={repoRoot} />
+        )}
 
         {/* Session-level tasks recognized by the auto-namer */}
         {showTasks && <SessionTasksSection sessionId={sessionId} />}

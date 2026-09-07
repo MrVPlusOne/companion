@@ -26,7 +26,8 @@ import {
   type SessionState,
   type CLIResultMessage,
 } from "./session-types.js";
-import type { CodexAdapterOptions, CodexSessionMeta } from "./codex-adapter-types.js";
+import type { CodexAdapterOptions, CodexInstructionSnapshot, CodexSessionMeta } from "./codex-adapter-types.js";
+import { buildCodexInstructionSnapshot } from "./codex-instruction-snapshot.js";
 import {
   buildCodexResumeSnapshot,
   buildCodexCollabMode,
@@ -98,6 +99,10 @@ import type {
   TurnStartFailureInfo,
 } from "./bridge/adapter-interface.js";
 import { classifyCodexTurnSteerFailure } from "./codex-steer-failure.js";
+import {
+  configureCodexDeveloperInstructions,
+  handleCodexTurnStartDispatchFailure,
+} from "./codex-adapter-initialization.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 import {
@@ -952,6 +957,8 @@ export class CodexAdapter
     try {
       let resumeSnapshot: CodexResumeSnapshot | null = null;
       let runtimeReasoningEffort = UNREPORTED_CODEX_REASONING_EFFORT;
+      let threadLifecycle: CodexInstructionSnapshot["lifecycle"] = "thread_start";
+      let threadInstructionSources: unknown;
       // Step 1: Send initialize request
       const result = (await this.transport.call("initialize", {
         clientInfo: {
@@ -969,7 +976,7 @@ export class CodexAdapter
 
       this.initialized = true;
 
-      await this.configureDeveloperInstructions();
+      await configureCodexDeveloperInstructions(this.transport, this.options.instructions);
 
       // Step 3: Start or resume a thread
       if (this.options.threadId) {
@@ -978,8 +985,10 @@ export class CodexAdapter
           const resumeResult = (await this.transport.call(
             "thread/resume",
             this.buildThreadParams({ threadId: this.options.threadId }),
-          )) as { thread: Record<string, unknown> & { id: string } };
+          )) as { thread: Record<string, unknown> & { id: string }; instructionSources?: unknown };
           this.threadId = resumeResult.thread.id;
+          threadLifecycle = "thread_resume";
+          threadInstructionSources = resumeResult.instructionSources;
           runtimeReasoningEffort = readCodexReasoningEffortReport(resumeResult);
           resumeSnapshot = buildCodexResumeSnapshot(resumeResult.thread);
           assertRequiredCodexResumeThread(this.threadId, this.options.requireResumeThreadId);
@@ -999,28 +1008,42 @@ export class CodexAdapter
           );
           const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
             thread: { id: string };
+            instructionSources?: unknown;
           };
           this.threadId = threadResult.thread.id;
+          threadLifecycle = "thread_start";
+          threadInstructionSources = threadResult.instructionSources;
           runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
         }
       } else {
         // Start a new thread
         const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
           thread: { id: string };
+          instructionSources?: unknown;
         };
         this.threadId = threadResult.thread.id;
+        threadInstructionSources = threadResult.instructionSources;
         runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
       }
 
       this.connected = true;
       this.nativeSubagents.setRootProviderThreadId(this.threadId);
 
-      // Notify session metadata
+      // Notify session metadata. Codex's thread response is the authority for
+      // which AGENTS.md files actually entered this thread's instruction chain.
       this.sessionMetaCb?.({
         cliSessionId: this.threadId,
         model: this.options.model,
         cwd: this.options.cwd,
         resumeSnapshot,
+        instructionSnapshot: buildCodexInstructionSnapshot({
+          threadId: this.threadId,
+          capturedAt: Date.now(),
+          lifecycle: threadLifecycle,
+          instructionSources: threadInstructionSources,
+          instructionContext: this.options.instructionContext,
+          developerInstructionsConfigured: Boolean(this.options.instructions?.trim()),
+        }),
       });
 
       // Send session_init to browser
@@ -1147,7 +1170,7 @@ export class CodexAdapter
         return;
       } catch (err) {
         this.itemEventManager.clearNextCompactionCause("manual");
-        const requeued = this.handleTurnStartDispatchFailure(msg, err);
+        const requeued = handleCodexTurnStartDispatchFailure(this.turnStartFailedCb, msg, err);
         if (requeued && isCodexTransportClosedError(err)) {
           console.warn(
             `[codex-adapter] thread/compact/start transport closed; message re-queued for session ${this.sessionId}`,
@@ -1237,7 +1260,7 @@ export class CodexAdapter
             this.handleTurnStartAcknowledged(serviceTierRetry, null);
             return;
           }
-          const requeued = this.handleTurnStartDispatchFailure(msg, retryErr);
+          const requeued = handleCodexTurnStartDispatchFailure(this.turnStartFailedCb, msg, retryErr);
           if (requeued && isRecoverableCodexTurnStartError(retryErr)) {
             console.warn(
               `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${retryErr}`,
@@ -1254,7 +1277,7 @@ export class CodexAdapter
         this.handleTurnStartAcknowledged(serviceTierRetry, null);
         return;
       }
-      const requeued = this.handleTurnStartDispatchFailure(msg, err);
+      const requeued = handleCodexTurnStartDispatchFailure(this.turnStartFailedCb, msg, err);
       if (requeued && isRecoverableCodexTurnStartError(err)) {
         console.warn(
           `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${err}`,
@@ -1317,7 +1340,7 @@ export class CodexAdapter
             this.handleTurnStartAcknowledged(serviceTierRetry, clientUserMessageId);
             return;
           }
-          const requeued = this.handleTurnStartDispatchFailure(msg, retryErr);
+          const requeued = handleCodexTurnStartDispatchFailure(this.turnStartFailedCb, msg, retryErr);
           if (requeued && isRecoverableCodexTurnStartError(retryErr)) return;
           this.emit({ type: "error", message: `Failed to start pending Codex batch: ${retryErr}` });
           return;
@@ -1328,7 +1351,7 @@ export class CodexAdapter
         this.handleTurnStartAcknowledged(serviceTierRetry, clientUserMessageId);
         return;
       }
-      const requeued = this.handleTurnStartDispatchFailure(msg, err);
+      const requeued = handleCodexTurnStartDispatchFailure(this.turnStartFailedCb, msg, err);
       if (requeued && isRecoverableCodexTurnStartError(err)) return;
       this.emit({ type: "error", message: `Failed to start pending Codex batch: ${err}` });
     }
@@ -1967,32 +1990,5 @@ export class CodexAdapter
       );
       return null;
     }
-  }
-
-  private async configureDeveloperInstructions(): Promise<void> {
-    const instructions = this.options.instructions;
-    if (!instructions?.trim()) return;
-
-    // CliLauncher runs Codex with a per-session CODEX_HOME, so this config
-    // write scopes guardrails to the Takode session rather than global Codex.
-    await this.transport.call("config/value/write", {
-      keyPath: "developer_instructions",
-      value: instructions,
-      mergeStrategy: "replace",
-    });
-  }
-
-  private handleTurnStartDispatchFailure(msg: BrowserOutgoingMessage, err: unknown): boolean {
-    if (!this.turnStartFailedCb) return false;
-    const recoverable = isRecoverableCodexTurnStartError(err);
-    if (recoverable) {
-      this.turnStartFailedCb(msg);
-    } else {
-      this.turnStartFailedCb(msg, {
-        recoverable,
-        message: String(err),
-      });
-    }
-    return true;
   }
 }

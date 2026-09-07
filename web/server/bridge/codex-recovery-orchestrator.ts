@@ -304,7 +304,11 @@ export interface CodexRecoveryOrchestratorDeps {
 export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestratorDeps {
   clearOptimisticRunningTimer?: (session: CodexRecoveryOrchestratorSessionLike, reason: string) => void;
   clearCodexDisconnectGraceTimer: (session: CodexRecoveryOrchestratorSessionLike, reason: string) => void;
-  setCliSessionIdFromMeta: (sessionId: string, cliSessionId: string) => void;
+  setCliSessionIdFromMeta: (
+    sessionId: string,
+    cliSessionId: string,
+    instructionSnapshot?: import("../codex-adapter-types.js").CodexInstructionSnapshot,
+  ) => void;
   beforeSessionMetaDispatch: (sessionId: string, cliSessionId: string) => boolean | Promise<boolean>;
   completeCodexLeaderRecycle: (sessionId: string) => void;
   hydrateCodexResumedHistory: (session: CodexRecoveryOrchestratorSessionLike, snapshot: unknown) => number;
@@ -1113,7 +1117,11 @@ export function registerCodexAdapterRecoveryLifecycle(
         );
       }
       if (meta.cliSessionId) {
-        deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId);
+        if (meta.instructionSnapshot) {
+          deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId, meta.instructionSnapshot);
+        } else {
+          deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId);
+        }
       }
       (session as any).relaunchPending = false;
       if (session.state.backend_reconnect) {

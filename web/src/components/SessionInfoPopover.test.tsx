@@ -101,6 +101,8 @@ interface MockStoreState {
   sdkSessions: Array<{
     sessionId: string;
     state?: "starting" | "connected" | "running" | "exited";
+    pid?: number;
+    cliSessionId?: string;
     cwd?: string;
     createdAt?: number;
     model?: string;
@@ -279,9 +281,30 @@ vi.mock("./TaskPanel.js", async () => {
   return {
     GitHubPRSection: () => null,
     McpCollapsible: () => null,
-    ClaudeMdCollapsible: () => null,
+    ClaudeMdCollapsible: () => <div data-testid="claude-md-section" />,
+    CodexInstructionsCollapsible: ({
+      snapshot,
+      snapshotLoading,
+      snapshotFailed,
+      refreshKey,
+    }: {
+      snapshot?: { threadId?: string };
+      snapshotLoading?: boolean;
+      snapshotFailed?: boolean;
+      refreshKey?: string;
+    }) => (
+      <div
+        data-testid="codex-instructions-section"
+        data-thread-id={snapshot?.threadId ?? ""}
+        data-loading={snapshotLoading ? "true" : "false"}
+        data-failed={snapshotFailed ? "true" : "false"}
+        data-refresh-key={refreshKey ?? ""}
+      />
+    ),
     HerdDiagnosticsSection: () => null,
-    SystemPromptCollapsible: () => null,
+    SystemPromptCollapsible: ({ title = "System Prompt" }: { title?: string }) => (
+      <div data-testid="system-prompt-section">{title}</div>
+    ),
     SectionHeader: ({ title, collapsed, onToggle }: { title: string; collapsed: boolean; onToggle: () => void }) => (
       <button type="button" aria-expanded={!collapsed} onClick={onToggle}>
         {title}
@@ -384,6 +407,87 @@ describe("SessionInfoPopover", () => {
 
     fireEvent.click(screen.getByTestId("session-info-configure-session"));
     expect(onConfigure).toHaveBeenCalledWith("s1");
+  });
+
+  it("renders Codex instruction sources instead of Claude files", async () => {
+    resetStore([]);
+    vi.mocked(api.getSessionInfo).mockResolvedValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "codex",
+      codexInstructionSnapshot: {
+        threadId: "thread-snapshot",
+        capturedAt: 1,
+        lifecycle: "thread_start",
+        instructionSourcesReported: true,
+        instructionSources: [],
+        configLayers: [],
+        developerInstructionsConfigured: true,
+      },
+    });
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(await screen.findByTestId("codex-instructions-section")).toHaveAttribute(
+      "data-thread-id",
+      "thread-snapshot",
+    );
+    expect(screen.queryByTestId("claude-md-section")).not.toBeInTheDocument();
+    expect(screen.getByTestId("system-prompt-section")).toHaveTextContent("Developer Instructions");
+  });
+
+  it("shows instruction details as loading until the selected-session snapshot resolves", async () => {
+    resetStore([]);
+    let resolveDetail: ((detail: Awaited<ReturnType<typeof api.getSessionInfo>>) => void) | undefined;
+    vi.mocked(api.getSessionInfo).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByTestId("codex-instructions-section")).toHaveAttribute("data-loading", "true");
+    expect(screen.getByTestId("codex-instructions-section")).toHaveAttribute("data-thread-id", "");
+
+    resolveDetail?.({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "codex",
+      codexInstructionSnapshot: {
+        threadId: "thread-loaded",
+        capturedAt: 1,
+        lifecycle: "thread_start",
+        instructionSourcesReported: true,
+        instructionSources: [],
+        configLayers: [],
+        developerInstructionsConfigured: true,
+      },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("codex-instructions-section")).toHaveAttribute("data-thread-id", "thread-loaded"),
+    );
+    expect(screen.getByTestId("codex-instructions-section")).toHaveAttribute("data-loading", "false");
+  });
+
+  it("preserves the Claude instruction presentation", () => {
+    resetStore([]);
+    storeState.sessions.set("s1", { backend_type: "claude", cwd: "/repo" });
+    storeState.sdkSessions = [
+      { sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1, backendType: "claude" },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByTestId("claude-md-section")).toBeInTheDocument();
+    expect(screen.getByTestId("system-prompt-section")).toHaveTextContent("System Prompt");
+    expect(screen.queryByTestId("codex-instructions-section")).not.toBeInTheDocument();
   });
 
   it("does not render Codex Goal controls while preserving unrelated session details", () => {

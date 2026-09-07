@@ -628,6 +628,43 @@ describe("GET /api/sessions/:id", () => {
     expect(json.sessionLifecycleEvents[0]).not.toHaveProperty("contextWindowDiagnostics");
   });
 
+  it("includes the Codex instruction snapshot only when explicitly requested", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/test",
+      codexInstructionSnapshot: {
+        threadId: "thread-1",
+        capturedAt: 2,
+        lifecycle: "thread_start",
+        instructionSourcesReported: true,
+        instructionSources: [
+          {
+            path: "/session/AGENTS.md",
+            sourcePath: "/Users/me/.codex/AGENTS.md",
+            kind: "global",
+            delivery: "copied_snapshot",
+          },
+        ],
+        configLayers: [{ kind: "user", path: "/session/config.toml" }],
+        developerInstructionsConfigured: true,
+      },
+    } as any);
+
+    const defaultResponse = await app.request("/api/sessions/s1", { method: "GET" });
+    expect(await defaultResponse.json()).not.toHaveProperty("codexInstructionSnapshot");
+
+    const selectedResponse = await app.request("/api/sessions/s1?includeCodexInstructionSnapshot=true", {
+      method: "GET",
+    });
+    expect(await selectedResponse.json()).toMatchObject({
+      codexInstructionSnapshot: {
+        threadId: "thread-1",
+        instructionSources: [{ sourcePath: "/Users/me/.codex/AGENTS.md" }],
+      },
+    });
+  });
+
   it("includes only the bounded Codex context diagnostics when explicitly requested", async () => {
     launcher.getSession.mockReturnValue({
       sessionId: "s1",

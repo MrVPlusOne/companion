@@ -1201,6 +1201,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return c.json(
       buildBrowserSessionDetail(session, bridgeSession?.state, {
         includeCodexContextWindowDiagnostics: c.req.query("includeCodexContextWindowDiagnostics") === "true",
+        includeCodexInstructionSnapshot: c.req.query("includeCodexInstructionSnapshot") === "true",
         isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
       }),
     );

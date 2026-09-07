@@ -426,7 +426,13 @@ export class WsBridge {
     | "forceFlushPendingEvents"
   > | null = null;
   perfTracer: PerfTracer | null = null;
-  onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
+  onCLISessionId:
+    | ((
+        sessionId: string,
+        cliSessionId: string,
+        instructionSnapshot?: import("./codex-adapter-types.js").CodexInstructionSnapshot,
+      ) => void)
+    | null = null;
   onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
   onSessionRelaunchRequested: ((sessionId: string) => void) | null = null;

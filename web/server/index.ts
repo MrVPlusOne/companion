@@ -434,8 +434,8 @@ const codexWorkerV2RolloutService = new CodexWorkerV2RolloutService({
 });
 
 // When the CLI reports its internal session_id, store it for --resume on relaunch.
-wsBridge.onCLISessionId = (sessionId, cliSessionId) => {
-  launcher.setCLISessionId(sessionId, cliSessionId);
+wsBridge.onCLISessionId = (sessionId, cliSessionId, instructionSnapshot) => {
+  launcher.setCLISessionId(sessionId, cliSessionId, instructionSnapshot);
 };
 
 // When a Codex adapter is created, attach it to the WsBridge

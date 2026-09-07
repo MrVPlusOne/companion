@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CodexAdapter } from "./codex-adapter.js";
+import { CodexAdapter, type CodexSessionMeta } from "./codex-adapter.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, SessionState } from "./session-types.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 
@@ -435,21 +435,61 @@ describe("CodexAdapter", () => {
     expect(resultMsg).toBeDefined();
   });
 
-  it("calls onSessionMeta with thread ID after initialization", async () => {
-    const metaCalls: Array<{ cliSessionId?: string; model?: string }> = [];
-    const adapter = new CodexAdapter(proc as never, "test-session", { model: "gpt-5.4", cwd: "/project" });
+  it("captures Codex-reported instruction sources with the thread metadata", async () => {
+    const metaCalls: CodexSessionMeta[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.4",
+      cwd: "/project",
+      instructions: "Takode guardrails",
+      instructionContext: {
+        globalSources: [
+          {
+            loadedPath: "/session-home/AGENTS.md",
+            sourcePath: "/Users/me/.codex/AGENTS.md",
+            delivery: "copied_snapshot",
+          },
+        ],
+        configLayers: [{ kind: "user", path: "/session-home/config.toml" }],
+      },
+    });
     adapter.onSessionMeta((meta) => metaCalls.push(meta));
 
     await tick();
-
     stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
     await tick();
-    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_456" } } }) + "\n");
+    stdout.push(JSON.stringify({ id: 2, result: {} }) + "\n");
+    await tick();
+    stdout.push(
+      JSON.stringify({
+        id: 3,
+        result: {
+          thread: { id: "thr_456" },
+          instructionSources: ["/session-home/AGENTS.md", "/project/AGENTS.md"],
+        },
+      }) + "\n",
+    );
     await tick();
 
-    expect(metaCalls.length).toBe(1);
-    expect(metaCalls[0].cliSessionId).toBe("thr_456");
-    expect(metaCalls[0].model).toBe("gpt-5.4");
+    expect(metaCalls).toHaveLength(1);
+    expect(metaCalls[0]).toMatchObject({
+      cliSessionId: "thr_456",
+      model: "gpt-5.4",
+      instructionSnapshot: {
+        threadId: "thr_456",
+        lifecycle: "thread_start",
+        instructionSourcesReported: true,
+        developerInstructionsConfigured: true,
+        instructionSources: [
+          {
+            path: "/session-home/AGENTS.md",
+            kind: "global",
+            sourcePath: "/Users/me/.codex/AGENTS.md",
+            delivery: "copied_snapshot",
+          },
+          { path: "/project/AGENTS.md", kind: "project", delivery: "direct" },
+        ],
+      },
+    });
   });
 
   it("uses Codex thread responses and settings updates as the effective effort authority", async () => {

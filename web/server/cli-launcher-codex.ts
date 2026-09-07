@@ -71,6 +71,13 @@ import {
 } from "./codex-context-launch-diagnostics.js";
 import type { CodexContextWindowDiagnostics } from "./codex-context-types.js";
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
+import {
+  syncCodexGlobalInstructionFiles,
+  readEffectiveCodexGlobalInstructions,
+  renderContainerCodexGlobalInstructionWrite,
+  type CodexGlobalInstructionSnapshot,
+} from "./codex-global-instructions.js";
+import type { CodexInstructionContext } from "./codex-instruction-snapshot.js";
 
 const codexFeaturesHeader = "[features]";
 const codexMultiAgentFeature = "multi_agent";
@@ -186,6 +193,15 @@ export interface CodexSpawnSpec {
   reasoningSummary?: CodexReasoningSummaryLaunchMode;
   codexLeaderRecycleThresholdTokens?: number;
   contextWindowDiagnostics: CodexContextWindowDiagnostics;
+  instructionContext: CodexInstructionContext;
+}
+
+function codexGlobalInstructionFilenamesForContext(runtimeHome: string, sourceHome: string) {
+  return (["AGENTS.override.md", "AGENTS.md"] as const).map((filename) => ({
+    loadedPath: join(runtimeHome, filename),
+    sourcePath: join(sourceHome, filename),
+    delivery: "copied_snapshot" as const,
+  }));
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -1222,6 +1238,9 @@ async function prepareCodexHome(
   const sourceHome = resolve(seedSourceHome || legacyCodexHome);
   const canSeedSourceHome = sourceHome !== resolve(codexHome) && (await fileExists(sourceHome));
 
+  await syncCodexGlobalInstructionFiles(codexHome, sourceHome);
+  await options?.timing?.yieldIfDue("snapshot Codex global instructions");
+
   const fileSeeds = ["auth.json", "config.toml", "models_cache.json", "version.json"];
   if (canSeedSourceHome) {
     for (const name of fileSeeds) {
@@ -1495,14 +1514,19 @@ async function ensureCodexSessionConfig(
   };
 }
 
-function renderContainerCodexFileWrite(path: string, contents: string, heredocMarker: string): string {
+export function renderContainerCodexFileWrite(path: string, contents: string, heredocMarker: string): string {
   const normalizedContents = contents.replace(/\r\n/g, "\n");
   const fileBody = normalizedContents.endsWith("\n") ? normalizedContents.slice(0, -1) : normalizedContents;
+  const contentLines = new Set(normalizedContents.split("\n"));
+  let resolvedMarker = heredocMarker;
+  for (let suffix = 1; contentLines.has(resolvedMarker); suffix += 1) {
+    resolvedMarker = `${heredocMarker}_${suffix}`;
+  }
   return [
     `mkdir -p ${JSON.stringify(dirname(path))}`,
-    `cat > ${JSON.stringify(path)} <<'${heredocMarker}'`,
+    `cat > ${JSON.stringify(path)} <<'${resolvedMarker}'`,
     fileBody,
-    heredocMarker,
+    resolvedMarker,
   ].join("\n");
 }
 
@@ -1627,6 +1651,17 @@ export async function prepareCodexSpawn(
     const maiWrapperHostSpec = !isContainerized
       ? await timing.step("resolve MAI wrapper host", () => resolveMaiWrapperHostSpec(binary))
       : null;
+    const runtimeCodexHome = isContainerized ? "/root/.codex" : codexHome;
+    const globalInstructionSourceHome = resolve(
+      maiWrapperHostSpec?.hostCodexHome || options.codexLegacyHome || getLegacyCodexHome(),
+    );
+    const instructionContext: CodexInstructionContext = {
+      globalSources: codexGlobalInstructionFilenamesForContext(runtimeCodexHome, globalInstructionSourceHome),
+      configLayers: [
+        { kind: "user", path: join(runtimeCodexHome, "config.toml") },
+        { kind: "session_flags", label: "Takode launch overrides" },
+      ],
+    };
     const shellEnvVars = Object.keys(options.env || {}).filter(
       (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
     );
@@ -1638,6 +1673,7 @@ export async function prepareCodexSpawn(
     let resolvedModelCatalogJson: string | undefined;
     let containerLeaderConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
+    let containerGlobalInstructions: CodexGlobalInstructionSnapshot | null = null;
     const containerModelCatalogPath = leaderRecycleLaunch
       ? containerTakodeLeaderModelCatalogPath
       : options.codexMaxContextLength || options.codexMultiAgentVersion
@@ -1694,6 +1730,9 @@ export async function prepareCodexSpawn(
           }),
         );
       }
+      containerGlobalInstructions = await timing.step("read container Codex global instructions", () =>
+        readEffectiveCodexGlobalInstructions(codexHome),
+      );
       const containerConfig = await timing.step("ensure container Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
           leaderLaunch: leaderRecycleLaunch,
@@ -1799,7 +1838,10 @@ export async function prepareCodexSpawn(
       dockerArgs.push("-e", "CODEX_HOME=/root/.codex");
       dockerArgs.push(options.containerId!);
       const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
-      const shellCommands: string[] = [renderContainerCodexAuthRefresh()];
+      const shellCommands: string[] = [
+        renderContainerCodexAuthRefresh(),
+        renderContainerCodexGlobalInstructionWrite(containerGlobalInstructions, renderContainerCodexFileWrite),
+      ];
       if (containerModelCatalogJson && containerModelCatalogPath) {
         shellCommands.push(
           renderContainerCodexFileWrite(
@@ -1826,6 +1868,7 @@ export async function prepareCodexSpawn(
         reasoningSummary: reasoningSummaryLaunchMode,
         codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
         contextWindowDiagnostics,
+        instructionContext,
       };
     }
 
@@ -1878,6 +1921,7 @@ export async function prepareCodexSpawn(
       reasoningSummary: reasoningSummaryLaunchMode,
       codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
       contextWindowDiagnostics,
+      instructionContext,
     };
   } finally {
     timing.finish({

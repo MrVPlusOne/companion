@@ -4,6 +4,7 @@ import {
   GitHubPRSection,
   McpCollapsible,
   ClaudeMdCollapsible,
+  CodexInstructionsCollapsible,
   HerdDiagnosticsSection,
   SectionHeader,
   SystemPromptCollapsible,
@@ -35,6 +36,12 @@ const POPOVER_MARGIN = 12;
 const POPOVER_GAP = 8;
 const POPOVER_WIDTH = 390;
 const POPOVER_MIN_HEIGHT = 180;
+
+interface SessionDetailState {
+  key: string;
+  status: "loading" | "loaded" | "failed";
+  detail: SdkSessionInfo | null;
+}
 
 function mergeModelOptions(backendType: "claude" | "codex", dynamicModels: ModelOption[], currentModel: string) {
   const merged = [...dynamicModels, ...getModelsForBackend(backendType)].filter((option) => option.value);
@@ -154,7 +161,12 @@ export function SessionInfoPopover({
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
   const [openDirectoryError, setOpenDirectoryError] = useState("");
   const [openingDirectoryTarget, setOpeningDirectoryTarget] = useState<SessionDirectoryOpenTarget | null>(null);
-  const [sdkSessionDetail, setSdkSessionDetail] = useState<SdkSessionInfo | null>(null);
+  const sessionDetailKey = `${sessionId}:${sessionVm?.pid ?? ""}:${sessionVm?.cliSessionId ?? ""}:${cliConnected ? "connected" : "disconnected"}`;
+  const [sdkSessionDetailState, setSdkSessionDetailState] = useState<SessionDetailState>(() => ({
+    key: sessionDetailKey,
+    status: "loading",
+    detail: null,
+  }));
   const [dynamicModelOptions, setDynamicModelOptions] = useState<ModelOption[]>([]);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const reasoningDropdownRef = useRef<HTMLDivElement>(null);
@@ -217,23 +229,29 @@ export function SessionInfoPopover({
 
   useEffect(() => {
     let cancelled = false;
-    setSdkSessionDetail(null);
+    setSdkSessionDetailState({ key: sessionDetailKey, status: "loading", detail: null });
     api
       .getSessionInfo(sessionId)
       .then((detail) => {
-        if (!cancelled) setSdkSessionDetail(detail);
+        if (!cancelled) setSdkSessionDetailState({ key: sessionDetailKey, status: "loaded", detail });
       })
       .catch(() => {
-        if (!cancelled) setSdkSessionDetail(null);
+        if (!cancelled) setSdkSessionDetailState({ key: sessionDetailKey, status: "failed", detail: null });
       });
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionDetailKey, sessionId]);
 
+  const currentSessionDetailState =
+    sdkSessionDetailState.key === sessionDetailKey
+      ? sdkSessionDetailState
+      : ({ key: sessionDetailKey, status: "loading", detail: null } satisfies SessionDetailState);
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
-  const effectiveSdkSession = sdkSessionDetail ? { ...sdkSession, ...sdkSessionDetail } : sdkSession;
+  const effectiveSdkSession = currentSessionDetailState.detail
+    ? { ...sdkSession, ...currentSessionDetailState.detail }
+    : sdkSession;
   const codexLeaderCompactionMode = effectiveSdkSession?.codexLeaderCompactionMode;
   const contextStats = getSessionInfoContextStats(sessionVm, codexLeaderCompactionMode);
   const contextPercent = contextStats.contextPercent;
@@ -761,11 +779,34 @@ export function SessionInfoPopover({
           </div>
         )}
 
-        {/* GitHub PR, MCP, CLAUDE.md, System Prompt */}
+        {/* GitHub PR, MCP, and backend-specific instruction sources */}
         <GitHubPRSection sessionId={sessionId} />
         <McpCollapsible sessionId={sessionId} />
-        {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={sessionVm?.repoRoot} />}
-        <SystemPromptCollapsible sessionId={sessionId} />
+        {isCodexSession ? (
+          <>
+            <CodexInstructionsCollapsible
+              sessionId={sessionId}
+              snapshot={effectiveSdkSession?.codexInstructionSnapshot}
+              fetchWhenMissing={false}
+              refreshKey={sessionDetailKey}
+              snapshotLoading={currentSessionDetailState.status === "loading"}
+              snapshotFailed={currentSessionDetailState.status === "failed"}
+            />
+            <SystemPromptCollapsible
+              sessionId={sessionId}
+              title="Developer Instructions"
+              rowLabel="Takode-generated instructions"
+              modalTitle="Developer Instructions"
+              modalDescription="Takode session-scoped developer instructions (read-only)"
+              emptyLabel="No developer instructions recorded"
+            />
+          </>
+        ) : (
+          <>
+            {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={sessionVm?.repoRoot} />}
+            <SystemPromptCollapsible sessionId={sessionId} />
+          </>
+        )}
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { DiffViewer } from "../DiffViewer.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { SessionCreationProgress } from "../SessionCreationProgress.js";
 import { StepList } from "../SessionCreationView.js";
+import { CodexInstructionsCollapsible } from "../TaskPanel.js";
 import {
   CatPawAvatar,
   CatPawLeft,
@@ -1557,6 +1558,43 @@ export function PlaygroundStateSections() {
           </Card>
         </div>
       </Section>
+      {/* ─── Codex Instruction Sources ─────────────────────── */}
+      <Section
+        title="Codex Instruction Sources"
+        description="Read-only thread snapshot of configuration provenance and every AGENTS file Codex reported as loaded"
+      >
+        <div className="max-w-md overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+          <CodexInstructionsCollapsible
+            sessionId="playground-codex-instructions"
+            snapshot={{
+              threadId: "0199-demo-thread",
+              capturedAt: Date.UTC(2026, 8, 7, 12, 0, 0),
+              lifecycle: "thread_resume",
+              instructionSourcesReported: true,
+              developerInstructionsConfigured: true,
+              configLayers: [
+                { kind: "user", path: "/Users/demo/.companion/codex-home/session-id/config.toml" },
+                { kind: "session_flags", label: "Takode launch overrides" },
+              ],
+              instructionSources: [
+                {
+                  path: "/Users/demo/.companion/codex-home/session-id/AGENTS.override.md",
+                  sourcePath: "/Users/demo/.codex/AGENTS.override.md",
+                  kind: "global",
+                  delivery: "copied_snapshot",
+                },
+                { path: "/workspace/AGENTS.md", kind: "project", delivery: "direct" },
+                {
+                  path: "/workspace/packages/very-long-component-name/AGENTS.md",
+                  kind: "project",
+                  delivery: "direct",
+                },
+              ],
+            }}
+          />
+        </div>
+      </Section>
+
       {/* ─── CLAUDE.md Editor ──────────────────────────────── */}
       <Section title="CLAUDE.md Editor" description="Modal for viewing and editing project CLAUDE.md instructions">
         <div className="space-y-4 max-w-3xl">

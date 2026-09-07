@@ -16,6 +16,7 @@ import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version
 import type { CodexContextWindowDiagnostics, SessionLifecycleEvent } from "./codex-context-types.js";
 import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.js";
 import type { SyncedProjectionRestEnvelopeFields } from "../shared/synced-projection-registry.js";
+import type { CodexInstructionSnapshot } from "./codex-adapter-types.js";
 import type { SessionNavigationProjectionValue } from "../shared/session-navigation-projection.js";
 
 export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
@@ -120,6 +121,8 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   claudeMaxContextLength?: number;
   /** Optional per-session Codex home override, reused across relaunches. */
   codexHome?: string;
+  /** Server-owned snapshot of the instruction/config sources reported for the current Codex thread. */
+  codexInstructionSnapshot?: CodexInstructionSnapshot;
   /** If this session was spawned by a cron job */
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */
@@ -308,6 +311,7 @@ export type PublicSdkSessionInfo = Pick<
     codexInternetAccess?: boolean | null;
     claudeReasoningEffort?: string | null;
     codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
+    codexInstructionSnapshot?: CodexInstructionSnapshot;
     injectedSystemPrompt?: string;
     activeNeedsInputNotificationCount?: number;
     activeReviewNotificationCount?: number;
@@ -341,6 +345,7 @@ export function stripInternalLauncherSessionState(
   options: {
     includeInjectedSystemPrompt?: boolean;
     includeCodexContextWindowDiagnostics?: boolean;
+    includeCodexInstructionSnapshot?: boolean;
   } = {},
 ): PublicSdkSessionInfo {
   const result: Record<string, unknown> = {};
@@ -353,6 +358,9 @@ export function stripInternalLauncherSessionState(
   }
   if (options.includeCodexContextWindowDiagnostics && info.codexContextWindowDiagnostics !== undefined) {
     result.codexContextWindowDiagnostics = info.codexContextWindowDiagnostics;
+  }
+  if (options.includeCodexInstructionSnapshot && info.codexInstructionSnapshot !== undefined) {
+    result.codexInstructionSnapshot = info.codexInstructionSnapshot;
   }
   return result as PublicSdkSessionInfo;
 }

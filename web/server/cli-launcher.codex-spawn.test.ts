@@ -386,6 +386,7 @@ describe("Codex spawn preparation", () => {
         ),
         "utf-8",
       );
+      writeFileSync(join(hostCodexHome, "AGENTS.md"), "MAI host global guidance\n", "utf-8");
       writeFileSync(wrapperPath, "#!/usr/bin/env bash\necho wrapper placeholder\n", "utf-8");
       writeMaiWrapperHostEnv(wrapperRoot, hostCodexHome);
       mockResolveBinary.mockImplementation((name: string): string | null =>
@@ -409,6 +410,8 @@ describe("Codex spawn preparation", () => {
         join(wrapperRoot, ".run", `.env-${normalizeMaiHostname("companion-codex-home-test-session-id")}`),
       ).text();
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
+
+      expect(await Bun.file(join(sessionHome, "AGENTS.md")).text()).toBe("MAI host global guidance\n");
 
       const updatedConfig = await Bun.file(configPath).text();
       expect(updatedConfig).toContain("[shell_environment_policy]");

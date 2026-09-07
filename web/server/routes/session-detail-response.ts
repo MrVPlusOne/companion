@@ -15,11 +15,13 @@ export function buildBrowserSessionDetail(
   bridgeState: SessionState | undefined,
   options: {
     includeCodexContextWindowDiagnostics: boolean;
+    includeCodexInstructionSnapshot: boolean;
     isGenerating: boolean;
   },
 ): Record<string, unknown> {
   const rest = stripInternalLauncherSessionState(session, {
     includeCodexContextWindowDiagnostics: options.includeCodexContextWindowDiagnostics,
+    includeCodexInstructionSnapshot: options.includeCodexInstructionSnapshot,
   });
   return {
     ...rest,

@@ -1766,9 +1766,13 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       clearOptimisticRunningTimerLifecycle(targetSession as Session),
     clearCodexDisconnectGraceTimer: (targetSession: unknown, reason: string) =>
       host.clearCodexDisconnectGraceTimer(targetSession as Session, reason),
-    setCliSessionIdFromMeta: (sessionId: string, cliSessionId: string) => {
+    setCliSessionIdFromMeta: (
+      sessionId: string,
+      cliSessionId: string,
+      instructionSnapshot?: import("./codex-adapter-types.js").CodexInstructionSnapshot,
+    ) => {
       if (host.onCLISessionId) {
-        host.onCLISessionId(sessionId, cliSessionId);
+        host.onCLISessionId(sessionId, cliSessionId, instructionSnapshot);
       }
     },
     beforeSessionMetaDispatch: (sessionId: string, cliSessionId: string) =>

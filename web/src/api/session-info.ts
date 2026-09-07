@@ -22,6 +22,6 @@ export async function listSessions(options?: { includeArchived?: boolean }): Pro
 
 export function getSessionInfo(sessionId: string): Promise<SdkSessionInfo> {
   return getSessionInfoResponse(
-    `/sessions/${encodeURIComponent(sessionId)}?includeCodexContextWindowDiagnostics=true`,
+    `/sessions/${encodeURIComponent(sessionId)}?includeCodexContextWindowDiagnostics=true&includeCodexInstructionSnapshot=true`,
   ) as Promise<SdkSessionInfo>;
 }

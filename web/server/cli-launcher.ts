@@ -6,7 +6,6 @@ import type { SessionStore } from "./session-store.js";
 import type {
   BackendType,
   CodexLeaderRecycleEvent,
-  CodexLeaderRecycleLineage,
   CodexLeaderRecycleTokenSnapshot,
   CodexLeaderRecycleTrigger,
 } from "./session-types.js";
@@ -41,22 +40,11 @@ import { normalizeCodexLeaderCompactionMode } from "../shared/codex-leader-compa
 import { normalizeCodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
 import { applySessionLaunchConfigPatch, type SessionLaunchConfigPatch } from "./session-launch-config.js";
 import { isActivePublicOrchestratorCreator } from "./codex-worker-create-role.js";
+import { applyCodexSessionIdentity, appendUniqueCliSessionId } from "./codex-launcher-session-state.js";
+import type { CodexInstructionSnapshot } from "./codex-adapter-types.js";
 
 export { stripInternalLauncherSessionState, type SdkSessionInfo } from "./session-info.js";
 export type { LaunchOptions } from "./cli-launcher-options.js";
-
-function appendUniqueCliSessionId(
-  lineage: CodexLeaderRecycleLineage | undefined,
-  cliSessionId: string,
-): CodexLeaderRecycleLineage {
-  const current = lineage ?? { cliSessionIds: [], recycleEvents: [] };
-  if (!cliSessionId) return current;
-  if (current.cliSessionIds.includes(cliSessionId)) return current;
-  return {
-    ...current,
-    cliSessionIds: [...current.cliSessionIds, cliSessionId],
-  };
-}
 
 /** Check if a file exists (async equivalent of existsSync). */
 async function fileExists(path: string): Promise<boolean> {
@@ -1258,6 +1246,7 @@ export class CliLauncher {
     let spawnCwd: string | undefined;
     let sandboxMode: "read-only" | "workspace-write" | "danger-full-access" | undefined;
     let reasoningSummary: "auto" | "concise" | "detailed" | undefined;
+    let instructionContext: import("./codex-instruction-snapshot.js").CodexInstructionContext | undefined;
     try {
       const binSettings = this.settingsGetter?.();
       const codexOptions = binSettings
@@ -1282,6 +1271,7 @@ export class CliLauncher {
       spawnCwd = spawnSpec.spawnCwd;
       sandboxMode = spawnSpec.sandboxMode;
       reasoningSummary = spawnSpec.reasoningSummary;
+      instructionContext = spawnSpec.instructionContext;
       info.codexContextWindowDiagnostics = spawnSpec.contextWindowDiagnostics;
       if (typeof spawnSpec.codexLeaderRecycleThresholdTokens === "number") {
         info.codexLeaderRecycleThresholdTokens = spawnSpec.codexLeaderRecycleThresholdTokens;
@@ -1364,6 +1354,7 @@ export class CliLauncher {
       serviceTier: options.codexServiceTier ?? null,
       recorder: this.recorder ?? undefined,
       instructions: codexInstructions || undefined,
+      instructionContext,
       failureContextProvider: () => formatStreamTailForError(stderrTail),
     });
     if (stderr && typeof stderr !== "number") {
@@ -1458,21 +1449,11 @@ export class CliLauncher {
    * Store the CLI's internal session ID (from system.init message).
    * This is needed for --resume on relaunch.
    */
-  setCLISessionId(sessionId: string, cliSessionId: string): void {
+  setCLISessionId(sessionId: string, cliSessionId: string, instructionSnapshot?: CodexInstructionSnapshot): void {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      session.cliSessionId = cliSessionId;
-      session.codexLeaderRecycleLineage = appendUniqueCliSessionId(session.codexLeaderRecycleLineage, cliSessionId);
-      const pendingRecycle = session.codexLeaderRecyclePending;
-      if (pendingRecycle) {
-        const recycleEvents = session.codexLeaderRecycleLineage?.recycleEvents ?? [];
-        const recycleEvent = recycleEvents[pendingRecycle.eventIndex];
-        if (recycleEvent && !recycleEvent.nextCliSessionId) {
-          recycleEvent.nextCliSessionId = cliSessionId;
-        }
-      }
-      this.persistState();
-    }
+    if (!session) return;
+    applyCodexSessionIdentity(session, cliSessionId, instructionSnapshot);
+    this.persistState();
   }
 
   prepareCodexLeaderRecycle(
