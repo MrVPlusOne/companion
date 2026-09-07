@@ -218,6 +218,32 @@ describe("takode notify self-resolution workflow", () => {
     requestBodies = [];
   });
 
+  it.each([
+    { args: ["help", "notify"], status: 0 },
+    { args: ["notify", "--help"], status: 0 },
+    { args: ["notify"], status: 1 },
+  ])("includes required reply guidance in $args", async ({ args, status }) => {
+    // Both explicit help and missing-argument usage reach agents. Inspect the
+    // actual CLI output without creating a notification in the fixture server.
+    const result = await runTakode([...args, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+    expect(result.status).toBe(status);
+    const text = status === 0 ? result.stdout : (JSON.parse(result.stderr).error as string);
+    const output = text.replace(/\s+/g, " ");
+
+    expect(output).toContain("include one or two concise suggested replies");
+    expect(output).toContain("For a binary question, provide both choices");
+    expect(output).toContain("not preselected answers or authorization");
+    expect(output).toContain("custom replies must remain available");
+    expect(output).toContain("all valid decision alternatives visible in chat");
+    expect(output).toContain("does not impose a tool-level limit on suggestions");
+    expect(output).toContain("provide replies after each question");
+    expect(requestBodies).toEqual([]);
+  });
+
   it("prints the created notification id for takode notify needs-input", async () => {
     const result = await runTakode(["notify", "needs-input", "Need", "approval", "--port", String(port)], {
       ...process.env,

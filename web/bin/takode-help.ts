@@ -232,6 +232,14 @@ Categories:
 Options:
   --suggest <answer>  Suggested answer for needs-input notifications (repeat for each quick reply)
   --question <prompt> Add a separate needs-input question; following --suggest flags apply to that question
+
+Whenever you ask the user a question, include one or two concise suggested replies
+with --suggest so the UI can render convenient response buttons. For a binary
+question, provide both choices. These are shortcuts, not preselected answers or
+authorization; custom replies must remain available. Keep the complete question
+and all valid decision alternatives visible in chat. This guidance does not impose
+a tool-level limit on suggestions. With multiple --question flags, provide replies
+after each question.
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]

@@ -234,7 +234,7 @@ describe("buildCompanionInstructions", () => {
       "existing unresolved prompts in the same thread or quest do not cover a separate approval or decision",
     );
     expect(result).toContain("Link the affected active board row with `--wait-for-input` when applicable");
-    expect(result).toContain("you may add `--suggest <answer>` options");
+    expect(result).toContain("Include `--suggest <answer>` reply shortcuts for every question");
     expect(result).not.toContain("one to three `--suggest <answer>` options");
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
     expect(result).toContain("use scoped waits for `needs-input`");
@@ -255,6 +255,29 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("visible text must name every shortcut");
     expect(result).toContain("phase notes, private packets");
     expect(result).toContain("notification summaries, notification UI options, and `--suggest` choices");
+  });
+
+  it.each([
+    { backend: "claude", isOrchestrator: false },
+    { backend: "claude", isOrchestrator: true },
+    { backend: "codex", isOrchestrator: false },
+    { backend: "codex", isOrchestrator: true },
+  ] as const)("requires reply shortcuts in the generated $backend prompt (leader=$isOrchestrator)", (options) => {
+    // Check the assembled prompt so later leader guardrails cannot restore the
+    // optional/obvious-only wording that contradicted the shared question rule.
+    const result = buildInjectedSystemPromptForDebug(options);
+
+    expect(result).toContain("Whenever you ask the user a question, include one or two concise suggested replies");
+    expect(result).toContain("For a binary question, provide both choices");
+    expect(result).toContain("not preselected answers; custom replies must remain available");
+    expect(result).toContain("A suggested reply is not user authorization");
+    expect(result).toContain("Preserve every valid decision alternative in the visible question");
+    expect(result).toContain("does not impose a tool-level limit on suggestions");
+    expect(result).toContain("with a built-in question tool, use its suggested-reply/options field");
+    expect(result).toContain("put its `--suggest <answer>` flags immediately after that question");
+    expect(result).not.toMatch(/(?:optionally with|you may add|only (?:when|for))[^.\n]*`--suggest/i);
+    expect(result).not.toMatch(/`--suggest` only (?:when|for)/);
+    expect(result).not.toMatch(/(?:For|If|When)[^.\n]*obvious[^.\n]*`--suggest/);
   });
 
   it("includes global resource lease guidance for shared dev-server and browser work", () => {

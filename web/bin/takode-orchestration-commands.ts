@@ -52,6 +52,14 @@ Categories:
   needs-input  User decision or information required
   review       Ready for user review
   waiting      Transient non-user wait marker; not listed or resolved
+
+Whenever you ask the user a question, include one or two concise suggested replies
+with --suggest so the UI can render convenient response buttons. For a binary
+question, provide both choices. These are shortcuts, not preselected answers or
+authorization; custom replies must remain available. Keep the complete question
+and all valid decision alternatives visible in chat. This guidance does not impose
+a tool-level limit on suggestions. With multiple --question flags, provide replies
+after each question.
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]

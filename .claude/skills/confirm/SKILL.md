@@ -43,7 +43,7 @@ After the textual response is fully output:
 
 - Run `takode notify needs-input "<brief summary>"` to fire a notification.
 - Keep the notification summary short and specific to the decision or confirmation needed.
-- When the answer choices are obvious and short, include `--suggest <answer>` shortcuts, such as `--suggest yes --suggest no`.
+- Include suggested replies for each question or confirmation under the `takode-orchestration` notification rule.
 - Do not use suggested answers instead of writing the full confirmation context and questions in the textual response.
 - Do not add a final one-sentence confirmation prompt such as `Please confirm or correct.`
 - Do not add a horizontal divider for a final confirmation sentence.

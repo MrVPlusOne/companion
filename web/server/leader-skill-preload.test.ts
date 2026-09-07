@@ -96,6 +96,23 @@ describe("leader skill preload builder", () => {
     expect(leaderDispatch?.content).not.toContain("Leader-only deltas");
   });
 
+  it("delivers required reply shortcuts from the real notification guidance", async () => {
+    // Read the installed-source manifest and build the model-bound delivery,
+    // rather than checking a copied fixture that could drift from the skill.
+    const bundles = await buildLeaderSkillPreloadBundles();
+    const delivery = buildLeaderPreloadDeliveryContent("Leader kickoff", bundles);
+
+    expect(delivery).toContain("Whenever you ask the user a question, include one or two concise suggested replies");
+    expect(delivery).toContain("for a binary question, include both choices");
+    expect(delivery).toContain("never preselected answers or authorization");
+    expect(delivery).toContain("the user can always give a custom response");
+    expect(delivery).toContain("Keep valid alternatives in that context");
+    expect(delivery).toContain("the command continues to accept more suggestions");
+    expect(delivery).not.toContain("suggested answers are optional");
+    expect(delivery).not.toContain("Use `--suggest` only for concise obvious options");
+    expect(delivery).not.toContain("When the answer choices are obvious and short");
+  });
+
   it("keeps visible preload events separate while model delivery is atomic", async () => {
     const readFile = vi.fn(async (path: string) => `content for ${path}`);
     const bundles = await buildLeaderSkillPreloadBundles({ packageRoot: "/repo", readFile });
