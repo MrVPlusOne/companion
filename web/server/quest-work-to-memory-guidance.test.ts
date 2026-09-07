@@ -33,6 +33,9 @@ describe("Work-to-Memory code evidence guidance", () => {
     expect(journey).toContain("--work-note <feedback-index> --no-code");
     expect(journey).toContain("commit count and diff controls are available as soon as Memory begins");
     expect(boardUsage).toContain("Older stored commits do not replace fresh evidence for a rework occurrence");
+    expect(boardUsage).toContain("takode board replace-work-evidence");
+    expect(boardUsage).toContain("expected ordered list must exactly match current storage");
+    expect(boardUsage).toContain("does not advance the Journey");
   });
 
   it("keeps Memory deltas and completion guidance from first-attaching Work commits", () => {

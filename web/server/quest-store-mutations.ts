@@ -26,6 +26,7 @@ import {
 import { normalizeQuestRelationships } from "./quest-relationships.js";
 import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
 import { appendQuestRecoveryEvent } from "./quest-recovery.js";
+import { normalizeQuestCodeCommitEvidenceReplacementEvents } from "./quest-code-commit-evidence.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
 import {
@@ -153,6 +154,9 @@ export function buildTransitionedQuest(
   const retainCanonicalHistory = Array.isArray(current.previousOwners);
   const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, input.ownershipEvent, now);
   const recoveryEvents = appendQuestRecoveryEvent(current.recoveryEvents, input.recoveryEvent, now);
+  const codeCommitEvidenceReplacementEvents = normalizeQuestCodeCommitEvidenceReplacementEvents(
+    current.codeCommitEvidenceReplacementEvents,
+  );
   const leaderSessionId = input.leaderSessionId?.trim() || getLeaderSessionId(current);
   const relationships =
     input.relationships !== undefined
@@ -179,6 +183,7 @@ export function buildTransitionedQuest(
     ...(relationships ? { relationships } : {}),
     ...(ownershipEvents?.length ? { ownershipEvents } : {}),
     ...(recoveryEvents?.length ? { recoveryEvents } : {}),
+    ...(codeCommitEvidenceReplacementEvents.length > 0 ? { codeCommitEvidenceReplacementEvents } : {}),
     ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
     ...(quizItems ? { quizItems } : {}),
     ...(Object.prototype.hasOwnProperty.call(current, "outcome") ? { outcome: current.outcome } : {}),
@@ -316,6 +321,9 @@ export function buildCancelledQuest(
   const retainCanonicalHistory = Array.isArray(current.previousOwners);
   const leaderSessionId = getLeaderSessionId(current);
   const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, undefined, now);
+  const codeCommitEvidenceReplacementEvents = normalizeQuestCodeCommitEvidenceReplacementEvents(
+    current.codeCommitEvidenceReplacementEvents,
+  );
   appendQuestOwner(previousOwners, currentActiveOwner);
   const cancelFeedback = current.feedback;
   const cancelJourneyRuns = current.journeyRuns;
@@ -345,6 +353,7 @@ export function buildCancelledQuest(
     ...(leaderSessionId ? { leaderSessionId } : {}),
     ...previousQuestOwnerFields(previousOwners, retainCanonicalHistory),
     ...(ownershipEvents?.length ? { ownershipEvents } : {}),
+    ...(codeCommitEvidenceReplacementEvents.length > 0 ? { codeCommitEvidenceReplacementEvents } : {}),
     ...(normalizeQuestRelationships(current.relationships, current.questId)
       ? { relationships: normalizeQuestRelationships(current.relationships, current.questId) }
       : {}),

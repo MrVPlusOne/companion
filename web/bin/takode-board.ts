@@ -2,7 +2,9 @@ import {
   apiDelete,
   apiGet,
   apiPost,
+  assertKnownFlags,
   err,
+  formatInlineText,
   formatTimestampCompact,
   getCallerSessionId,
   parseFlags,
@@ -10,6 +12,10 @@ import {
   readOptionTextFile,
 } from "./takode-core.js";
 import { parseCommitShas } from "./quest-commit-flags.js";
+import {
+  MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS,
+  MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH,
+} from "../shared/quest-code-commit-evidence.ts";
 // ─── Board ─────────────────────────────────────────────────────────────────
 
 import {
@@ -34,7 +40,7 @@ import {
   validateQuestJourneyUserCheckpointNotes,
 } from "../shared/quest-journey.ts";
 
-export const BOARD_HELP = `Usage: takode board [show|detail|set|revise|propose|promote|note|work-to-memory|advance|rm] ...
+export const BOARD_HELP = `Usage: takode board [show|detail|set|revise|propose|promote|note|work-to-memory|replace-work-evidence|advance|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -48,6 +54,8 @@ Subcommands:
   note <quest-id>         Add or clear a per-phase Journey note
   work-to-memory <quest-id>
                           Worker-owned transition from Work to Memory
+  replace-work-evidence <quest-id>
+                          Audited correction of invalid Work commit evidence
   advance <quest-id>      Move through non-Work Journey boundaries
   rm <quest-id> [...]     Remove quests from the active board
 
@@ -64,6 +72,7 @@ Examples:
   takode board note q-12 3 --text "Inspect only the follow-up diff"
   takode board work-to-memory q-12 --work-note 4 --commits "abc1234,def5678"
   takode board work-to-memory q-13 --work-note 5 --no-code
+  takode board replace-work-evidence q-13 --expected-commits "bad1234" --commits "abc1234" --reason "Correct mistyped delivery evidence"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
   takode board set q-12 --status USER_CHECKPOINTING --wait-for-input 3,4
   takode board set q-12 --clear-wait-for-input
@@ -136,6 +145,11 @@ Use --skip-optional-checkpoint only when the next phase is a User Checkpoint wit
 export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --no-code) [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
 
 Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint. Provide synchronized target-repository code SHAs with --commit/--commits, or use --no-code only when this Work occurrence made no tracked project changes. When one planned optional User Checkpoint sits directly between the current Work occurrence and Memory, use --skip-optional-checkpoint only after its approved optional condition is satisfied. Required or taken checkpoints must continue into a later Work occurrence before the guarded transition.
+`;
+
+export const BOARD_REPLACE_WORK_EVIDENCE_HELP = `Usage: takode board replace-work-evidence <quest-id> --expected-commits <sha1,sha2> --commits <sha1,sha2> --reason <text> [--json]
+
+Authenticated worker-owned correction for invalid structured Work code commit evidence. The expected list must exactly match the currently stored ordered list, the replacement cannot contain fewer commits, and each list is limited to ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS} unique commits. Replacement commits are resolved to full SHAs and must be reachable from the configured selected-target checkout. This command does not advance the Journey; refresh the current Work note and use the ordinary guarded Work -> Memory transition afterward.
 `;
 
 export const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]
@@ -1183,6 +1197,84 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "advance-no-groom") {
     err("`takode board advance-no-groom` was removed. Use the active v2 Alignment -> Work -> Memory flow.");
+  }
+
+  if (sub === "replace-work-evidence") {
+    const questId = args[1];
+    const usage = BOARD_REPLACE_WORK_EVIDENCE_HELP.trim();
+    if (!questId) err(usage);
+    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+    const flags = parseFlags(args.slice(2));
+    assertKnownFlags(flags, new Set(["expected-commits", "commits", "reason", "json"]), usage);
+    if (flags["expected-commits"] === true) err("--expected-commits requires a comma-separated commit SHA list.");
+    if (flags.commits === true) err("--commits requires a comma-separated commit SHA list.");
+    if (flags.reason === true) err("--reason requires a non-empty explanation.");
+
+    let expectedCommitShas: string[];
+    let replacementCommitShas: string[];
+    try {
+      expectedCommitShas = parseCommitShas(
+        typeof flags["expected-commits"] === "string"
+          ? flags["expected-commits"].split(",").map((value) => value.trim())
+          : [],
+      );
+      replacementCommitShas = parseCommitShas(
+        typeof flags.commits === "string" ? flags.commits.split(",").map((value) => value.trim()) : [],
+      );
+    } catch (error) {
+      err(error instanceof Error ? error.message : String(error));
+    }
+    if (expectedCommitShas.length === 0) err("--expected-commits must contain at least one commit SHA.");
+    if (replacementCommitShas.length === 0) err("--commits must contain at least one replacement commit SHA.");
+    if (
+      expectedCommitShas.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS ||
+      replacementCommitShas.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS
+    ) {
+      err(
+        `Expected and replacement lists support at most ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS} commits each.`,
+      );
+    }
+    if (replacementCommitShas.length < expectedCommitShas.length) {
+      err("Replacement commit evidence cannot contain fewer commits than the expected list.");
+    }
+    const reason = typeof flags.reason === "string" ? flags.reason.trim() : "";
+    if (!reason) err("--reason requires a non-empty explanation.");
+    if (reason.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH) {
+      err(`--reason must be at most ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH} characters.`);
+    }
+    if (
+      expectedCommitShas.length === replacementCommitShas.length &&
+      expectedCommitShas.every((sha, index) => sha === replacementCommitShas[index])
+    ) {
+      err("Replacement commit evidence must differ from the expected stored evidence.");
+    }
+
+    const result = (await apiPost(base, "/takode/board/replace-work-evidence", {
+      questId,
+      expectedCommitShas,
+      commitShas: replacementCommitShas,
+      reason,
+    })) as {
+      ok: true;
+      questId: string;
+      previousCommitShas: string[];
+      commitShas: string[];
+      target: { mode: string; checkoutPath: string; branch: string; headSha: string };
+      correction: { journeyRunId: string; phaseOccurrenceId: string; ts?: number };
+    };
+    if (flags.json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(
+      `${result.questId}: replaced Work code evidence (${result.previousCommitShas.length} -> ${result.commitShas.length})`,
+    );
+    console.log(`previous: ${result.previousCommitShas.join(", ")}`);
+    console.log(`replacement: ${result.commitShas.join(", ")}`);
+    console.log(
+      `target: ${formatInlineText(result.target.checkoutPath)} ${formatInlineText(result.target.branch)} @ ${result.target.headSha.slice(0, 12)}`,
+    );
+    return;
   }
 
   if (sub === "work-to-memory") {

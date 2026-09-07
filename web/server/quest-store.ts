@@ -38,6 +38,11 @@ import {
 import { stripDerivedQuestRelationships, withQuestRelationshipSummaries } from "./quest-relationships.js";
 import { applyQuestPatch } from "./quest-store-patch.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
+import {
+  MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS,
+  MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH,
+} from "../shared/quest-code-commit-evidence.js";
+import { appendQuestCodeCommitEvidenceReplacementEvent } from "./quest-code-commit-evidence.js";
 import { assertSafeQuestmasterTestRoot, recordQuestStoreMutationBackup } from "./quest-backup-store.js";
 import {
   assertQuestMutationOwner,
@@ -1402,6 +1407,127 @@ export async function appendQuestCodeCommitEvidenceForOwner(
     await writeQuest(updated);
     return updated;
   });
+}
+
+export interface QuestCodeCommitEvidenceReplacementInput {
+  expectedCommitShas: readonly unknown[];
+  replacementCommitShas: readonly unknown[];
+  reason: string;
+  journeyRunId: string;
+  phaseOccurrenceId: string;
+  verifiedTargetBranch: string;
+  verifiedTargetHeadSha: string;
+}
+
+/**
+ * Atomically replace structured code-commit evidence after exact-owner verification.
+ * Ordinary Work evidence remains append-only; this API requires an exact ordered compare-and-swap
+ * and records the correction as a separate append-only audit event.
+ */
+export async function replaceQuestCodeCommitEvidenceForOwner(
+  questId: string,
+  owner: QuestOwnerRef,
+  input: QuestCodeCommitEvidenceReplacementInput,
+): Promise<QuestmasterTask | null> {
+  const normalizedOwner = normalizeQuestOwnerRef(owner);
+  if (!normalizedOwner) throw new Error("A valid quest owner is required");
+  const expectedCommitShas = normalizeCommitShas([...input.expectedCommitShas]);
+  const replacementCommitShas = normalizeCommitShas([...input.replacementCommitShas]);
+  if (expectedCommitShas.length === 0) {
+    throw new Error("Existing code commit evidence must be non-empty for replacement");
+  }
+  if (replacementCommitShas.length === 0) {
+    throw new Error("Replacement code commit evidence must be non-empty");
+  }
+  if (
+    expectedCommitShas.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS ||
+    replacementCommitShas.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS
+  ) {
+    throw new Error(
+      `Code commit evidence replacement supports at most ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS} commits per list`,
+    );
+  }
+  if (replacementCommitShas.length < expectedCommitShas.length) {
+    throw new Error("Replacement code commit evidence cannot contain fewer commits than existing evidence");
+  }
+  if (orderedCommitShaListsEqual(expectedCommitShas, replacementCommitShas)) {
+    throw new Error("Replacement code commit evidence must differ from existing evidence");
+  }
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("Code commit evidence replacement reason is required");
+  if (reason.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH) {
+    throw new Error(
+      `Code commit evidence replacement reason must be ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH} characters or fewer`,
+    );
+  }
+  const journeyRunId = input.journeyRunId.trim();
+  if (!journeyRunId) throw new Error("journeyRunId is required for code commit evidence replacement");
+  const phaseOccurrenceId = input.phaseOccurrenceId.trim();
+  if (!phaseOccurrenceId) throw new Error("phaseOccurrenceId is required for code commit evidence replacement");
+  const verifiedTargetBranch = input.verifiedTargetBranch.trim();
+  if (!verifiedTargetBranch) throw new Error("Verified target branch is required for code commit evidence replacement");
+  const verifiedTargetHeadSha = input.verifiedTargetHeadSha.trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(verifiedTargetHeadSha)) {
+    throw new Error("Verified target head must be a full 40-character commit SHA");
+  }
+
+  const replaceEvidence = (current: QuestmasterTask): QuestmasterTask => {
+    if (current.status !== "in_progress") {
+      throw new Error("Code commit evidence can only be replaced on an in-progress quest");
+    }
+    const activeOwner = getQuestOwner(current);
+    if (!activeOwner || !sameQuestOwner(activeOwner, normalizedOwner)) {
+      throw new Error("Only the exact active quest owner may replace in-progress code commit evidence");
+    }
+    const currentCommitShas = normalizeCommitShas(current.commitShas ?? []);
+    if (!orderedCommitShaListsEqual(currentCommitShas, expectedCommitShas)) {
+      throw new Error("Stored code commit evidence does not exactly match the expected ordered commits");
+    }
+    const now = Date.now();
+    const codeCommitEvidenceReplacementEvents = appendQuestCodeCommitEvidenceReplacementEvent(
+      current.codeCommitEvidenceReplacementEvents,
+      {
+        operation: "replace_code_commit_evidence",
+        actorSessionId: normalizedOwner.sessionId,
+        reason,
+        previousCommitShas: currentCommitShas,
+        replacementCommitShas,
+        journeyRunId,
+        phaseOccurrenceId,
+        verifiedTargetBranch,
+        verifiedTargetHeadSha,
+      },
+      now,
+    );
+    return {
+      ...current,
+      commitShas: replacementCommitShas,
+      codeCommitEvidenceReplacementEvents,
+      updatedAt: now,
+    } as QuestmasterTask;
+  };
+
+  const liveStore = await readLiveQuestStore();
+  if (liveStore) {
+    return mutateLiveQuestStore(async (store) => {
+      const current = stripDerivedQuestRelationships(getLiveQuestById(store, questId));
+      if (!current) return { store, result: null, write: false };
+      const updated = replaceEvidence(current);
+      return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
+    });
+  }
+
+  return withCreateLock(async () => {
+    const current = stripDerivedQuestRelationships(await getQuest(questId));
+    if (!current) return null;
+    const updated = replaceEvidence(current);
+    await writeQuest(updated);
+    return updated;
+  });
+}
+
+function orderedCommitShaListsEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((sha, index) => sha === right[index]);
 }
 
 /** Atomically append one feedback entry without replacing concurrently written feedback. */

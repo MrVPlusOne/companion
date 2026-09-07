@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerTakodeBoardRoutes } from "./routes/takode-board.js";
 import type { BoardRow } from "./session-types.js";
 import * as questStore from "./quest-store.js";
+import * as gitUtils from "./git-utils.js";
 
 interface TestSession {
   id: string;
@@ -116,11 +117,29 @@ async function postWorkerMemory(body: Record<string, unknown>): Promise<Response
   });
 }
 
+async function postReplaceWorkEvidence(body: Record<string, unknown>): Promise<Response> {
+  return app.request("/takode/board/replace-work-evidence", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 describe("Takode board Journey metadata route", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(questStore, "getQuest").mockResolvedValue(null);
     vi.spyOn(questStore, "appendQuestCodeCommitEvidenceForOwner").mockResolvedValue(null);
+    vi.spyOn(questStore, "replaceQuestCodeCommitEvidenceForOwner").mockResolvedValue(null);
+    vi.spyOn(gitUtils, "getRepoInfoAsync").mockResolvedValue(null);
+    vi.spyOn(gitUtils, "gitAsync").mockRejectedValue(new Error("unexpected git command"));
     setupTakodeSessions();
   });
 
@@ -1145,5 +1164,640 @@ describe("Takode board Journey metadata route", () => {
     const missingNote = await postWorkerMemory({ questId: "q-9", noCode: true });
     expect(missingNote.status).toBe(409);
     expect(await missingNote.json()).toMatchObject({ error: expect.stringContaining("Work phase note") });
+  });
+
+  it("replaces invalid Work evidence only after selected-target reachability verification", async () => {
+    const invalidSha = "1bbb8efa151d5600a4e943875a0f436699af24fa";
+    const validSha = "1bbb8efa554745fffc900a8cf947e7176d176e05";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isOrchestrator: false,
+      isWorktree: true,
+      cwd: "/repo/worktrees/worker",
+      repoRoot: "/repo",
+      branch: "main",
+      actualBranch: "main-wt-1",
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      version: 1,
+      title: "Quest",
+      description: "Repair invalid structured delivery evidence.",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [invalidSha],
+      journeyRuns: [
+        {
+          runId: "board-leader-1-20",
+          source: "board",
+          status: "active",
+          createdAt: 20,
+          updatedAt: 21,
+          phaseIds: ["alignment", "work", "memory"],
+          phaseOccurrences: [
+            {
+              occurrenceId: "current-work-occurrence",
+              phaseId: "work",
+              phaseIndex: 1,
+              phasePosition: 2,
+              phaseOccurrence: 1,
+              status: "active",
+            },
+          ],
+        },
+      ],
+      createdAt: 1,
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    vi.mocked(gitUtils.gitAsync).mockImplementation(async (command, cwd) => {
+      expect(cwd).toBe("/repo");
+      if (command === "rev-parse --verify 'refs/heads/main^{commit}'") return validSha;
+      if (command === `rev-parse --verify ${validSha.slice(0, 12)}^{commit}`) return validSha.toUpperCase();
+      if (command === `merge-base --is-ancestor ${validSha} ${validSha}`) return "";
+      throw new Error(`unexpected git command: ${command}`);
+    });
+    vi.mocked(questStore.replaceQuestCodeCommitEvidenceForOwner).mockResolvedValue({
+      ...claimedQuest,
+      commitShas: [validSha],
+      codeCommitEvidenceReplacementEvents: [
+        {
+          operation: "replace_code_commit_evidence",
+          actorSessionId: "worker-1",
+          reason: "Correct mistyped delivery evidence",
+          previousCommitShas: [invalidSha],
+          replacementCommitShas: [validSha],
+          journeyRunId: "board-leader-1-20",
+          phaseOccurrenceId: "current-work-occurrence",
+          verifiedTargetBranch: "main",
+          verifiedTargetHeadSha: validSha,
+          ts: 30,
+        },
+      ],
+    });
+
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [invalidSha],
+      commitShas: [validSha.slice(0, 12)],
+      reason: "Correct mistyped delivery evidence",
+    });
+
+    expect(res.status).toBe(200);
+    expect(gitUtils.gitAsync).not.toHaveBeenCalledWith(expect.stringContaining(invalidSha), expect.anything());
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).toHaveBeenCalledWith(
+      "q-9",
+      { kind: "takode", sessionId: "worker-1" },
+      {
+        expectedCommitShas: [invalidSha],
+        replacementCommitShas: [validSha],
+        reason: "Correct mistyped delivery evidence",
+        journeyRunId: "board-leader-1-20",
+        phaseOccurrenceId: "current-work-occurrence",
+        verifiedTargetBranch: "main",
+        verifiedTargetHeadSha: validSha,
+      },
+    );
+    expect(await res.json()).toEqual({
+      ok: true,
+      questId: "q-9",
+      previousCommitShas: [invalidSha],
+      commitShas: [validSha],
+      target: {
+        mode: "remote-backed",
+        checkoutPath: "/repo",
+        branch: "main",
+        headSha: validSha,
+      },
+      correction: {
+        journeyRunId: "board-leader-1-20",
+        phaseOccurrenceId: "current-work-occurrence",
+        ts: 30,
+      },
+    });
+    expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("uses the exact configured target worktree rather than the worker or base checkout", async () => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isWorktree: true,
+      cwd: "/repo/worktrees/worker",
+      branch: "main",
+      actualBranch: "main-wt-1",
+      worktreePortTarget: { repoRoot: "/repo", branch: "leader-wt-2", worktreePath: "/repo/worktrees/leader" },
+    };
+    const quest = {
+      id: "q-9",
+      questId: "q-9",
+      version: 1,
+      title: "Quest",
+      description: "Repair evidence.",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+      createdAt: 1,
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValue(quest);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "leader-wt-2",
+      defaultBranch: "main",
+      isWorktree: true,
+    });
+    vi.mocked(gitUtils.gitAsync).mockImplementation(async (command, cwd) => {
+      expect(cwd).toBe("/repo/worktrees/leader");
+      if (command === "rev-parse --verify 'refs/heads/leader-wt-2^{commit}'") return newSha;
+      if (command === `rev-parse --verify ${newSha}^{commit}`) return newSha;
+      if (command === `merge-base --is-ancestor ${newSha} ${newSha}`) return "";
+      throw new Error(`unexpected git command: ${command}`);
+    });
+    vi.mocked(questStore.replaceQuestCodeCommitEvidenceForOwner).mockResolvedValue({ ...quest, commitShas: [newSha] });
+
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+
+    expect(res.status).toBe(200);
+    expect(gitUtils.getRepoInfoAsync).toHaveBeenCalledWith("/repo/worktrees/leader");
+    expect(await res.json()).toMatchObject({
+      target: { mode: "worktree", checkoutPath: "/repo/worktrees/leader", branch: "leader-wt-2" },
+    });
+  });
+
+  it("rejects a replacement commit that is not reachable from the selected target HEAD", async () => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isWorktree: true,
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+    } as any);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    vi.mocked(gitUtils.gitAsync).mockImplementation(async (command) => {
+      if (command === "rev-parse --verify 'refs/heads/main^{commit}'") return headSha;
+      if (command === `rev-parse --verify ${newSha}^{commit}`) return newSha;
+      if (command.startsWith("merge-base --is-ancestor")) {
+        throw Object.assign(new Error("not ancestor"), { code: 1 });
+      }
+      throw new Error(`unexpected git command: ${command}`);
+    });
+
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("not reachable") });
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+  });
+
+  it("leaves evidence unchanged when the atomic expected-list comparison fails", async () => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isWorktree: true,
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+    } as any);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    vi.mocked(gitUtils.gitAsync).mockImplementation(async (command) => {
+      if (command === "rev-parse --verify 'refs/heads/main^{commit}'") return newSha;
+      if (command === `rev-parse --verify ${newSha}^{commit}`) return newSha;
+      if (command.startsWith("merge-base --is-ancestor")) return "";
+      throw new Error(`unexpected git command: ${command}`);
+    });
+    vi.mocked(questStore.replaceQuestCodeCommitEvidenceForOwner).mockRejectedValue(
+      new Error("Stored code commit evidence does not exactly match the expected ordered commits"),
+    );
+
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("does not exactly match") });
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+  });
+
+  it("rejects evidence shrinkage before target or store access", async () => {
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: ["1111111", "2222222"],
+      commitShas: ["aaaaaaa"],
+      reason: "Remove invalid evidence",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("cannot contain fewer commits") });
+    expect(questStore.getQuest).not.toHaveBeenCalled();
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("rejects unbounded replacement reasons before target or store access", async () => {
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: ["1111111"],
+      commitShas: ["aaaaaaa"],
+      reason: "x".repeat(1_001),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("at most 1000 characters") });
+    expect(questStore.getQuest).not.toHaveBeenCalled();
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized evidence lists before target or store access", async () => {
+    const commitShas = Array.from({ length: 51 }, (_, index) => index.toString(16).padStart(7, "0"));
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: commitShas,
+      commitShas,
+      reason: "Repair evidence",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("at most 50 commits") });
+    expect(questStore.getQuest).not.toHaveBeenCalled();
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { callerId: "other-worker", boardStatus: "WORKING", expectedStatus: 403, expectedError: "assigned worker" },
+    { callerId: "worker-1", boardStatus: "MEMORY", expectedStatus: 409, expectedError: "board state WORKING" },
+  ])("rejects unauthorized or non-Work correction attempts before Git: $expectedError", async (testCase) => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: testCase.boardStatus,
+      journey: { phaseIds: ["work", "memory"], activePhaseIndex: 0, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = testCase.callerId;
+    authCaller = {
+      sessionId: testCase.callerId,
+      isWorktree: true,
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+    } as any);
+
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+
+    expect(res.status).toBe(testCase.expectedStatus);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining(testCase.expectedError) });
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the configured selected-target branch is not checked out", async () => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["work", "memory"], activePhaseIndex: 0, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isWorktree: true,
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+    } as any);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "other",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("must have branch main checked out") });
+    expect(gitUtils.gitAsync).not.toHaveBeenCalled();
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the selected-target branch head changes during verification", async () => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const firstHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const secondHead = "cccccccccccccccccccccccccccccccccccccccc";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["work", "memory"], activePhaseIndex: 0, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isWorktree: true,
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+    } as any);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    let branchReadCount = 0;
+    vi.mocked(gitUtils.gitAsync).mockImplementation(async (command) => {
+      if (command === "rev-parse --verify 'refs/heads/main^{commit}'") {
+        branchReadCount += 1;
+        return branchReadCount === 1 ? firstHead : secondHead;
+      }
+      if (command === `rev-parse --verify ${newSha}^{commit}`) return newSha;
+      if (command === `merge-base --is-ancestor ${newSha} ${firstHead}`) return "";
+      throw new Error(`unexpected git command: ${command}`);
+    });
+
+    const res = await postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("branch changed during verification") });
+    expect(questStore.replaceQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("holds the Work board occurrence stable while the atomic store replacement is pending", async () => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["work", "memory"], activePhaseIndex: 0, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isWorktree: true,
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      version: 1,
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+      createdAt: 1,
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    vi.mocked(gitUtils.gitAsync).mockImplementation(async (command) => {
+      if (command === "rev-parse --verify 'refs/heads/main^{commit}'") return newSha;
+      if (command === `rev-parse --verify ${newSha}^{commit}`) return newSha;
+      if (command === `merge-base --is-ancestor ${newSha} ${newSha}`) return "";
+      throw new Error(`unexpected git command: ${command}`);
+    });
+    const pendingReplacement = deferred<any>();
+    vi.mocked(questStore.replaceQuestCodeCommitEvidenceForOwner).mockReturnValue(pendingReplacement.promise);
+
+    const correction = postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+    await vi.waitFor(() => expect(questStore.replaceQuestCodeCommitEvidenceForOwner).toHaveBeenCalled());
+
+    authCallerId = "leader-1";
+    authCaller = { sessionId: "leader-1", isOrchestrator: true };
+    const blockedRemoval = await app.request("/sessions/leader-1/board/q-9", { method: "DELETE" });
+    expect(blockedRemoval.status).toBe(409);
+    expect(session.board.has("q-9")).toBe(true);
+
+    pendingReplacement.resolve({
+      ...claimedQuest,
+      commitShas: [newSha],
+      codeCommitEvidenceReplacementEvents: [{ ts: 30 }],
+    });
+    expect((await correction).status).toBe(200);
+
+    const removal = await app.request("/sessions/leader-1/board/q-9", { method: "DELETE" });
+    expect(removal.status).toBe(200);
+    expect(session.board.has("q-9")).toBe(false);
+  });
+
+  it("rechecks the lock when an earlier board mutation resumes during evidence replacement", async () => {
+    const oldSha = "1111111111111111111111111111111111111111";
+    const newSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["work", "memory"], activePhaseIndex: 0, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      version: 1,
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      commitShas: [oldSha],
+      createdAt: 1,
+    } as any;
+    const pendingBoardQuestRead = deferred<any>();
+    let questReadCount = 0;
+    vi.mocked(questStore.getQuest).mockImplementation(() => {
+      questReadCount += 1;
+      return questReadCount === 1 ? pendingBoardQuestRead.promise : Promise.resolve(claimedQuest);
+    });
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue({
+      repoRoot: "/repo",
+      repoName: "repo",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    vi.mocked(gitUtils.gitAsync).mockImplementation(async (command) => {
+      if (command === "rev-parse --verify 'refs/heads/main^{commit}'") return newSha;
+      if (command === `rev-parse --verify ${newSha}^{commit}`) return newSha;
+      if (command === `merge-base --is-ancestor ${newSha} ${newSha}`) return "";
+      throw new Error(`unexpected git command: ${command}`);
+    });
+    const pendingReplacement = deferred<any>();
+    vi.mocked(questStore.replaceQuestCodeCommitEvidenceForOwner).mockReturnValue(pendingReplacement.promise);
+
+    authCallerId = "leader-1";
+    authCaller = { sessionId: "leader-1", isOrchestrator: true };
+    const earlierBoardMutation = postBoard({ questId: "q-9", status: "WORKING" });
+    await vi.waitFor(() => expect(questStore.getQuest).toHaveBeenCalledTimes(1));
+
+    authCallerId = "worker-1";
+    authCaller = {
+      sessionId: "worker-1",
+      isWorktree: true,
+      worktreePortTarget: { repoRoot: "/repo", branch: "main" },
+    };
+    const correction = postReplaceWorkEvidence({
+      questId: "q-9",
+      expectedCommitShas: [oldSha],
+      commitShas: [newSha],
+      reason: "Correct evidence",
+    });
+    await vi.waitFor(() => expect(questStore.replaceQuestCodeCommitEvidenceForOwner).toHaveBeenCalled());
+
+    pendingBoardQuestRead.resolve(claimedQuest);
+    const blockedBoardMutation = await earlierBoardMutation;
+    expect(blockedBoardMutation.status).toBe(409);
+    expect(await blockedBoardMutation.json()).toMatchObject({
+      error: expect.stringContaining("Work evidence mutation is in progress"),
+    });
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+
+    pendingReplacement.resolve({
+      ...claimedQuest,
+      commitShas: [newSha],
+      codeCommitEvidenceReplacementEvents: [{ ts: 30 }],
+    });
+    expect((await correction).status).toBe(200);
   });
 });

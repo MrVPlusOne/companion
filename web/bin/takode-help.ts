@@ -16,6 +16,7 @@ import {
   BOARD_PRESENT_HELP,
   BOARD_PROMOTE_HELP,
   BOARD_PROPOSE_HELP,
+  BOARD_REPLACE_WORK_EVIDENCE_HELP,
   BOARD_REVISE_HELP,
   BOARD_RM_HELP,
   BOARD_SET_HELP,
@@ -452,6 +453,8 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_NOTE_HELP);
       } else if (sub === "work-to-memory") {
         console.log(BOARD_WORK_TO_MEMORY_HELP);
+      } else if (sub === "replace-work-evidence") {
+        console.log(BOARD_REPLACE_WORK_EVIDENCE_HELP);
       } else if (sub === "advance") {
         console.log(BOARD_ADVANCE_HELP);
       } else if (sub === "advance-no-groom") {

@@ -203,6 +203,21 @@ export interface QuestRecoveryEvent {
 
 export type QuestRecoveryEventDraft = Omit<QuestRecoveryEvent, "ts">;
 
+export interface QuestCodeCommitEvidenceReplacementEvent {
+  operation: "replace_code_commit_evidence";
+  actorSessionId: string;
+  reason: string;
+  previousCommitShas: string[];
+  replacementCommitShas: string[];
+  journeyRunId: string;
+  phaseOccurrenceId: string;
+  verifiedTargetBranch: string;
+  verifiedTargetHeadSha: string;
+  ts: number;
+}
+
+export type QuestCodeCommitEvidenceReplacementEventDraft = Omit<QuestCodeCommitEvidenceReplacementEvent, "ts">;
+
 // ─── Base fields shared by all stages ────────────────────────────────────────
 
 interface QuestBase {
@@ -243,6 +258,8 @@ interface QuestBase {
   ownershipEvents?: QuestOwnershipEvent[];
   /** Append-only audit trail for explicit leader recovery escape hatches. */
   recoveryEvents?: QuestRecoveryEvent[];
+  /** Append-only audit trail for corrections to structured code commit evidence. */
+  codeCommitEvidenceReplacementEvents?: QuestCodeCommitEvidenceReplacementEvent[];
   /** Current/relevant orchestrating leader session for feedback routing, when known. */
   leaderSessionId?: string;
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */

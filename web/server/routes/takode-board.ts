@@ -1,6 +1,11 @@
 import type { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import {
+  MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS,
+  MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH,
+} from "../../shared/quest-code-commit-evidence.js";
+import { verifyReplacementWorkEvidence } from "../work-evidence-replacement.js";
+import {
   canonicalizeQuestJourneyPhaseId,
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
@@ -412,6 +417,18 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     buildBoardRowSessionStatuses,
     resolveSessionDeps,
   } = deps;
+  const workEvidenceMutationLocks = new Set<string>();
+
+  const workEvidenceMutationLockKey = (leaderSessionId: string, questId: string): string =>
+    `${leaderSessionId}\0${questId.trim().toLowerCase()}`;
+  const isWorkEvidenceMutationLocked = (leaderSessionId: string, questId: string): boolean =>
+    workEvidenceMutationLocks.has(workEvidenceMutationLockKey(leaderSessionId, questId));
+  const acquireWorkEvidenceMutationLock = (leaderSessionId: string, questId: string): (() => void) | null => {
+    const key = workEvidenceMutationLockKey(leaderSessionId, questId);
+    if (workEvidenceMutationLocks.has(key)) return null;
+    workEvidenceMutationLocks.add(key);
+    return () => workEvidenceMutationLocks.delete(key);
+  };
 
   function syncDoneQuestBoardState(questId: string): void {
     const boardBridge = wsBridge as {
@@ -521,142 +538,360 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const initialMatch = matches[0]!;
-    const normalizedStatus = (initialMatch.row.status ?? "").trim().toUpperCase();
-    if (normalizedStatus !== "WORKING") {
+    const releaseWorkEvidenceMutationLock = acquireWorkEvidenceMutationLock(initialMatch.leaderSessionId, questId);
+    if (!releaseWorkEvidenceMutationLock) {
+      return c.json({ error: "Another Work evidence mutation is still in progress; retry afterward." }, 409);
+    }
+
+    try {
+      const normalizedStatus = (initialMatch.row.status ?? "").trim().toUpperCase();
+      if (normalizedStatus !== "WORKING") {
+        return c.json(
+          {
+            error: `Work -> Memory requires board state WORKING; current state is ${initialMatch.row.status ?? "unknown"}.`,
+          },
+          409,
+        );
+      }
+      if ((initialMatch.row.waitForInput ?? []).length > 0) {
+        return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);
+      }
+
+      const initialWorkContext = resolveActiveWorkPhaseContext(initialMatch.leaderSessionId, initialMatch.row, quest);
+      if ("error" in initialWorkContext) return c.json({ error: initialWorkContext.error }, 409);
+      const initialWorkNote = resolveCurrentWorkFeedback({
+        quest,
+        authorSessionId: auth.callerId,
+        activeScope: initialWorkContext,
+        ...(workFeedbackIndex !== undefined ? { requestedIndex: workFeedbackIndex } : {}),
+      });
+      if ("error" in initialWorkNote) return c.json({ error: initialWorkNote.error }, 409);
+      const initialTarget = resolveWorkToMemoryTarget(initialWorkContext, skipOptionalUserCheckpointReason);
+      if ("error" in initialTarget) return c.json({ error: initialTarget.error }, 409);
+
+      if (commitShas) {
+        try {
+          const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
+            questId,
+            { kind: "takode", sessionId: auth.callerId },
+            commitShas,
+          );
+          if (!updated) return c.json({ error: `Quest not found: ${questId}` }, 404);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Cannot attach code commit evidence.";
+          if (
+            message.includes("in-progress quest") ||
+            message.includes("exact active quest owner") ||
+            message.includes("code commit SHA")
+          ) {
+            return c.json({ error: message }, 409);
+          }
+          console.warn(`[routes] Failed to attach Work commit evidence for ${questId}:`, error);
+          return c.json({ error: `Cannot attach code commit evidence for ${questId}; try again.` }, 503);
+        }
+      }
+
+      // Quest-store persistence above is asynchronous. Always re-read the durable
+      // quest before touching the board so a concurrent status or owner change fails closed.
+      const evidenceQuest = await questStore.getQuest(questId).catch(() => null);
+      if (!evidenceQuest) return c.json({ error: `Quest not found: ${questId}` }, 404);
+      if (evidenceQuest.status !== "in_progress" || getTakodeQuestOwnerSessionId(evidenceQuest) !== auth.callerId) {
+        return c.json(
+          { error: "Quest ownership changed while preparing Work -> Memory; retry after refreshing." },
+          409,
+        );
+      }
+      if (hasUnaddressedHumanFeedback(evidenceQuest)) {
+        return c.json({ error: "Cannot transition Work to Memory while human feedback remains unaddressed." }, 409);
+      }
+      if (commitShas) {
+        const storedCommitShas = new Set((evidenceQuest.commitShas ?? []).map((sha) => sha.toLowerCase()));
+        if (commitShas.some((sha) => !storedCommitShas.has(sha))) {
+          return c.json(
+            { error: "Persisted Work commit evidence changed before Memory entry; refresh and retry." },
+            409,
+          );
+        }
+      }
+      const refreshedMatches = findAssignedBoardRowsForWorker({
+        wsBridge,
+        launcher,
+        workerSessionId: auth.callerId,
+        questId,
+      });
+      if (refreshedMatches.length !== 1 || refreshedMatches[0]!.leaderSessionId !== initialMatch.leaderSessionId) {
+        return c.json(
+          { error: "The assigned Work board row changed while recording evidence; refresh and retry." },
+          409,
+        );
+      }
+      const [{ leaderSessionId, row }] = refreshedMatches;
+      const refreshedStatus = (row.status ?? "").trim().toUpperCase();
+      if (refreshedStatus !== "WORKING") {
+        return c.json(
+          { error: `Work -> Memory requires board state WORKING; current state is ${row.status ?? "unknown"}.` },
+          409,
+        );
+      }
+      if ((row.waitForInput ?? []).length > 0) {
+        return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);
+      }
+
+      const leaderSession = wsBridge.getSession(leaderSessionId);
+      if (!leaderSession) return c.json({ error: "Leader board session is unavailable." }, 409);
+      const activeWorkContext = resolveActiveWorkPhaseContext(leaderSessionId, row, evidenceQuest);
+      if ("error" in activeWorkContext) return c.json({ error: activeWorkContext.error }, 409);
+      const workNote = resolveCurrentWorkFeedback({
+        quest: evidenceQuest,
+        authorSessionId: auth.callerId,
+        activeScope: activeWorkContext,
+        ...(workFeedbackIndex !== undefined ? { requestedIndex: workFeedbackIndex } : {}),
+      });
+      if ("error" in workNote) return c.json({ error: workNote.error }, 409);
+
+      const target = resolveWorkToMemoryTarget(activeWorkContext, skipOptionalUserCheckpointReason);
+      if ("error" in target) return c.json({ error: target.error }, 409);
+      const { currentJourney, phaseIds } = activeWorkContext;
+
+      // Publish the freshly re-read structured evidence before the board advertises Memory,
+      // including historical commit truth carried through an explicit no-code Work occurrence.
+      broadcastQuestUpdate(wsBridge, evidenceQuest);
+
+      const board = upsertBoardRowController(
+        leaderSession,
+        {
+          questId: row.questId,
+          status: "MEMORY",
+          worker: row.worker,
+          workerNum: row.workerNum,
+          journey: {
+            ...currentJourney,
+            mode: "active",
+            phaseIds,
+            activePhaseIndex: target.memoryIndex,
+            currentPhaseId: "memory",
+            ...(target.phaseSkipReasons ? { phaseSkipReasons: target.phaseSkipReasons } : {}),
+          },
+        },
+        workBoardStateDeps,
+      );
+
+      return c.json({
+        ok: true,
+        questId: row.questId,
+        leaderSessionId,
+        previousState: row.status,
+        newState: "MEMORY",
+        workFeedbackIndex: workNote.index,
+        board,
+        rowSessionStatuses: await buildBoardRowSessionStatuses(board),
+        queueWarnings: getBoardQueueWarningsController(leaderSession, boardWatchdogDeps),
+        workerSlotUsage: getBoardWorkerSlotUsageController(leaderSessionId, boardWatchdogDeps),
+        resolvedSessionDeps: resolveSessionDeps(board),
+      });
+    } finally {
+      releaseWorkEvidenceMutationLock();
+    }
+  });
+
+  api.post("/takode/board/replace-work-evidence", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    if (auth.caller.reviewerOf !== undefined) {
+      return c.json({ error: "Reviewer sessions cannot replace Work code commit evidence." }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const questId = typeof body.questId === "string" ? body.questId.trim() : "";
+    if (!questId) return c.json({ error: "questId is required" }, 400);
+    if (!isValidQuestId(questId)) {
+      return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
+    }
+    if (!Array.isArray(body.expectedCommitShas) || body.expectedCommitShas.length === 0) {
+      return c.json({ error: "expectedCommitShas must be a non-empty array." }, 400);
+    }
+    if (!Array.isArray(body.commitShas) || body.commitShas.length === 0) {
+      return c.json({ error: "commitShas must be a non-empty array." }, 400);
+    }
+
+    let expectedCommitShas: string[];
+    let replacementCommitShas: string[];
+    try {
+      expectedCommitShas = normalizeCommitShas(body.expectedCommitShas);
+      replacementCommitShas = normalizeCommitShas(body.commitShas);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Invalid commit evidence." }, 400);
+    }
+    if (expectedCommitShas.length === 0 || replacementCommitShas.length === 0) {
+      return c.json({ error: "Expected and replacement commit SHA lists must both be non-empty." }, 400);
+    }
+    if (
+      expectedCommitShas.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS ||
+      replacementCommitShas.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS
+    ) {
       return c.json(
         {
-          error: `Work -> Memory requires board state WORKING; current state is ${initialMatch.row.status ?? "unknown"}.`,
+          error: `Expected and replacement lists support at most ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS} commits each.`,
         },
-        409,
+        400,
       );
     }
-    if ((initialMatch.row.waitForInput ?? []).length > 0) {
-      return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);
+    if (replacementCommitShas.length < expectedCommitShas.length) {
+      return c.json({ error: "Replacement commit evidence cannot contain fewer commits than the expected list." }, 400);
+    }
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (!reason) return c.json({ error: "reason must be a non-empty string." }, 400);
+    if (reason.length > MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH) {
+      return c.json(
+        { error: `reason must be at most ${MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH} characters.` },
+        400,
+      );
+    }
+    if (
+      expectedCommitShas.length === replacementCommitShas.length &&
+      expectedCommitShas.every((sha, index) => sha === replacementCommitShas[index])
+    ) {
+      return c.json({ error: "Replacement commit evidence must differ from the expected stored evidence." }, 400);
     }
 
-    const initialWorkContext = resolveActiveWorkPhaseContext(initialMatch.leaderSessionId, initialMatch.row, quest);
-    if ("error" in initialWorkContext) return c.json({ error: initialWorkContext.error }, 409);
-    const initialWorkNote = resolveCurrentWorkFeedback({
-      quest,
-      authorSessionId: auth.callerId,
-      activeScope: initialWorkContext,
-      ...(workFeedbackIndex !== undefined ? { requestedIndex: workFeedbackIndex } : {}),
-    });
-    if ("error" in initialWorkNote) return c.json({ error: initialWorkNote.error }, 409);
-    const initialTarget = resolveWorkToMemoryTarget(initialWorkContext, skipOptionalUserCheckpointReason);
-    if ("error" in initialTarget) return c.json({ error: initialTarget.error }, 409);
-
-    if (commitShas) {
-      try {
-        const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
-          questId,
-          { kind: "takode", sessionId: auth.callerId },
-          commitShas,
-        );
-        if (!updated) return c.json({ error: `Quest not found: ${questId}` }, 404);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Cannot attach code commit evidence.";
-        if (
-          message.includes("in-progress quest") ||
-          message.includes("exact active quest owner") ||
-          message.includes("code commit SHA")
-        ) {
-          return c.json({ error: message }, 409);
-        }
-        console.warn(`[routes] Failed to attach Work commit evidence for ${questId}:`, error);
-        return c.json({ error: `Cannot attach code commit evidence for ${questId}; try again.` }, 503);
-      }
+    const quest = await questStore.getQuest(questId).catch(() => null);
+    if (!quest) return c.json({ error: `Quest not found: ${questId}` }, 404);
+    if (quest.status !== "in_progress" || getTakodeQuestOwnerSessionId(quest) !== auth.callerId) {
+      return c.json(
+        { error: "Only the assigned worker that has claimed this in-progress quest may replace Work evidence." },
+        403,
+      );
+    }
+    const storedCommitShas = normalizeCommitShas(quest.commitShas ?? []);
+    if (
+      storedCommitShas.length !== expectedCommitShas.length ||
+      storedCommitShas.some((sha, index) => sha !== expectedCommitShas[index])
+    ) {
+      return c.json({ error: "Stored code commit evidence does not exactly match the expected ordered commits." }, 409);
     }
 
-    // Quest-store persistence above is asynchronous. Always re-read the durable
-    // quest before touching the board so a concurrent status or owner change fails closed.
-    const evidenceQuest = await questStore.getQuest(questId).catch(() => null);
-    if (!evidenceQuest) return c.json({ error: `Quest not found: ${questId}` }, 404);
-    if (evidenceQuest.status !== "in_progress" || getTakodeQuestOwnerSessionId(evidenceQuest) !== auth.callerId) {
-      return c.json({ error: "Quest ownership changed while preparing Work -> Memory; retry after refreshing." }, 409);
-    }
-    if (hasUnaddressedHumanFeedback(evidenceQuest)) {
-      return c.json({ error: "Cannot transition Work to Memory while human feedback remains unaddressed." }, 409);
-    }
-    if (commitShas) {
-      const storedCommitShas = new Set((evidenceQuest.commitShas ?? []).map((sha) => sha.toLowerCase()));
-      if (commitShas.some((sha) => !storedCommitShas.has(sha))) {
-        return c.json({ error: "Persisted Work commit evidence changed before Memory entry; refresh and retry." }, 409);
-      }
-    }
-    const refreshedMatches = findAssignedBoardRowsForWorker({
+    const matches = findAssignedBoardRowsForWorker({
       wsBridge,
       launcher,
       workerSessionId: auth.callerId,
       questId,
     });
-    if (refreshedMatches.length !== 1 || refreshedMatches[0]!.leaderSessionId !== initialMatch.leaderSessionId) {
-      return c.json({ error: "The assigned Work board row changed while recording evidence; refresh and retry." }, 409);
+    if (matches.length === 0) {
+      return c.json({ error: "No active board row assigns this quest to the authenticated worker." }, 404);
     }
-    const [{ leaderSessionId, row }] = refreshedMatches;
-    const refreshedStatus = (row.status ?? "").trim().toUpperCase();
-    if (refreshedStatus !== "WORKING") {
+    if (matches.length > 1) {
       return c.json(
-        { error: `Work -> Memory requires board state WORKING; current state is ${row.status ?? "unknown"}.` },
+        { error: "Multiple active board rows assign this quest to the worker; ask the leader to reconcile the board." },
         409,
       );
     }
-    if ((row.waitForInput ?? []).length > 0) {
-      return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);
+
+    const initialMatch = matches[0]!;
+    if ((initialMatch.row.status ?? "").trim().toUpperCase() !== "WORKING") {
+      return c.json(
+        {
+          error: `Replacing Work evidence requires board state WORKING; current state is ${initialMatch.row.status ?? "unknown"}.`,
+        },
+        409,
+      );
+    }
+    if ((initialMatch.row.waitForInput ?? []).length > 0) {
+      return c.json({ error: "Cannot replace Work evidence while a User Checkpoint is unresolved." }, 409);
+    }
+    const initialWorkContext = resolveActiveWorkPhaseContext(initialMatch.leaderSessionId, initialMatch.row, quest);
+    if ("error" in initialWorkContext) return c.json({ error: initialWorkContext.error }, 409);
+    const initialLeaderSessionId = initialMatch.leaderSessionId;
+    const initialRowCreatedAt = initialMatch.row.createdAt;
+    const initialPhaseOccurrenceId = initialWorkContext.phaseOccurrenceId;
+    const releaseWorkEvidenceMutationLock = acquireWorkEvidenceMutationLock(initialLeaderSessionId, questId);
+    if (!releaseWorkEvidenceMutationLock) {
+      return c.json({ error: "Another Work evidence mutation is already in progress." }, 409);
     }
 
-    const leaderSession = wsBridge.getSession(leaderSessionId);
-    if (!leaderSession) return c.json({ error: "Leader board session is unavailable." }, 409);
-    const activeWorkContext = resolveActiveWorkPhaseContext(leaderSessionId, row, evidenceQuest);
-    if ("error" in activeWorkContext) return c.json({ error: activeWorkContext.error }, 409);
-    const workNote = resolveCurrentWorkFeedback({
-      quest: evidenceQuest,
-      authorSessionId: auth.callerId,
-      activeScope: activeWorkContext,
-      ...(workFeedbackIndex !== undefined ? { requestedIndex: workFeedbackIndex } : {}),
-    });
-    if ("error" in workNote) return c.json({ error: workNote.error }, 409);
+    try {
+      const verifiedTarget = await verifyReplacementWorkEvidence(auth.caller, replacementCommitShas);
+      if ("error" in verifiedTarget) return c.json({ error: verifiedTarget.error }, verifiedTarget.status);
 
-    const target = resolveWorkToMemoryTarget(activeWorkContext, skipOptionalUserCheckpointReason);
-    if ("error" in target) return c.json({ error: target.error }, 409);
-    const { currentJourney, phaseIds } = activeWorkContext;
+      const refreshedMatches = findAssignedBoardRowsForWorker({
+        wsBridge,
+        launcher,
+        workerSessionId: auth.callerId,
+        questId,
+      });
+      if (
+        refreshedMatches.length !== 1 ||
+        refreshedMatches[0]!.leaderSessionId !== initialLeaderSessionId ||
+        refreshedMatches[0]!.row.createdAt !== initialRowCreatedAt
+      ) {
+        return c.json({ error: "The assigned Work board row changed while verifying replacement evidence." }, 409);
+      }
+      const refreshedMatch = refreshedMatches[0]!;
+      if ((refreshedMatch.row.status ?? "").trim().toUpperCase() !== "WORKING") {
+        return c.json({ error: "The assigned board row left Work while verifying replacement evidence." }, 409);
+      }
+      if ((refreshedMatch.row.waitForInput ?? []).length > 0) {
+        return c.json({ error: "A User Checkpoint became unresolved while verifying replacement evidence." }, 409);
+      }
+      const refreshedContext = resolveActiveWorkPhaseContext(refreshedMatch.leaderSessionId, refreshedMatch.row, quest);
+      if ("error" in refreshedContext || refreshedContext.phaseOccurrenceId !== initialPhaseOccurrenceId) {
+        return c.json({ error: "The active Work phase occurrence changed while verifying replacement evidence." }, 409);
+      }
 
-    // Publish the freshly re-read structured evidence before the board advertises Memory,
-    // including historical commit truth carried through an explicit no-code Work occurrence.
-    broadcastQuestUpdate(wsBridge, evidenceQuest);
+      let updated: QuestmasterTask | null;
+      try {
+        updated = await questStore.replaceQuestCodeCommitEvidenceForOwner(
+          questId,
+          { kind: "takode", sessionId: auth.callerId },
+          {
+            expectedCommitShas,
+            replacementCommitShas: verifiedTarget.commitShas,
+            reason,
+            journeyRunId: refreshedContext.journeyRunId,
+            phaseOccurrenceId: refreshedContext.phaseOccurrenceId,
+            verifiedTargetBranch: verifiedTarget.branch,
+            verifiedTargetHeadSha: verifiedTarget.headSha,
+          },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Cannot replace Work code commit evidence.";
+        const lower = message.toLowerCase();
+        if (
+          lower.includes("in-progress quest") ||
+          lower.includes("active quest owner") ||
+          lower.includes("commit evidence") ||
+          lower.includes("commit sha") ||
+          lower.includes("expected") ||
+          lower.includes("replacement")
+        ) {
+          return c.json({ error: message }, 409);
+        }
+        console.warn(`[routes] Failed to replace Work commit evidence for ${questId}:`, error);
+        return c.json({ error: `Cannot replace Work code commit evidence for ${questId}; try again.` }, 503);
+      }
+      if (!updated) return c.json({ error: `Quest not found: ${questId}` }, 404);
 
-    const board = upsertBoardRowController(
-      leaderSession,
-      {
-        questId: row.questId,
-        status: "MEMORY",
-        worker: row.worker,
-        workerNum: row.workerNum,
-        journey: {
-          ...currentJourney,
-          mode: "active",
-          phaseIds,
-          activePhaseIndex: target.memoryIndex,
-          currentPhaseId: "memory",
-          ...(target.phaseSkipReasons ? { phaseSkipReasons: target.phaseSkipReasons } : {}),
+      broadcastQuestUpdate(wsBridge, updated);
+      const replacementEvent = updated.codeCommitEvidenceReplacementEvents?.at(-1);
+      return c.json({
+        ok: true,
+        questId,
+        previousCommitShas: expectedCommitShas,
+        commitShas: verifiedTarget.commitShas,
+        target: {
+          mode: verifiedTarget.mode,
+          checkoutPath: verifiedTarget.checkoutPath,
+          branch: verifiedTarget.branch,
+          headSha: verifiedTarget.headSha,
         },
-      },
-      workBoardStateDeps,
-    );
-
-    return c.json({
-      ok: true,
-      questId: row.questId,
-      leaderSessionId,
-      previousState: row.status,
-      newState: "MEMORY",
-      workFeedbackIndex: workNote.index,
-      board,
-      rowSessionStatuses: await buildBoardRowSessionStatuses(board),
-      queueWarnings: getBoardQueueWarningsController(leaderSession, boardWatchdogDeps),
-      workerSlotUsage: getBoardWorkerSlotUsageController(leaderSessionId, boardWatchdogDeps),
-      resolvedSessionDeps: resolveSessionDeps(board),
-    });
+        correction: {
+          journeyRunId: refreshedContext.journeyRunId,
+          phaseOccurrenceId: refreshedContext.phaseOccurrenceId,
+          ...(replacementEvent?.ts ? { ts: replacementEvent.ts } : {}),
+        },
+      });
+    } finally {
+      releaseWorkEvidenceMutationLock();
+    }
   });
 
   api.get("/sessions/:id/board", async (c) => {
@@ -704,6 +939,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (!questId) return c.json({ error: "questId is required" }, 400);
     if (!isValidQuestId(questId)) {
       return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
+    }
+    if (isWorkEvidenceMutationLocked(id, questId)) {
+      return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
     }
     if (typeof body.noCode === "boolean") {
       return c.json(
@@ -837,6 +1075,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         presentedAt: Date.now(),
         ...metadata,
       };
+      if (isWorkEvidenceMutationLocked(id, questId)) {
+        return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
+      }
       const board = upsertBoardRowController(
         bridgeSession,
         {
@@ -1310,6 +1551,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     const workerNumForUpsert =
       targetMode === "proposed" ? undefined : typeof body.workerNum === "number" ? body.workerNum : undefined;
 
+    if (isWorkEvidenceMutationLocked(id, questId)) {
+      return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
+    }
     const board = bridgeSession
       ? upsertBoardRowController(
           bridgeSession,
@@ -1364,6 +1608,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         400,
       );
     }
+    if (questIds.some((questId) => isWorkEvidenceMutationLocked(id, questId))) {
+      return c.json({ error: "Cannot remove a board row while a Work evidence mutation is in progress." }, 409);
+    }
 
     const bridgeSession = wsBridge.getSession(id);
     const board = bridgeSession ? removeBoardRowsController(bridgeSession, questIds, workBoardStateDeps) : null;
@@ -1392,6 +1639,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (!questId) return c.json({ error: "questId is required" }, 400);
     if (!isValidQuestId(questId)) {
       return c.json({ error: 'Invalid quest ID "' + questId + '": must match q-NNN format (e.g., q-1, q-42)' }, 400);
+    }
+    if (isWorkEvidenceMutationLocked(id, questId)) {
+      return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
     }
 
     const bridgeSession = wsBridge.getSession(id);
@@ -1554,6 +1804,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       ...(revisionReason ? { revisionReason } : {}),
     };
 
+    if (isWorkEvidenceMutationLocked(id, questId)) {
+      return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
+    }
     const board = upsertBoardRowController(
       bridgeSession,
       {
@@ -1591,6 +1844,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (!isValidQuestId(questId)) {
       return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
     }
+    if (isWorkEvidenceMutationLocked(id, questId)) {
+      return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
+    }
 
     const bridgeSession = wsBridge.getSession(id);
     const existingRow = bridgeSession?.board.get(questId);
@@ -1614,6 +1870,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       !skipOptionalUserCheckpointReason
     ) {
       return c.json({ error: "skipOptionalUserCheckpointReason must be a non-empty string when provided" }, 400);
+    }
+    if (isWorkEvidenceMutationLocked(id, questId)) {
+      return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
     }
     const result = bridgeSession
       ? advanceBoardRowController(bridgeSession, questId, QUEST_JOURNEY_STATES, workBoardStateDeps, {

@@ -1,5 +1,6 @@
 import type { QuestmasterTask } from "./quest-types.js";
 import { normalizeQuestQuizItems } from "./quest-quiz.js";
+import { normalizeQuestCodeCommitEvidenceReplacementEvents } from "./quest-code-commit-evidence.js";
 import { normalizeQuestRecoveryEvents } from "./quest-recovery.js";
 import { normalizeQuestOwnership } from "./quest-store-helpers.js";
 import { normalizeQuestRelationships, stripDerivedQuestRelationships } from "./quest-relationships.js";
@@ -30,5 +31,13 @@ export function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
   const recoveryEvents = normalizeQuestRecoveryEvents((normalized as { recoveryEvents?: unknown }).recoveryEvents);
   if (recoveryEvents.length > 0) normalized.recoveryEvents = recoveryEvents;
   else delete normalized.recoveryEvents;
+  const codeCommitEvidenceReplacementEvents = normalizeQuestCodeCommitEvidenceReplacementEvents(
+    (normalized as { codeCommitEvidenceReplacementEvents?: unknown }).codeCommitEvidenceReplacementEvents,
+  );
+  if (codeCommitEvidenceReplacementEvents.length > 0) {
+    normalized.codeCommitEvidenceReplacementEvents = codeCommitEvidenceReplacementEvents;
+  } else {
+    delete normalized.codeCommitEvidenceReplacementEvents;
+  }
   return normalized;
 }

@@ -93,6 +93,16 @@ takode board set q-12 --status WORKING --clear-wait-for-input
 
 The transition persists normalized code SHAs before entering `MEMORY` and appends only new unique values. A Work note alone is not structured evidence. Leaders can still inspect or intervene, but routine Work completion should not require leader-owned Port/review/Memory dispatch, and final Memory must route missing code evidence back to Work rather than first-attaching it.
 
+## Correcting Invalid Work Evidence
+
+Use the correction-only command when structured Work code evidence is already wrong; never append a valid SHA while leaving known-invalid evidence authoritative:
+
+```bash
+takode board replace-work-evidence q-12 --expected-commits "bad1234" --commits "abc1234" --reason "Correct mistyped delivery evidence"
+```
+
+The authenticated assigned worker may run it only on the active `WORKING` occurrence with no unresolved User Checkpoint. The expected ordered list must exactly match current storage. Replacement commits must resolve in the configured selected target, remain reachable from its stable branch head, contain at least as many entries as the prior list, and stay within the bounded command limit. The compare-and-swap replacement and its actor, reason, prior/replacement lists, Work occurrence, and verified target head are recorded atomically. The command does not advance the Journey; refresh the current Work note, then use the ordinary guarded `work-to-memory` transition with this occurrence's fresh synchronized code evidence.
+
 ## Historical Rows
 
 Existing legacy rows are preserved as stored for compatibility: their phase IDs, notes, timings, statuses, and ownership remain readable and can finish their recorded Journey. New or materially revised rows must use active v2 phases only.
