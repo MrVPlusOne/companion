@@ -3,6 +3,7 @@ import type {
   CodexInstructionSnapshot,
   CodexInstructionSourceSnapshot,
 } from "./codex-adapter-types.js";
+import { captureCodexInstructionContents } from "./codex-instruction-content.js";
 
 export interface CodexInstructionContext {
   globalSources: Array<{
@@ -72,4 +73,18 @@ export function buildCodexInstructionSnapshot(options: {
     configLayers: options.instructionContext?.configLayers ?? [],
     developerInstructionsConfigured: options.developerInstructionsConfigured,
   };
+}
+
+/** Capture immutable source evidence after the successful native thread response. */
+export async function captureCodexInstructionSnapshot(
+  options: Omit<Parameters<typeof buildCodexInstructionSnapshot>[0], "developerInstructionsConfigured"> & {
+    developerInstructions?: string;
+    rolloutPath?: unknown;
+  },
+): Promise<CodexInstructionSnapshot> {
+  const snapshot = buildCodexInstructionSnapshot({
+    ...options,
+    developerInstructionsConfigured: Boolean(options.developerInstructions?.trim()),
+  });
+  return captureCodexInstructionContents(snapshot, options.developerInstructions, options.rolloutPath);
 }

@@ -94,6 +94,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Quest Status Panel",
     "Questmaster Compact Table",
     "Personal To-dos",
+    "Codex Developer Instructions",
     "Timer Chip + Modal",
     "Notification Inbox",
     "Quest Detail Modal",

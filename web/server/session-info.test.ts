@@ -39,6 +39,10 @@ describe("public launcher session serialization", () => {
           instructionSources: [{ path: "/repo/AGENTS.md", kind: "project", delivery: "direct" }],
           configLayers: [{ kind: "user", path: "/private/codex-home/config.toml" }],
           developerInstructionsConfigured: true,
+          contents: {
+            generated: { content: "large private generated body" },
+            sources: [{ content: "large private repository body" }],
+          },
         },
       }),
       leaderOpenThreadTabs: {
@@ -92,6 +96,10 @@ describe("public launcher session serialization", () => {
           instructionSources: [],
           configLayers: [],
           developerInstructionsConfigured: true,
+          contents: {
+            generated: { content: "large private generated body" },
+            sources: [{ content: "large private repository body" }],
+          },
         },
       }),
       {
@@ -104,6 +112,9 @@ describe("public launcher session serialization", () => {
     expect(result.injectedSystemPrompt).toBe("requested injected prompt");
     expect(result.codexContextWindowDiagnostics).toMatchObject({ capacitySource: "codex_default" });
     expect(result.codexInstructionSnapshot).toMatchObject({ threadId: "thread-requested", lifecycle: "thread_resume" });
+    // Opting into source metadata does not opt into any instruction bodies.
+    expect(result.codexInstructionSnapshot).not.toHaveProperty("contents");
+    expect(JSON.stringify(result)).not.toContain("large private");
     expect(result).not.toHaveProperty("codexHome");
     expect(result).not.toHaveProperty("sdkDebugLogPath");
   });

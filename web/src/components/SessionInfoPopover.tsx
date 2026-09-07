@@ -783,24 +783,14 @@ export function SessionInfoPopover({
         <GitHubPRSection sessionId={sessionId} />
         <McpCollapsible sessionId={sessionId} />
         {isCodexSession ? (
-          <>
-            <CodexInstructionsCollapsible
-              sessionId={sessionId}
-              snapshot={effectiveSdkSession?.codexInstructionSnapshot}
-              fetchWhenMissing={false}
-              refreshKey={sessionDetailKey}
-              snapshotLoading={currentSessionDetailState.status === "loading"}
-              snapshotFailed={currentSessionDetailState.status === "failed"}
-            />
-            <SystemPromptCollapsible
-              sessionId={sessionId}
-              title="Developer Instructions"
-              rowLabel="Takode-generated instructions"
-              modalTitle="Developer Instructions"
-              modalDescription="Takode session-scoped developer instructions (read-only)"
-              emptyLabel="No developer instructions recorded"
-            />
-          </>
+          <CodexInstructionsCollapsible
+            sessionId={sessionId}
+            snapshot={effectiveSdkSession?.codexInstructionSnapshot}
+            fetchWhenMissing={false}
+            refreshKey={sessionDetailKey}
+            snapshotLoading={currentSessionDetailState.status === "loading"}
+            snapshotFailed={currentSessionDetailState.status === "failed"}
+          />
         ) : (
           <>
             {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={sessionVm?.repoRoot} />}

@@ -311,7 +311,7 @@ export type PublicSdkSessionInfo = Pick<
     codexInternetAccess?: boolean | null;
     claudeReasoningEffort?: string | null;
     codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
-    codexInstructionSnapshot?: CodexInstructionSnapshot;
+    codexInstructionSnapshot?: Omit<CodexInstructionSnapshot, "contents">;
     injectedSystemPrompt?: string;
     activeNeedsInputNotificationCount?: number;
     activeReviewNotificationCount?: number;
@@ -360,7 +360,26 @@ export function stripInternalLauncherSessionState(
     result.codexContextWindowDiagnostics = info.codexContextWindowDiagnostics;
   }
   if (options.includeCodexInstructionSnapshot && info.codexInstructionSnapshot !== undefined) {
-    result.codexInstructionSnapshot = info.codexInstructionSnapshot;
+    const snapshot = info.codexInstructionSnapshot;
+    result.codexInstructionSnapshot = {
+      threadId: snapshot.threadId,
+      capturedAt: snapshot.capturedAt,
+      lifecycle: snapshot.lifecycle,
+      instructionSourcesReported: snapshot.instructionSourcesReported,
+      developerInstructionsConfigured: snapshot.developerInstructionsConfigured,
+      instructionSources: snapshot.instructionSources.map(({ path, kind, sourcePath, delivery }) => ({
+        path,
+        kind,
+        ...(sourcePath !== undefined ? { sourcePath } : {}),
+        ...(delivery !== undefined ? { delivery } : {}),
+      })),
+      configLayers: snapshot.configLayers.map(({ kind, path, label, profile }) => ({
+        kind,
+        ...(path !== undefined ? { path } : {}),
+        ...(label !== undefined ? { label } : {}),
+        ...(profile !== undefined ? { profile } : {}),
+      })),
+    };
   }
   return result as PublicSdkSessionInfo;
 }

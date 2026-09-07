@@ -435,7 +435,8 @@ describe("SessionInfoPopover", () => {
       "thread-snapshot",
     );
     expect(screen.queryByTestId("claude-md-section")).not.toBeInTheDocument();
-    expect(screen.getByTestId("system-prompt-section")).toHaveTextContent("Developer Instructions");
+    expect(screen.getAllByTestId("codex-instructions-section")).toHaveLength(1);
+    expect(screen.queryByTestId("system-prompt-section")).not.toBeInTheDocument();
   });
 
   it("shows instruction details as loading until the selected-session snapshot resolves", async () => {

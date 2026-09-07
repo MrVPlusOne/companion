@@ -1,4 +1,8 @@
 import type { SdkSessionInfo } from "../types.js";
+import type {
+  CodexInstructionContentRequest,
+  CodexInstructionContentResponse,
+} from "../../shared/codex-instruction-content.js";
 
 const BASE = "/api";
 
@@ -24,4 +28,14 @@ export function getSessionInfo(sessionId: string): Promise<SdkSessionInfo> {
   return getSessionInfoResponse(
     `/sessions/${encodeURIComponent(sessionId)}?includeCodexContextWindowDiagnostics=true&includeCodexInstructionSnapshot=true`,
   ) as Promise<SdkSessionInfo>;
+}
+
+export function getSessionInstructionContent(
+  sessionId: string,
+  selection: CodexInstructionContentRequest,
+): Promise<CodexInstructionContentResponse> {
+  const query = new URLSearchParams({ ...selection, capturedAt: String(selection.capturedAt) });
+  return getSessionInfoResponse(
+    `/sessions/${encodeURIComponent(sessionId)}/instruction-content?${query}`,
+  ) as Promise<CodexInstructionContentResponse>;
 }

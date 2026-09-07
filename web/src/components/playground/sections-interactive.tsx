@@ -30,6 +30,7 @@ import { PlaygroundQuestJourneyPalette } from "./PlaygroundQuestJourneyPalette.j
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import { PlaygroundTodoStates } from "./PlaygroundTodoStates.js";
 import { PlaygroundTimerStates } from "./PlaygroundTimerStates.js";
+import { PlaygroundCodexInstructionsSection } from "./PlaygroundCodexInstructionsSection.js";
 import { buildPlaygroundProjectedJourney } from "./leader-thread-tabs-projection-fixtures.js";
 import { MOCK_SESSION_ID } from "./fixtures.js";
 import {
@@ -1940,6 +1941,7 @@ export function PlaygroundInteractiveSections() {
 
       <PlaygroundTodoStates />
 
+      <PlaygroundCodexInstructionsSection />
       <PlaygroundTimerStates />
 
       <PlaygroundNotificationInboxSection />

@@ -27,7 +27,7 @@ import {
   type CLIResultMessage,
 } from "./session-types.js";
 import type { CodexAdapterOptions, CodexInstructionSnapshot, CodexSessionMeta } from "./codex-adapter-types.js";
-import { buildCodexInstructionSnapshot } from "./codex-instruction-snapshot.js";
+import { captureCodexInstructionSnapshot } from "./codex-instruction-snapshot.js";
 import {
   buildCodexResumeSnapshot,
   buildCodexCollabMode,
@@ -958,7 +958,7 @@ export class CodexAdapter
       let resumeSnapshot: CodexResumeSnapshot | null = null;
       let runtimeReasoningEffort = UNREPORTED_CODEX_REASONING_EFFORT;
       let threadLifecycle: CodexInstructionSnapshot["lifecycle"] = "thread_start";
-      let threadInstructionSources: unknown;
+      let threadInstructionResult: { thread: { id: string; path?: unknown }; instructionSources?: unknown } | undefined;
       // Step 1: Send initialize request
       const result = (await this.transport.call("initialize", {
         clientInfo: {
@@ -974,8 +974,6 @@ export class CodexAdapter
       // Step 2: Send initialized notification
       await this.transport.notify("initialized", {});
 
-      this.initialized = true;
-
       await configureCodexDeveloperInstructions(this.transport, this.options.instructions);
 
       // Step 3: Start or resume a thread
@@ -988,7 +986,7 @@ export class CodexAdapter
           )) as { thread: Record<string, unknown> & { id: string }; instructionSources?: unknown };
           this.threadId = resumeResult.thread.id;
           threadLifecycle = "thread_resume";
-          threadInstructionSources = resumeResult.instructionSources;
+          threadInstructionResult = resumeResult;
           runtimeReasoningEffort = readCodexReasoningEffortReport(resumeResult);
           resumeSnapshot = buildCodexResumeSnapshot(resumeResult.thread);
           assertRequiredCodexResumeThread(this.threadId, this.options.requireResumeThreadId);
@@ -1007,28 +1005,39 @@ export class CodexAdapter
             `[codex-adapter] thread/resume failed for ${this.options.threadId}: ${err}. Starting a fresh thread.`,
           );
           const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
-            thread: { id: string };
+            thread: { id: string; path?: unknown };
             instructionSources?: unknown;
           };
           this.threadId = threadResult.thread.id;
           threadLifecycle = "thread_start";
-          threadInstructionSources = threadResult.instructionSources;
+          threadInstructionResult = threadResult;
           runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
         }
       } else {
         // Start a new thread
         const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
-          thread: { id: string };
+          thread: { id: string; path?: unknown };
           instructionSources?: unknown;
         };
         this.threadId = threadResult.thread.id;
-        threadInstructionSources = threadResult.instructionSources;
+        threadInstructionResult = threadResult;
         runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
       }
 
       this.connected = true;
       this.nativeSubagents.setRootProviderThreadId(this.threadId);
 
+      const instructionSnapshot = await captureCodexInstructionSnapshot({
+        threadId: this.threadId,
+        capturedAt: Date.now(),
+        lifecycle: threadLifecycle,
+        instructionSources: threadInstructionResult?.instructionSources,
+        rolloutPath: threadInstructionResult?.thread.path,
+        instructionContext: this.options.instructionContext,
+        developerInstructions: this.options.instructions,
+      });
+      if (!this.connected || !this.transport.isConnected()) return;
+      this.initialized = true;
       // Notify session metadata. Codex's thread response is the authority for
       // which AGENTS.md files actually entered this thread's instruction chain.
       this.sessionMetaCb?.({
@@ -1036,14 +1045,7 @@ export class CodexAdapter
         model: this.options.model,
         cwd: this.options.cwd,
         resumeSnapshot,
-        instructionSnapshot: buildCodexInstructionSnapshot({
-          threadId: this.threadId,
-          capturedAt: Date.now(),
-          lifecycle: threadLifecycle,
-          instructionSources: threadInstructionSources,
-          instructionContext: this.options.instructionContext,
-          developerInstructionsConfigured: Boolean(this.options.instructions?.trim()),
-        }),
+        instructionSnapshot,
       });
 
       // Send session_init to browser

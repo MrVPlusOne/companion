@@ -16,6 +16,7 @@ const { mockApi } = vi.hoisted(() => ({
     getClaudeMdFiles: vi.fn().mockResolvedValue({ cwd: "/repo", files: [] }),
     getSessionInfo: vi.fn().mockResolvedValue({ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1 }),
     getSessionSystemPrompt: vi.fn().mockResolvedValue({ prompt: null }),
+    getSessionInstructionContent: vi.fn(),
     getAutoApprovalConfigForPath: vi.fn().mockResolvedValue({ config: null }),
     getHerdDiagnostics: vi.fn().mockResolvedValue({
       herdDispatcher: { pendingEventCount: 0, eventHistory: [] },
@@ -199,8 +200,19 @@ import {
   CodexRateLimitsSection,
   CodexTokenDetailsSection,
   ClaudeMdCollapsible,
-  SystemPromptCollapsible,
 } from "./TaskPanel.js";
+
+function instructionSnapshot(threadId: string) {
+  return {
+    threadId,
+    capturedAt: 1,
+    lifecycle: "thread_start" as const,
+    instructionSourcesReported: true,
+    developerInstructionsConfigured: true,
+    configLayers: [],
+    instructionSources: [],
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -618,7 +630,7 @@ describe("TaskPanel", () => {
     expect(screen.getByText("/repo/AGENTS.md")).toBeInTheDocument();
     expect(screen.getByText("Global")).toBeInTheDocument();
     expect(screen.getByText("Repository")).toBeInTheDocument();
-    expect(screen.getByText(/Resumed thread thread-123/)).toBeInTheDocument();
+    expect(screen.getByText(/Instruction details show captured/)).toBeInTheDocument();
   });
 
   it("refreshes the snapshot when the Codex launch identity changes without painting stale sources", async () => {
@@ -705,72 +717,64 @@ describe("TaskPanel", () => {
     render(<CodexInstructionsCollapsible sessionId="s1" />);
     expect(mockApi.getSessionInfo).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Codex Instructions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Developer Instructions" }));
     await waitFor(() => expect(mockApi.getSessionInfo).toHaveBeenCalledWith("s1"));
   });
 
-  it("keeps TaskPanel developer instructions lazy until their separate section is opened", async () => {
-    render(
-      <SystemPromptCollapsible
-        sessionId="s1"
-        title="Developer Instructions"
-        collapseKey="test-codex-developer-instructions"
-        defaultCollapsed
-      />,
-    );
+  it("keeps generated instruction content lazy after the shared section opens", async () => {
+    // Opening metadata is not permission to download any captured body.
+    localStorage.setItem("cc-collapse-codex-instructions", "1");
+    mockApi.getSessionInfo.mockResolvedValue({
+      sessionId: "s1",
+      codexInstructionSnapshot: instructionSnapshot("thread-one"),
+    });
+    render(<CodexInstructionsCollapsible sessionId="s1" />);
 
     const sectionButton = screen.getByRole("button", { name: "Developer Instructions" });
     expect(sectionButton).toHaveAttribute("type", "button");
     expect(sectionButton).toHaveAttribute("aria-expanded", "false");
-    expect(mockApi.getSessionSystemPrompt).not.toHaveBeenCalled();
+    expect(mockApi.getSessionInstructionContent).not.toHaveBeenCalled();
     fireEvent.click(sectionButton);
-    await waitFor(() => expect(mockApi.getSessionSystemPrompt).toHaveBeenCalledWith("s1"));
+    expect(await screen.findByRole("button", { name: "Takode-generated instructions" })).toBeInTheDocument();
+    expect(mockApi.getSessionInstructionContent).not.toHaveBeenCalled();
+    expect(mockApi.getSessionSystemPrompt).not.toHaveBeenCalled();
   });
 
   it("distinguishes a developer-instruction load failure from an empty prompt", async () => {
-    mockApi.getSessionSystemPrompt.mockRejectedValue(new Error("unavailable"));
-    render(
-      <SystemPromptCollapsible
-        sessionId="s1"
-        title="Developer Instructions"
-        collapseKey="test-failed-developer-instructions"
-      />,
-    );
+    mockApi.getSessionInstructionContent.mockRejectedValue(new Error("unavailable"));
+    render(<CodexInstructionsCollapsible sessionId="s1" snapshot={instructionSnapshot("thread-one")} />);
 
-    expect(await screen.findByText("Could not load the recorded instructions.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Takode-generated instructions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load the captured instructions.");
     expect(screen.queryByText("No system prompt recorded")).not.toBeInTheDocument();
   });
 
   it("does not show one Codex session's developer instructions after switching sessions", async () => {
-    mockApi.getSessionSystemPrompt.mockResolvedValueOnce({ prompt: "session one private guidance" });
+    // The session is part of viewer identity even if a producer repeats capture timestamps.
+    mockApi.getSessionInstructionContent.mockResolvedValueOnce({
+      threadId: "thread-one",
+      capturedAt: 1,
+      source: "generated",
+      content: "session one private guidance",
+    });
     const { rerender } = render(
-      <SystemPromptCollapsible
-        sessionId="s1"
-        title="Developer Instructions"
-        rowLabel="Takode-generated instructions"
-        modalTitle="Developer Instructions"
-        collapseKey="test-session-isolated-developer-instructions"
-      />,
+      <CodexInstructionsCollapsible sessionId="s1" snapshot={instructionSnapshot("thread-one")} />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Takode-generated instructions" }));
-    expect(screen.getByText("session one private guidance")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Takode-generated instructions" }));
+    expect(await screen.findByText("session one private guidance")).toBeInTheDocument();
+    mockApi.getSessionInstructionContent.mockResolvedValueOnce({
+      threadId: "thread-two",
+      capturedAt: 1,
+      source: "generated",
+      content: "session two private guidance",
+    });
+    rerender(<CodexInstructionsCollapsible sessionId="s2" snapshot={instructionSnapshot("thread-two")} />);
 
-    mockApi.getSessionSystemPrompt.mockResolvedValueOnce({ prompt: "session two private guidance" });
-    rerender(
-      <SystemPromptCollapsible
-        sessionId="s2"
-        title="Developer Instructions"
-        rowLabel="Takode-generated instructions"
-        modalTitle="Developer Instructions"
-        collapseKey="test-session-isolated-developer-instructions"
-      />,
-    );
-
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("session one private guidance")).not.toBeInTheDocument();
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Takode-generated instructions" }));
-    expect(screen.getByText("session two private guidance")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Takode-generated instructions" }));
+    expect(await screen.findByText("session two private guidance")).toBeInTheDocument();
   });
 
   it("keeps Claude files out of the Codex task panel", async () => {
@@ -782,8 +786,9 @@ describe("TaskPanel", () => {
 
     render(<TaskPanel sessionId="s1" />);
 
-    expect(screen.getByRole("button", { name: "Codex Instructions" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Developer Instructions" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Developer Instructions" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Codex Instructions" })).not.toBeInTheDocument();
+    expect(mockApi.getSessionSystemPrompt).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "CLAUDE.md" })).not.toBeInTheDocument();
     expect(mockApi.getClaudeMdFiles).not.toHaveBeenCalled();
   });

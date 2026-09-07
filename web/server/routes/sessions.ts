@@ -62,6 +62,7 @@ import { registerSessionReplacementRoutes } from "./session-replacement-routes.j
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
 import { registerSessionImageRoutes } from "./session-image-routes.js";
 import { registerSessionDirectoryRoutes } from "./session-directory-routes.js";
+import { registerSessionInstructionContentRoute } from "./session-instruction-content.js";
 import { registerWorktreeCleanupRoutes } from "./worktree-cleanup-routes.js";
 import { prepareWorktreeForSessionCreate, type WorktreeSessionInfo } from "./session-worktree-create.js";
 import type { CreationProgressStatus, EmitCreationProgress, SessionConfig } from "./session-create-config.js";
@@ -1207,6 +1208,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     );
   });
   registerSessionDirectoryRoutes(api, { launcher, resolveId, wsBridge, backfillSessionProjectMeta });
+  registerSessionInstructionContentRoute(api, { launcher, resolveId });
   registerSessionLeaderProfileRoute(api, ctx);
 
   api.get("/sessions/:id/messages/:idx/preview", (c) => {

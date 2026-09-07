@@ -1,5 +1,6 @@
 import type { RecorderManager } from "./recorder.js";
 import type { CodexResumeSnapshot } from "./codex-adapter-utils.js";
+import type { CapturedInstructionContent } from "../shared/codex-instruction-content.js";
 
 export type CodexInstructionSourceKind = "global" | "project" | "unknown";
 
@@ -27,6 +28,13 @@ export interface CodexInstructionSnapshot {
   instructionSources: CodexInstructionSourceSnapshot[];
   configLayers: CodexConfigLayerSourceSnapshot[];
   developerInstructionsConfigured: boolean;
+  /** Internal retained bodies. Never included in session metadata projections. */
+  contents?: {
+    generated: CapturedInstructionContent;
+    sources: CapturedInstructionContent[];
+    /** Private initialization evidence, never exposed by metadata or source-detail responses. */
+    evidence?: import("./codex-instruction-content.js").CodexInstructionCaptureEvidence;
+  };
 }
 
 export interface CodexAdapterOptions {

@@ -21,7 +21,7 @@ import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
 import { searchGlobalStarredMessages, searchSessionMessages } from "./api/session-message-search.js";
 import { fetchRecentAskBundles } from "./api/recent-asks.js";
-import { getSessionInfo, listSessions } from "./api/session-info.js";
+import { getSessionInfo, getSessionInstructionContent, listSessions } from "./api/session-info.js";
 import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpaces } from "./api/memory.js";
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
@@ -1302,6 +1302,8 @@ export const api = {
 
   getSessionSystemPrompt: (sessionId: string) =>
     get<{ prompt: string | null }>(`/sessions/${encodeURIComponent(sessionId)}/system-prompt`),
+
+  getSessionInstructionContent,
 
   listDirs: (path?: string, opts?: { hidden?: boolean }) => {
     const params = new URLSearchParams();
