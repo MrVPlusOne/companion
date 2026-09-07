@@ -118,6 +118,7 @@ cd web && bun --no-install run format:check
 
 - All new backend (`web/server/`) and frontend (`web/src/`) code **must** include tests when possible.
 - Tests use Vitest. Server tests live alongside source files (e.g. `routes.test.ts` next to `routes.ts`).
+- Keep path-dependent tests portable: derive host-dependent expectations from the runtime environment or a controlled fixture root instead of hardcoding a developer's home or checkout path. Fixed synthetic paths are valid test data. Keep test writes and cleanup under isolated temporary roots, never real home or durable user-data directories.
 - A husky pre-commit hook runs staged formatting, the staged file line-limit guard, and typecheck automatically before each commit. It does not run the full test suite.
 - For tracked code/test changes, the current full automated gate before merge, Port push, or final acceptance is:
   - `cd web && bun --no-install run typecheck`

@@ -1416,7 +1416,9 @@ describe("Codex pending input delivery", () => {
     );
     expect(steer.pendingInputIds).toEqual([session.pendingCodexInputs[0]?.id]);
     expect(steer.inputs[0]?.content).toContain("message with image after active-turn mismatch");
-    expect(steer.inputs[0]?.content).toContain("/Users/jiayiwei/.companion/images/s-codex-active-turn-mismatch/");
+    // Image storage follows the test process home, including isolated test runs
+    // and developer machines with a different home directory.
+    expect(steer.inputs[0]?.content).toContain(join(homedir(), ".companion", "images", sid));
     expect(steer.inputs[0]?.content).toContain("image-1.takode-agent.jpeg");
     expect(steer.inputs[0]?.images).toBeUndefined();
     expect(steer.inputs[0]?.local_images).toBeUndefined();
