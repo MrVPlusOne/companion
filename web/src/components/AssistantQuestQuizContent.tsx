@@ -22,12 +22,14 @@ interface AssistantQuestQuizContentProps {
   questLinkSurface?: QuestLinkSurface;
 }
 
-export function stripQuestQuizMarkers(text: string): string {
+export function stripQuestQuizMarkers(text: string, shouldStrip?: (questId: string) => boolean): string {
   const segments = parseQuestQuizContentSegments(text);
-  if (!segments.some((segment) => segment.kind === "quiz")) return text;
+  const isStrippedQuiz = (segment: AssistantQuestQuizSegment) =>
+    segment.kind === "quiz" && (!shouldStrip || shouldStrip(segment.questId));
+  if (!segments.some(isStrippedQuiz)) return text;
   return segments
-    .filter((segment): segment is Extract<AssistantQuestQuizSegment, { kind: "text" }> => segment.kind === "text")
-    .map((segment) => segment.text)
+    .filter((segment) => !isStrippedQuiz(segment))
+    .map((segment) => (segment.kind === "text" ? segment.text : `{[(Quest Quiz: ${segment.questId})]}`))
     .join("\n\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

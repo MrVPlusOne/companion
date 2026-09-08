@@ -26,6 +26,8 @@ import {
   resolveEmbeddedVsCodePath,
   showEditorOpenError,
 } from "../utils/vscode-bridge.js";
+import { parseTakodeBoardCommand, parseTakodeNotifyCommand } from "../utils/takode-tool-command.js";
+export { parseTakodeBoardCommand, parseTakodeNotifyCommand } from "../utils/takode-tool-command.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 import { buildChangePatchGroups } from "../utils/diff-change-groups.js";
 
@@ -540,40 +542,6 @@ function FilePathHeaderPreview({
   );
 }
 
-const INLINE_BOARD_FALLBACK_SUBCOMMANDS = new Set([
-  "",
-  "show",
-  "display",
-  "set",
-  "add",
-  "rm",
-  "advance",
-  "propose",
-  "promote",
-  "note",
-]);
-
-interface TakodeBoardCommandMatch {
-  canUseLiveBoardFallback: boolean;
-}
-
-/** Detect `takode board` commands while keeping non-table subcommands as plain terminal rows. */
-export function parseTakodeBoardCommand(rawCommand: unknown): TakodeBoardCommandMatch | null {
-  const command = stripLeadingEnvAssignments(String(rawCommand || ""));
-  const commandMatcher = /(?:^|[\s;&|()])takode\s+board(?:\s+([^\s;&|()]+))?/g;
-  let match: RegExpExecArray | null;
-  while ((match = commandMatcher.exec(command)) !== null) {
-    const segmentStart = command.indexOf("takode", match.index);
-    const segment = command.slice(segmentStart).split(/[;&|\n\r]/, 1)[0] ?? "";
-    const rawSubcommand = (match[1] ?? "").toLowerCase();
-    const isHelp = rawSubcommand === "help" || rawSubcommand === "--help" || /\s--help(?:\s|$)/.test(segment);
-    const subcommand = rawSubcommand.startsWith("--") ? "" : rawSubcommand;
-    if (isHelp) return { canUseLiveBoardFallback: false };
-    return { canUseLiveBoardFallback: INLINE_BOARD_FALLBACK_SUBCOMMANDS.has(subcommand) };
-  }
-  return null;
-}
-
 function looksLikeTakodeBoardTableOutput(content: string | undefined): boolean {
   if (!content) return false;
   const lines = content
@@ -594,26 +562,6 @@ function liveBoardFallback(
 ): ParsedBoardResult | null {
   if (!canUseLiveBoardFallback || !liveBoard || !looksLikeTakodeBoardTableOutput(content)) return null;
   return { board: liveBoard };
-}
-
-/** Strip leading shell-style env assignments from a Bash command preview. */
-function stripLeadingEnvAssignments(command: string): string {
-  let remaining = command.trimStart();
-  const assignmentRe = /^[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s"'`]+)(?:\s+|$)/;
-
-  for (;;) {
-    const match = remaining.match(assignmentRe);
-    if (!match) return remaining;
-    remaining = remaining.slice(match[0].length).trimStart();
-  }
-}
-
-/** Parse `takode notify <category>` commands, extracting the notification category. */
-export function parseTakodeNotifyCommand(command: string): { category: "needs-input" | "review" } | null {
-  const normalized = stripLeadingEnvAssignments(command);
-  const match = normalized.match(/^takode\s+notify\s+(needs-input|review)(?=\s|$)/);
-  if (!match) return null;
-  return { category: match[1] as "needs-input" | "review" };
 }
 
 /**

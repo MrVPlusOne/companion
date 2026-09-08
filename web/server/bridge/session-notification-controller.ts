@@ -26,6 +26,7 @@ import {
   type LeaderThreadTabMutationPolicy,
 } from "../../shared/leader-thread-tab-priority.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
+import { leaderResponseMessageIsAssociatedWithThread } from "../../shared/leader-thread-response-routing.js";
 
 type SessionLike = any;
 
@@ -802,13 +803,27 @@ function findLastNotificationAnchorIndex(
   } = {},
 ): number | undefined {
   if (options.preferVisibleTextAnchor) {
+    let latestToolAnchor: number | undefined;
     for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-      if (!isVisibleNotificationAnchor(session.messageHistory[i])) continue;
+      const entry = session.messageHistory[i] as BrowserIncomingMessage;
+      if (entry.codexSubagent != null) continue;
+      // Attached requests keep their original owner, but still start a new
+      // decision context in this view. Never borrow prose from an older ask.
+      if (
+        entry.type === "user_message" &&
+        entry.agentSource == null &&
+        (!options.preferredThreadRoute ||
+          leaderResponseMessageIsAssociatedWithThread(entry, options.preferredThreadRoute.threadKey))
+      )
+        break;
+      if (!getNotificationAnchor(entry)) continue;
       if (options.preferredThreadRoute && !anchorMatchesThreadRoute(session, i, options.preferredThreadRoute)) {
         continue;
       }
-      return i;
+      latestToolAnchor ??= i;
+      if (isVisibleNotificationAnchor(entry)) return i;
     }
+    return latestToolAnchor;
   }
   for (let i = session.messageHistory.length - 1; i >= 0; i--) {
     if (!getNotificationAnchor(session.messageHistory[i])) continue;

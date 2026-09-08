@@ -49,12 +49,13 @@ function presentationEntries(turn: Turn): FeedEntry[] {
   return turn.presentationEntries ?? turn.allEntries;
 }
 
-function collapsedResponseEntry(
+export function collapsedResponseEntry(
   entry: Extract<FeedEntry, { kind: "message" }>,
+  shouldStripQuiz?: (questId: string) => boolean,
 ): Extract<FeedEntry, { kind: "message" }> {
   const markdown = getAssistantVisibleMarkdown(entry.msg);
-  if (extractQuestQuizMarkerIds(markdown).length === 0) return entry;
-  const visibleContent = stripQuestQuizMarkers(markdown);
+  const visibleContent = stripQuestQuizMarkers(markdown, shouldStripQuiz);
+  if (visibleContent === markdown) return entry;
   let contentBlocks: ChatMessage["contentBlocks"];
   if (entry.msg.contentBlocks) {
     contentBlocks = [];
@@ -63,7 +64,7 @@ function collapsedResponseEntry(
         contentBlocks.push(block);
         continue;
       }
-      const visibleText = stripQuestQuizMarkers(block.text);
+      const visibleText = stripQuestQuizMarkers(block.text, shouldStripQuiz);
       if (visibleText) contentBlocks.push({ ...block, text: visibleText });
     }
   }

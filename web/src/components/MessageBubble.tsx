@@ -60,6 +60,7 @@ import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.j
 import { CodexReasoningDetail } from "./CodexReasoningDetail.js";
 import { useMessageSearchHighlight, type SearchHighlightInfo } from "../hooks/use-message-search-highlight.js";
 import { reconcileLocalImagePreviewUrls } from "../local-image-previews.js";
+import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { TimerMessage } from "./TimerMessage.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
@@ -1093,7 +1094,8 @@ function AssistantMessage({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
-  const authoritativeNotifications = useStore((s) => (sessionId ? s.sessionNotifications?.get(sessionId) : undefined));
+  const inboxNotifications = useStore((s) => (sessionId ? s.sessionNotifications?.get(sessionId) : undefined));
+  const authoritativeNotifications = useFeedDisplayNotifications(sessionId, inboxNotifications);
   const notificationStateLoaded = useStore((s) => {
     if (!sessionId) return false;
     if (s.sessionNotifications.has(sessionId)) return true;

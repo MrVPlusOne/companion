@@ -52,7 +52,9 @@ import { canAutoCollapseReadyThread, useCollapsePolicy } from "../hooks/use-coll
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
-import { buildFeedMessageModel, buildFeedWindowModel } from "../utils/feed-render-model.js";
+import { buildFeedWindowModel } from "../utils/feed-render-model.js";
+import { useFeedMessageModel } from "../hooks/use-feed-message-model.js";
+import { FeedNotificationProvider } from "./FeedNotificationContext.js";
 import {
   hasMissingSelectedThreadWindowContext,
   shouldShowSelectedThreadWindowLoading,
@@ -192,50 +194,23 @@ export function MessageFeed({
   const savedViewportTargetMessageId = getSavedViewportTargetMessageId(savedScrollPos);
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
-  const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
   const sideChats = useStore((s) => s.sessions.get(sessionId)?.slackThreads);
   const visibleAssistantChildMessageIds = useMemo(
     () => Object.values(sideChats ?? {}).map((sideChat) => sideChat.anchorMessageId),
     [sideChats],
   );
-  const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords?.get(sessionId));
-  const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
-  const sessionCompletedBoard = useStore((s) => s.sessionCompletedBoards?.get(sessionId));
-  const feedMessageModel = useMemo(
-    () =>
-      buildFeedMessageModel({
-        leaderSessionId: sessionId,
-        threadKey,
-        projectThreadRoutes,
-        allMessages,
-        historyLoading,
-        selectedFeedWindow,
-        selectedFeedWindowEnabled,
-        selectedFeedWindowMessages,
-        threadResponseState,
-        sessionNotifications,
-        sessionAttentionRecords,
-        additionalAttentionRecords,
-        sessionBoard,
-        sessionCompletedBoard,
-      }),
-    [
-      additionalAttentionRecords,
-      allMessages,
-      historyLoading,
-      projectThreadRoutes,
-      selectedFeedWindow,
-      selectedFeedWindowEnabled,
-      selectedFeedWindowMessages,
-      threadResponseState,
-      sessionAttentionRecords,
-      sessionBoard,
-      sessionCompletedBoard,
-      sessionId,
-      sessionNotifications,
-      threadKey,
-    ],
-  );
+  const feedMessageModel = useFeedMessageModel({
+    leaderSessionId: sessionId,
+    threadKey,
+    projectThreadRoutes,
+    allMessages,
+    historyLoading,
+    selectedFeedWindow,
+    selectedFeedWindowEnabled,
+    selectedFeedWindowMessages,
+    threadResponseState,
+    additionalAttentionRecords,
+  });
   const { messages, visibleToolUseIds, hasFilteredNativeChildMessages, activeNeedsInputAnchorMessageIds } =
     feedMessageModel;
   const { pendingUserUploads, pendingCodexInputs } = useMessageFeedPending(sessionId, normalizedThreadKey);
@@ -335,7 +310,7 @@ export function MessageFeed({
     leadingTurnId: selectedFeedWindow?.leading_turn_id,
     leaderSessionMode: isLeaderSession && isCodexSession,
     frozenRevision,
-    sessionNotifications,
+    sessionNotifications: feedMessageModel.displayNotifications,
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,
     visibleAssistantChildMessageIds,
     perf: { sessionId, threadKey: normalizedThreadKey },
@@ -1848,86 +1823,92 @@ export function MessageFeed({
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}
         >
-          <PawScrollProvider scrollRef={containerRef}>
-            <PawCounterContext.Provider value={pawCounter}>
-              <div
-                ref={contentRootRef}
-                className="max-w-3xl mx-auto space-y-3 sm:space-y-5"
-                data-feed-content-root="true"
-              >
-                {hasOlderSections && (
-                  <div className="flex justify-center pb-2" aria-live="polite">
-                    {isLoadingOlderSection ? (
-                      <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
-                        <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                        Loading older section...
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={explicitSectionLoad.older}
-                        className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
-                      >
-                        <YarnBallDot className="text-cc-muted/70" />
-                        Load older section
-                      </button>
-                    )}
-                  </div>
-                )}
-                <TurnEntries
-                  sections={visibleSections}
-                  sessionId={sessionId}
-                  currentThreadKey={threadKey}
-                  leaderMode={collapseLeaderThreadActivity}
-                  showInlineMessageTiming={!isLeaderSession}
-                  isCodexSession={isCodexSession}
-                  activeCodexTerminalIds={activeCodexTerminalIds}
-                  onOpenCodexTerminal={setSelectedCodexTerminalId}
-                  onSelectThread={onSelectThread}
-                  turnStates={turnStates}
-                  toggleTurn={toggleTurn}
-                  userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
-                  questLinkSurface="chat-feed"
-                  threadResponsePresentation={threadResponsePresentation}
-                  activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
-                  visibleThreadStatuses={visibleThreadStatuses}
-                  onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
-                />
-                {hasNewerSections && (
-                  <div className="flex justify-center pt-1" aria-live="polite">
-                    {isLoadingNewerSection ? (
-                      <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
-                        <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                        Loading newer section...
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={explicitSectionLoad.newer}
-                        className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
-                      >
-                        <YarnBallDot className="text-cc-muted/70" />
-                        Load newer section
-                      </button>
-                    )}
-                  </div>
-                )}
-                {pendingUserUploads.length > 0 && (
-                  <PendingUserUploadList
+          <FeedNotificationProvider sessionId={sessionId} notifications={feedMessageModel.displayNotifications}>
+            <PawScrollProvider scrollRef={containerRef}>
+              <PawCounterContext.Provider value={pawCounter}>
+                <div
+                  ref={contentRootRef}
+                  className="max-w-3xl mx-auto space-y-3 sm:space-y-5"
+                  data-feed-content-root="true"
+                >
+                  {hasOlderSections && (
+                    <div className="flex justify-center pb-2" aria-live="polite">
+                      {isLoadingOlderSection ? (
+                        <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
+                          <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                          Loading older section...
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={explicitSectionLoad.older}
+                          className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
+                        >
+                          <YarnBallDot className="text-cc-muted/70" />
+                          Load older section
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <TurnEntries
+                    sections={visibleSections}
                     sessionId={sessionId}
-                    uploads={pendingUserUploads}
-                    showTimestamp={!isLeaderSession}
+                    currentThreadKey={threadKey}
+                    leaderMode={collapseLeaderThreadActivity}
+                    showInlineMessageTiming={!isLeaderSession}
+                    isCodexSession={isCodexSession}
+                    activeCodexTerminalIds={activeCodexTerminalIds}
+                    onOpenCodexTerminal={setSelectedCodexTerminalId}
+                    onSelectThread={onSelectThread}
+                    turnStates={turnStates}
+                    toggleTurn={toggleTurn}
+                    userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
+                    questLinkSurface="chat-feed"
+                    threadResponsePresentation={threadResponsePresentation}
+                    activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
+                    visibleThreadStatuses={visibleThreadStatuses}
+                    onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
+                  />
+                  {hasNewerSections && (
+                    <div className="flex justify-center pt-1" aria-live="polite">
+                      {isLoadingNewerSection ? (
+                        <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
+                          <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                          Loading newer section...
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={explicitSectionLoad.newer}
+                          className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
+                        >
+                          <YarnBallDot className="text-cc-muted/70" />
+                          Load newer section
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {pendingUserUploads.length > 0 && (
+                    <PendingUserUploadList
+                      sessionId={sessionId}
+                      uploads={pendingUserUploads}
+                      showTimestamp={!isLeaderSession}
+                      questLinkSurface="chat-feed"
+                    />
+                  )}
+                  {isCodexSession && pendingCodexInputs.length > 0 && (
+                    <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
+                  )}
+                  <FeedFooter
+                    sessionId={sessionId}
+                    visibleToolUseIds={visibleToolUseIds}
                     questLinkSurface="chat-feed"
                   />
-                )}
-                {isCodexSession && pendingCodexInputs.length > 0 && (
-                  <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
-                )}
-                <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} questLinkSurface="chat-feed" />
-                <MessageFeedEndSlack {...feedEndSlackProps} />
-              </div>
-            </PawCounterContext.Provider>
-          </PawScrollProvider>
+                  <MessageFeedEndSlack {...feedEndSlackProps} />
+                </div>
+              </PawCounterContext.Provider>
+            </PawScrollProvider>
+          </FeedNotificationProvider>
         </div>
 
         <FeedStatusPill

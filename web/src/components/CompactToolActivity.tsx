@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store.js";
+import { parseTakodeBoardCommand } from "../utils/takode-tool-command.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 import { isPureTakodeSendCommand } from "../utils/takode-send-command.js";
 import { getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
@@ -23,6 +24,7 @@ const MAX_DESCRIPTIVE_SUMMARY_LENGTH = 56;
 export function isCompactToolActivityItem(item: CompactToolActivityItem): boolean {
   const normalizedName = item.name.toLowerCase();
   if (
+    (normalizedName === "bash" && parseTakodeBoardCommand(item.input.command)?.subcommand === "propose") ||
     normalizedName === "askuserquestion" ||
     normalizedName === "exitplanmode" ||
     normalizedName === "task" ||

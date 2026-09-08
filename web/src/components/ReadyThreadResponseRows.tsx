@@ -3,14 +3,15 @@ import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HidePawContext } from "./PawTrail.js";
-import type { ThreadResponsePresentation } from "./thread-response-presentation.js";
+import { collapsedResponseEntry, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { ThreadResponseCoverageBadge } from "./ThreadResponsePresentationChrome.js";
+import { isBoardProposalMessage, isNeedsInputNotifyMessage } from "../utils/takode-tool-command.js";
 
 function presentationEntries(turn: Turn): readonly FeedEntry[] {
   return turn.presentationEntries ?? turn.allEntries;
 }
 
-function unresolvedNeedsInputPromptEntries(
+function sourceDecisionEntries(
   turn: Turn,
   activeNeedsInputAnchorMessageIds: ReadonlySet<string>,
   excludedMessageIds: ReadonlySet<string>,
@@ -19,8 +20,13 @@ function unresolvedNeedsInputPromptEntries(
   return presentationEntries(turn).flatMap((entry, order) => {
     if (entry.kind !== "message") return [];
     const messageId = entry.msg.id;
+    // Structured decisions stay at their original source even after resolution.
+    // Ordinary resolved prose prompts still lose their active pin as before.
+    const hasSourceDecision =
+      isBoardProposalMessage(entry.msg) ||
+      (entry.msg.notification?.category === "needs-input" && isNeedsInputNotifyMessage(entry.msg));
     if (
-      !activeNeedsInputAnchorMessageIds.has(messageId) ||
+      (!activeNeedsInputAnchorMessageIds.has(messageId) && !hasSourceDecision) ||
       excludedMessageIds.has(messageId) ||
       seenMessageIds.has(messageId)
     ) {
@@ -38,8 +44,7 @@ export function readyThreadResponseTurnHasContent(
 ): boolean {
   if (presentation.currentResponses.some((item) => item.anchorTurnId === turn.id)) return true;
   if (
-    unresolvedNeedsInputPromptEntries(turn, activeNeedsInputAnchorMessageIds, presentation.currentResponseMessageIds)
-      .length > 0
+    sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, presentation.currentResponseMessageIds).length > 0
   ) {
     return true;
   }
@@ -64,7 +69,8 @@ export function ReadyThreadResponseRows({
 }) {
   const responses = presentation.currentResponses.filter((item) => item.anchorTurnId === turn.id);
   const responseMessageIds = new Set(responses.map((item) => item.response.currentMessageId));
-  const promptEntries = unresolvedNeedsInputPromptEntries(turn, activeNeedsInputAnchorMessageIds, responseMessageIds);
+  const promptEntries = sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, responseMessageIds);
+  const quizGroup = presentation.quizGroups.find((group) => group.hostTurnId === turn.id);
   const rows = [
     ...responses.map((item, responseOrder) => ({
       kind: "response" as const,
@@ -74,12 +80,19 @@ export function ReadyThreadResponseRows({
     })),
     ...promptEntries.map(({ entry, order }) => ({
       kind: "prompt" as const,
-      entry,
+      // A pinned source keeps its prose and notification, while only this
+      // turn's grouped directives move into the separate Quiz row below.
+      entry:
+        quizGroup &&
+        entry.msg.role === "assistant" &&
+        Number.isInteger(entry.msg.historyIndex) &&
+        entry.msg.historyIndex! >= presentation.cutoverHistoryIndex
+          ? collapsedResponseEntry(entry, (questId) => quizGroup.questIds.includes(questId))
+          : entry,
       order: Number.isInteger(entry.msg.historyIndex) ? entry.msg.historyIndex! : Number.MAX_SAFE_INTEGER,
       fallbackOrder: order,
     })),
   ].sort((left, right) => left.order - right.order || left.fallbackOrder - right.fallbackOrder);
-  const quizGroup = presentation.quizGroups.find((group) => group.hostTurnId === turn.id);
 
   return (
     <>

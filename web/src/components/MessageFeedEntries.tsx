@@ -49,6 +49,7 @@ import {
   isThreadAttachmentMarkerMessage,
   isThreadTransitionMarkerMessage,
 } from "../utils/thread-projection.js";
+import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
 import { collectAnchoredNotificationMessageIds } from "../utils/anchored-notifications.js";
@@ -685,7 +686,8 @@ export const FeedEntries = memo(function FeedEntries({
   threadResponsePresentation?: ThreadResponsePresentation | null;
 }) {
   const compactToolActivity = useStore((state) => state.compactToolActivity);
-  const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
+  const inboxNotifications = useStore((state) => state.sessionNotifications?.get(sessionId));
+  const notifications = useFeedDisplayNotifications(sessionId, inboxNotifications);
   const sideChats = useStore((state) => state.sessions.get(sessionId)?.slackThreads);
   const anchoredNotificationMessageIds = useMemo(
     () => new Set(collectAnchoredNotificationMessageIds(notifications)),

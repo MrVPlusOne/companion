@@ -13,6 +13,7 @@ import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-r
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { isAssistantMessageRenderable, isToolHiddenFromChat } from "../utils/assistant-message-renderability.js";
+import { isBoardProposalMessage } from "../utils/takode-tool-command.js";
 import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
 import type { TakodeHerdEventLifecycle } from "../../shared/herd-event-lifecycle.js";
 import { getHerdEventCount, getHerdEventLifecycles } from "../utils/herd-event-classification.js";
@@ -81,7 +82,7 @@ function getToolOnlyGroup(
   anchoredNotificationMessageIds?: ReadonlySet<string>,
 ): ToolOnlyGroup | null {
   if (msg.role !== "assistant") return null;
-  if (msg.notification) return null;
+  if (msg.notification || isBoardProposalMessage(msg)) return null;
   if (anchoredNotificationMessageIds?.has(msg.id)) return null;
   // Some SDK payloads carry assistant text only in `content` while contentBlocks
   // contain tool_use entries. Treat those as mixed messages, not tool-only.
@@ -623,6 +624,7 @@ function entryIsCollapsedVisible(
     ((entry.msg.role === "assistant" &&
       (entry.msg.notification != null ||
         anchoredNotificationMessageIds?.has(entry.msg.id) === true ||
+        isBoardProposalMessage(entry.msg) ||
         (leaderMode && isLeaderNeedsInputStatusMessage(entry.msg)))) ||
       shouldShowAttentionRecordInCollapsedTurn(entry.msg.metadata?.attentionRecord))
   );

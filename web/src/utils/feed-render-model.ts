@@ -4,6 +4,7 @@ import type {
   SessionAttentionRecord,
   SessionNotification,
   ThreadWindowState,
+  ToolResultPreview,
 } from "../types.js";
 import {
   leaderResponseExactAnswerThreadKey,
@@ -44,7 +45,11 @@ import {
   recoverRoutedNotificationSourceMessages,
 } from "./thread-projection.js";
 import { composeSelectedFeedMessages } from "./thread-window-messages.js";
-import { sanitizeNotificationMessageTargets } from "./notification-targets.js";
+import {
+  projectNotificationDisplayAnchors,
+  projectNotificationMessageAnnotations,
+  sanitizeNotificationMessageTargets,
+} from "./notification-targets.js";
 import { filterRootAgentFeedMessages } from "./root-agent-feed-message.js";
 import { isFullyResolvedNeedsInputReminder } from "./needs-input-reminder.js";
 
@@ -63,6 +68,7 @@ export interface BuildFeedMessageModelInput {
   additionalAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
   sessionBoard?: ReadonlyArray<AttentionBoardRowSource>;
   sessionCompletedBoard?: ReadonlyArray<AttentionBoardRowSource>;
+  toolResults?: ReadonlyMap<string, ToolResultPreview>;
 }
 
 export interface FeedMessageModel {
@@ -80,6 +86,7 @@ export interface FeedMessageModel {
   messages: ChatMessage[];
   visibleToolUseIds?: Set<string>;
   activeNeedsInputAnchorMessageIds: Set<string>;
+  displayNotifications: ReadonlyArray<SessionNotification> | undefined;
 }
 
 export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMessageModel {
@@ -90,11 +97,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     ...input.selectedFeedWindowMessages,
   ]);
   const retainedMessageIds = collectRetainedNotificationSourceMessageIds(sanitizedNotifications, input.threadKey);
-  const activeNeedsInputAnchorMessageIds = collectActiveNeedsInputAnchorMessageIds(
-    sanitizedNotifications,
-    input.threadKey,
-  );
-  const messagesAvailableForDerivation = composeSelectedFeedMessages({
+  const deliveredMessages = composeSelectedFeedMessages({
     allMessages: input.allMessages,
     historyLoading: input.historyLoading,
     selectedFeedWindow: activeSelectedFeedWindow,
@@ -102,9 +105,23 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     selectedFeedWindowMessages: input.selectedFeedWindowMessages,
     retainedMessageIds,
   });
+  const displayNotifications = projectNotificationDisplayAnchors(
+    sanitizedNotifications,
+    deliveredMessages,
+    input.toolResults,
+  );
+  const messagesAvailableForDerivation = projectNotificationMessageAnnotations(
+    deliveredMessages,
+    sanitizedNotifications,
+    displayNotifications,
+  );
+  const activeNeedsInputAnchorMessageIds = collectActiveNeedsInputAnchorMessageIds(
+    displayNotifications,
+    input.threadKey,
+  );
   const messagesAvailableForProjection = recoverRoutedNotificationSourceMessages(
     messagesAvailableForDerivation,
-    sanitizedNotifications,
+    displayNotifications,
     input.threadKey,
   );
   const rootMessagesAvailableForDerivation = filterRootAgentFeedMessages(messagesAvailableForDerivation);
@@ -127,7 +144,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
   const attentionRecords = buildAttentionRecords({
     leaderSessionId: input.leaderSessionId,
     records,
-    notifications: sanitizedNotifications,
+    notifications: displayNotifications,
     boardRows: input.sessionBoard,
     completedBoardRows: input.sessionCompletedBoard,
     messages: rootMessagesAvailableForDerivation,
@@ -144,7 +161,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     (message) =>
       !input.projectThreadRoutes ||
       !isMainThreadKey(normalizedThreadKey) ||
-      !isFullyResolvedNeedsInputReminder(message, sanitizedNotifications),
+      !isFullyResolvedNeedsInputReminder(message, displayNotifications),
   );
   const baseMessageIds = new Set(visibleBaseMessages.map((message) => message.id));
   const isWindowedMainFeed = input.selectedFeedWindowEnabled && isMainThreadKey(normalizedThreadKey);
@@ -182,6 +199,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     messages,
     visibleToolUseIds,
     activeNeedsInputAnchorMessageIds,
+    displayNotifications,
   };
 }
 

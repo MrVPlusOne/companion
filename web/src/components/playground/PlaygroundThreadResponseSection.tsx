@@ -140,6 +140,29 @@ const ACTIVE_PRESENTATION: ThreadResponsePresentation = {
   pendingMessageCount: 1,
   layoutSignature: "playground-response-r2-pending",
 };
+const QUIZ_PROMPT_BASE = assistantEntry(
+  "playground-quiz-prompt",
+  "Choose whether the follow-up should remain parked.\n\n{[(Quest Quiz: q-8)]}",
+  "commentary",
+);
+const QUIZ_PROMPT: Extract<FeedEntry, { kind: "message" }> = {
+  ...QUIZ_PROMPT_BASE,
+  msg: {
+    ...QUIZ_PROMPT_BASE.msg,
+    historyIndex: 8,
+    notification: {
+      id: "playground-quiz-prompt-notification",
+      category: "needs-input",
+      summary: "Choose the follow-up boundary",
+      timestamp: 8,
+    },
+  },
+};
+const QUIZ_PROMPT_TURN: Turn = {
+  ...READY_TURN,
+  allEntries: [...READY_TURN.allEntries, QUIZ_PROMPT],
+  presentationEntries: [...READY_TURN.presentationEntries!, QUIZ_PROMPT],
+};
 const ANSWER_ONLY_RESPONSE = assistantEntry(
   "playground-answer-only-response",
   "The answer remains visible while the lightweight footer provides the only expansion action.",
@@ -393,6 +416,22 @@ export function PlaygroundThreadResponseSection() {
                 questLinkSurface="chat-feed"
               />
               <TurnToggleFooter expanded={false} onToggle={NOOP} />
+            </div>
+          </Card>
+          <Card label="Collapsed decision · one source Quiz">
+            <div
+              className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-pinned-quiz-source"
+            >
+              <ReadyThreadResponseRows
+                turn={QUIZ_PROMPT_TURN}
+                presentation={ACTIVE_PRESENTATION}
+                activeNeedsInputAnchorMessageIds={new Set([QUIZ_PROMPT.msg.id])}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                questLinkSurface="chat-feed"
+              />
+              <TurnToggleFooter expanded={false} onToggle={NOOP} toolCount={QUIZ_PROMPT_TURN.stats.toolCount} />
             </div>
           </Card>
           <Card label="Collapsed quest projection · associated Main answer">
