@@ -193,9 +193,10 @@ describe("Codex interrupted turn recovery classification", () => {
 
 describe("Codex interrupted turn recovery state", () => {
   it.each([
-    false,
-    true,
-  ])("reserves recovery ordering until a queued route settles (archived before routing: %s)", async (archived) => {
+    "active",
+    "archived",
+    "resolved",
+  ] as const)("reserves recovery ordering until a queued route settles (state before routing: %s)", async (state) => {
     const session = Object.assign(makeSession(), {
       backendType: "codex" as const,
       browserSockets: new Set(),
@@ -275,7 +276,7 @@ describe("Codex interrupted turn recovery state", () => {
     expect(isCodexTurnRecoveryContinuationInjectionPending(session)).toBe(true);
     expect(dispatchQueuedCodexTurns).not.toHaveBeenCalled();
 
-    if (archived) {
+    if (state !== "active") {
       // A's route is still waiting on unrelated routing work when recovery ends.
       // B now owns a live turn; releasing A must reject before adapter routing
       // can mistake that old continuation for an ordinary steer into B.
@@ -301,6 +302,12 @@ describe("Codex interrupted turn recovery state", () => {
       ];
       const preservedTurns = structuredClone(session.pendingCodexTurns);
       const preservedHistory = structuredClone(session.messageHistory);
+      if (state === "resolved") {
+        // Resolution removes A's archive, but its previously queued route still
+        // exists. Absence of terminal evidence must not renew delivery authority.
+        expect(resolveCodexTurnRecoveryAction(session, oldRecovery.recoveryId, recoveryDeps)).toBe(true);
+        expect(session.codexTerminalRecoveries).toEqual([]);
+      }
       const drain = routeState.current;
       releaseRoute();
       await drain;
@@ -309,7 +316,7 @@ describe("Codex interrupted turn recovery state", () => {
       expect(afterAccepted).not.toHaveBeenCalled();
       expect(routeBrowserMessage).not.toHaveBeenCalled();
       expect(session.state.codex_turn_recovery).toEqual(activeRecovery);
-      expect(session.codexTerminalRecoveries).toEqual([oldRecovery]);
+      expect(session.codexTerminalRecoveries).toEqual(state === "resolved" ? [] : [oldRecovery]);
       expect(session.pendingCodexTurns).toEqual(preservedTurns);
       expect(session.pendingCodexInputs).toEqual([]);
       expect(session.messageHistory).toEqual(preservedHistory);

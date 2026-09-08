@@ -269,6 +269,10 @@ describe("terminal Codex recovery audit", () => {
       threadKey,
     });
     const followup = { ...pending("follow-up"), historyIndex: 2 };
+    s.pendingCodexInputs = [
+      { id: "old-continuation", content: "stale continuation", timestamp: 4, cancelable: true },
+      { id: "independent", content: "new work", timestamp: 7, cancelable: true },
+    ];
     settleCodexTurnRecoveryFromResult(
       s,
       [followup],
@@ -276,5 +280,8 @@ describe("terminal Codex recovery audit", () => {
       deps,
     );
     expect(s.codexTerminalRecoveries).toEqual(threadKey === "main" ? [] : [recovery()]);
+    expect(s.pendingCodexInputs.map((input) => input.id)).toEqual(
+      threadKey === "main" ? ["independent"] : ["old-continuation", "independent"],
+    );
   });
 });

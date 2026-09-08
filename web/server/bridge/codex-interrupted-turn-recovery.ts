@@ -146,15 +146,14 @@ export function retireTerminalCodexRecoveryOwner(
   return true;
 }
 
-/** Reject delayed continuation delivery even before it has a pending-turn owner. */
-export function isTerminalCodexRecoverySource(
-  session: Pick<CodexInterruptedTurnRecoverySessionLike, "state" | "codexTerminalRecoveries">,
+/** Reject delayed continuation delivery after its exact owner is no longer active. */
+export function isInactiveCodexRecoverySource(
+  session: Pick<CodexInterruptedTurnRecoverySessionLike, "state">,
   sourceId: string | undefined,
 ): boolean {
-  if (!sourceId) return false;
-  return terminalCodexRecoveries(session).some(
-    (recovery) => sourceId === codexTurnRecoverySourceId(recovery.recoveryId),
-  );
+  if (!isCodexTurnRecoverySourceId(sourceId)) return false;
+  const current = session.state.codex_turn_recovery;
+  return !current || current.status === "action_required" || sourceId !== codexTurnRecoverySourceId(current.recoveryId);
 }
 
 /** Remove exact terminal ownership before constructing either a start or steer batch. */
@@ -256,6 +255,7 @@ export function repairRestoredCodexTurnRecovery(
   let requiresFrozenHistoryMetadataRepair = false;
   session.codexTerminalRecoveries = session.codexTerminalRecoveries?.filter((recovery) => {
     if (!hasHistoricalSuccessfulSameThreadHumanFollowUp(session, recovery)) return true;
+    retireRestoredTerminalCodexRecoveryOwners(session, recovery);
     resolvedArchivedRecovery = true;
     const retired = retireCodexTurnRecoveryDiagnostics(session, recovery, Date.now());
     historyMetadataChanged ||= retired.changed;
@@ -286,6 +286,7 @@ function repairRestoredActiveCodexTurnRecovery(
   }
   if (current.status === "action_required") {
     if (hasHistoricalSuccessfulSameThreadHumanFollowUp(session, current)) {
+      retireRestoredTerminalCodexRecoveryOwners(session, current);
       const retired = retireCodexTurnRecoveryDiagnostics(session, current, Date.now());
       return {
         state: null,
@@ -1196,6 +1197,7 @@ function clearCodexTurnRecoveryState(
     "broadcastToBrowsers" | "persistSession" | "persistHistoryMetadataRepair" | "refreshBrowserConversationViews"
   >,
 ): void {
+  if (recovery.status === "action_required") retireCodexTurnRecoveryOwners(session, recovery, deps);
   const retired = retireCodexTurnRecoveryDiagnostics(session, recovery, Date.now());
   if (session.state.codex_turn_recovery?.recoveryId === recovery.recoveryId) {
     session.state.codex_turn_recovery = null;
@@ -1217,6 +1219,15 @@ function clearCodexTurnRecoveryState(
     deps.persistSession(session);
   }
   if (retired.changed) deps.refreshBrowserConversationViews?.(session);
+}
+
+function retireRestoredTerminalCodexRecoveryOwners(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  recovery: CodexTurnRecoveryState,
+): void {
+  // Restore has no subscribers; the registry persists the complete repair
+  // after pending ownership and historical resolution are reconciled together.
+  retireCodexTurnRecoveryOwners(session, recovery, { broadcastToBrowsers: () => {}, persistSession: () => {} });
 }
 
 interface RetiredCodexTurnRecoveryDiagnostics {

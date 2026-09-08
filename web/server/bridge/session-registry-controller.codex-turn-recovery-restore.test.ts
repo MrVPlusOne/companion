@@ -259,6 +259,17 @@ describe("restored Codex interrupted-turn recovery", () => {
             codex_turn_recovery: archived ? null : terminal,
           },
           codexTerminalRecoveries: archived ? [terminal] : [],
+          pendingCodexInputs: [
+            { id: "original-owner", content: "old payload", timestamp: 1, cancelable: true },
+            {
+              id: "late-continuation",
+              content: "old continuation",
+              timestamp: 25,
+              cancelable: true,
+              agentSource: { sessionId: "system:codex-turn-recovery:original-owner" },
+            },
+            { id: "independent", content: "later work", timestamp: 50, cancelable: true },
+          ],
           messageHistory: [
             {
               type: "user_message",
@@ -312,6 +323,7 @@ describe("restored Codex interrupted-turn recovery", () => {
     const restored = sessions.get("session-recovery");
     expect(restored.state.codex_turn_recovery).toBeNull();
     expect(restored.codexTerminalRecoveries).toEqual([]);
+    expect(restored.pendingCodexInputs.map((input: any) => input.id)).toEqual(["independent"]);
     expect(restored.messageHistory[1]).toMatchObject({
       id: "recovery-diagnostic",
       codexTurnRecoveryId: "original-owner",
