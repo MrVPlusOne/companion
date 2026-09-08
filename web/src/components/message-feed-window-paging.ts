@@ -2,8 +2,10 @@ import type { HistoryWindowState, ThreadWindowState } from "../types.js";
 
 export type FeedWindowLoadDirection = "older" | "newer";
 
-export const FEED_WINDOW_LOAD_STEP_SECTION_COUNT = 3;
-export const FEED_WINDOW_MAX_RETAINED_SECTION_COUNT = 9;
+// Sparse collapsed history needs more retained context for short scroll reversals.
+// Initial subscriptions still use three sections; only boundary paging grows this buffer.
+export const FEED_WINDOW_LOAD_STEP_SECTION_COUNT = 6;
+export const FEED_WINDOW_MAX_RETAINED_SECTION_COUNT = 18;
 
 export interface BoundaryWindowRange {
   from: number;

@@ -23,11 +23,13 @@ afterEach(() => {
 });
 
 describe("PlaygroundTurnWindowStabilitySection", () => {
-  it("keeps actual collapse controls stable across fixture windows without backend requests", async () => {
+  it("keeps collapse stable across locally scaled fixture windows without backend requests", async () => {
     // Exercise the real MessageFeed and store against producer-built windows,
     // and ensure this visible fixture never creates or queries a live session.
     const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected fixture request"));
     const originalSearch = api.searchSessionMessages;
+    const globalZoom = useStore.getState().zoomLevel;
+    const savedZoom = localStorage.getItem("cc-zoom-level");
     useStore
       .getState()
       .setMessages("unrelated-existing-session", [
@@ -37,10 +39,21 @@ describe("PlaygroundTurnWindowStabilitySection", () => {
     const fixture = within(screen.getByTestId("playground-turn-window-stability"));
 
     fireEvent.click(await fixture.findByRole("button", { name: "Collapse turn" }));
-    for (const label of ["Older window", "Newer window", "Complete turn", "Latest window"]) {
-      fireEvent.click(fixture.getByRole("button", { name: label }));
-      expect(fixture.getByRole("button", { name: /^Expand turn/ })).toHaveAttribute("aria-expanded", "false");
-      expect(fixture.queryByRole("button", { name: "Collapse turn" })).not.toBeInTheDocument();
+    const feed = fixture.getByTestId("message-feed-scroll-container");
+    for (const scale of [0.9, 1, 1.25]) {
+      const scaleButton = fixture.getByRole("button", { name: `${scale * 100}%` });
+      fireEvent.click(scaleButton);
+      expect(scaleButton).toHaveAttribute("aria-pressed", "true");
+      // The real feed stays mounted inside a CSS transform. These controls must
+      // not change the user's app-wide zoom or replace the collapse state.
+      const scaledFeed = fixture.getByTestId("playground-turn-window-scaled-feed");
+      expect(scaledFeed).toContainElement(feed);
+      expect(scaledFeed).toHaveStyle({ transform: `scale(${scale})`, transformOrigin: "top left" });
+      for (const label of ["Older window", "Newer window", "Complete turn", "Latest window"]) {
+        fireEvent.click(fixture.getByRole("button", { name: label }));
+        expect(fixture.getByRole("button", { name: /^Expand turn/ })).toHaveAttribute("aria-expanded", "false");
+        expect(fixture.queryByRole("button", { name: "Collapse turn" })).not.toBeInTheDocument();
+      }
     }
 
     fireEvent.click(fixture.getByRole("button", { name: /^Expand turn/ }));
@@ -51,6 +64,8 @@ describe("PlaygroundTurnWindowStabilitySection", () => {
     expect(api.searchSessionMessages).toBe(originalSearch);
     expect(useStore.getState().sessions.has("playground-turn-window-stability")).toBe(false);
     expect(useStore.getState().messages.get("unrelated-existing-session")?.[0]?.id).toBe("existing-message");
+    expect(useStore.getState().zoomLevel).toBe(globalZoom);
+    expect(localStorage.getItem("cc-zoom-level")).toBe(savedZoom);
     expect(fetch).not.toHaveBeenCalled();
     useStore.getState().removeSession("unrelated-existing-session");
   });

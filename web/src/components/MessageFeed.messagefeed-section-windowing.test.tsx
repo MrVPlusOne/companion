@@ -1705,6 +1705,7 @@ describe("MessageFeed section windowing", () => {
   });
 
   it("sends a cached selected-thread window hash for nearby boundary reuse", () => {
+    // The first older load adds 60 ranges to the initial 30; cache identity must include that expanded budget.
     const sid = "test-selected-thread-cached-boundary-window";
     const threadKey = "q-1027";
     const cachedMessage = {
@@ -1717,11 +1718,11 @@ describe("MessageFeed section windowing", () => {
       sid,
       {
         thread_key: threadKey,
-        from_item: 40,
-        item_count: 60,
+        from_item: 10,
+        item_count: 90,
         total_items: 100,
         has_older_items: true,
-        has_newer_items: true,
+        has_newer_items: false,
         source_history_length: 200,
         section_item_count: 10,
         visible_item_count: 3,
@@ -1753,8 +1754,8 @@ describe("MessageFeed section windowing", () => {
       sid,
       expect.objectContaining({
         type: "thread_window_request",
-        from_item: 40,
-        item_count: 60,
+        from_item: 10,
+        item_count: 90,
         cached_window_hash: "cached-thread-window",
       }),
     );

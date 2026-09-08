@@ -106,6 +106,7 @@ function loadWindow(index: number) {
 export function PlaygroundTurnWindowStabilitySection() {
   const [ready, setReady] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [scale, setScale] = useState(1);
 
   useEffect(() => {
     // This local fixture has no backend session or socket. Scope the existing
@@ -154,7 +155,7 @@ export function PlaygroundTurnWindowStabilitySection() {
   return (
     <Section
       title="Turn Collapse Across Windows"
-      description="Local window fixture: collapse the long turn, then load older, newer, and complete slices. Its manual choice should survive every swap; Expand restores the loaded audit."
+      description="At each local scale, read an update and load older or newer windows: your place should stay fixed. Collapse the long turn and repeat; its manual choice should survive every swap."
     >
       <div className="max-w-3xl space-y-3" data-testid="playground-turn-window-stability">
         <div className="flex flex-wrap gap-2">
@@ -173,11 +174,36 @@ export function PlaygroundTurnWindowStabilitySection() {
             </button>
           ))}
         </div>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Local feed scale">
+          <span className="text-xs text-cc-muted">Local scale</span>
+          {[0.9, 1, 1.25].map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={scale === value}
+              onClick={() => setScale(value)}
+              className="min-h-11 rounded-md border border-cc-border bg-cc-card px-3 py-2 text-xs text-cc-fg hover:bg-cc-hover aria-pressed:bg-cc-active"
+            >
+              {value * 100}%
+            </button>
+          ))}
+        </div>
         <p className="text-xs text-cc-muted">
           Use the fixture buttons to load slices; feed arrows have no connected backend here.
         </p>
         <div className="h-[420px] overflow-hidden rounded-xl border border-cc-border bg-cc-bg">
-          {ready && <MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} showCodexSubagentControl={false} />}
+          <div
+            data-testid="playground-turn-window-scaled-feed"
+            className="flex min-h-0 flex-col"
+            style={{
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+              width: `${100 / scale}%`,
+              height: `${100 / scale}%`,
+            }}
+          >
+            {ready && <MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} showCodexSubagentControl={false} />}
+          </div>
         </div>
       </div>
     </Section>

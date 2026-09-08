@@ -430,18 +430,11 @@ export function MessageFeed({
     [markProgrammaticScroll],
   );
 
-  const getFeedBlockBottom = useCallback((container: HTMLDivElement, element: HTMLElement) => {
-    const offsetBottom = element.offsetTop + element.offsetHeight;
-    if (offsetBottom > 0) {
-      return offsetBottom;
-    }
-    const containerRect = container.getBoundingClientRect();
-    const rect = element.getBoundingClientRect();
-    if (rect.height > 0 || rect.bottom !== containerRect.top) {
-      return container.scrollTop + (rect.bottom - containerRect.top);
-    }
-    return container.scrollHeight;
-  }, []);
+  const getFeedBlockBottom = useCallback(
+    (container: HTMLDivElement, element: HTMLElement, scale?: number) =>
+      viewportAnchor.getFeedElementScrollOffset(container, element, "bottom", scale),
+    [],
+  );
 
   const getRealContentBottom = useCallback(() => {
     const container = containerRef.current;
@@ -453,9 +446,10 @@ export function MessageFeed({
     if (blocks.length === 0) {
       return fallbackBottom;
     }
+    const scale = viewportAnchor.getFeedViewportScale(container);
     let maxBottom = 0;
     for (const block of blocks) {
-      maxBottom = Math.max(maxBottom, getFeedBlockBottom(container, block));
+      maxBottom = Math.max(maxBottom, getFeedBlockBottom(container, block, scale));
     }
     if (maxBottom >= container.scrollHeight - 1) {
       return fallbackBottom;
@@ -469,13 +463,14 @@ export function MessageFeed({
       const contentRoot = contentRootRef.current;
       if (!container || !contentRoot) return null;
 
+      const scale = viewportAnchor.getFeedViewportScale(container);
       let maxBottom: number | null = null;
       for (const blockId of blockIds) {
         const element = contentRoot.querySelector<HTMLElement>(
           `[data-feed-block-id="${escapeSelectorValue(blockId)}"]`,
         );
         if (!element) continue;
-        const bottom = getFeedBlockBottom(container, element);
+        const bottom = getFeedBlockBottom(container, element, scale);
         maxBottom = maxBottom == null ? bottom : Math.max(maxBottom, bottom);
       }
 
@@ -485,7 +480,7 @@ export function MessageFeed({
 
       const blocks = contentRoot.querySelectorAll<HTMLElement>("[data-feed-block-id]");
       const lastBlock = blocks[blocks.length - 1];
-      return lastBlock ? getFeedBlockBottom(container, lastBlock) : null;
+      return lastBlock ? getFeedBlockBottom(container, lastBlock, scale) : null;
     },
     [getFeedBlockBottom],
   );
@@ -683,7 +678,8 @@ export function MessageFeed({
       if (!target) return false;
       const containerRect = container.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
-      const nextTop = container.scrollTop + targetRect.top - containerRect.top - anchorOffsetTop;
+      const scale = viewportAnchor.getFeedViewportScale(container, containerRect);
+      const nextTop = container.scrollTop + (targetRect.top - containerRect.top - anchorOffsetTop) / scale;
       markProgrammaticScroll(nextTop);
       container.scrollTop = nextTop;
       lastScrollTopRef.current = container.scrollTop;
@@ -721,7 +717,8 @@ export function MessageFeed({
         if (!target) return false;
         const containerRect = container.getBoundingClientRect();
         const targetRect = target.getBoundingClientRect();
-        const nextTop = container.scrollTop + targetRect.top - containerRect.top - anchor.offsetTop;
+        const scale = viewportAnchor.getFeedViewportScale(container, containerRect);
+        const nextTop = container.scrollTop + (targetRect.top - containerRect.top - anchor.offsetTop) / scale;
         markProgrammaticScroll(nextTop);
         container.scrollTop = nextTop;
         lastScrollTopRef.current = container.scrollTop;
@@ -1679,11 +1676,12 @@ export function MessageFeed({
       return;
     }
     const nextOffsets: TurnOffsetIndex[] = [];
+    const scale = viewportAnchor.getFeedViewportScale(el);
     const targets = el.querySelectorAll<HTMLElement>("[data-turn-id]");
     for (const target of targets) {
       const turnId = target.dataset.turnId;
       if (!turnId || !taskTriggerIds.has(turnId)) continue;
-      nextOffsets.push({ turnId, offsetTop: target.offsetTop });
+      nextOffsets.push({ turnId, offsetTop: viewportAnchor.getFeedElementScrollOffset(el, target, "top", scale) });
     }
     taskTurnOffsetsRef.current = nextOffsets;
   }, [taskTriggerIds]);

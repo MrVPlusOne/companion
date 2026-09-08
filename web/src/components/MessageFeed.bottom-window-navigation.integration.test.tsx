@@ -124,9 +124,9 @@ function producerLongTurnWindow(fromItem: number): Extract<BrowserIncomingMessag
   return { type: "thread_window_sync", thread_key: sync.threadKey, entries: sync.entries, window: sync.window };
 }
 
-function installViewportGeometry() {
+function installViewportGeometry(scale = 1) {
   const descriptors = new Map(
-    ["clientHeight", "scrollHeight", "scrollTop"].map((key) => [
+    ["clientHeight", "offsetHeight", "scrollHeight", "scrollTop"].map((key) => [
       key,
       Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, key),
     ]),
@@ -141,6 +141,12 @@ function installViewportGeometry() {
 
   Object.defineProperties(HTMLDivElement.prototype, {
     clientHeight: {
+      configurable: true,
+      get() {
+        return isFeed(this) ? 400 : 0;
+      },
+    },
+    offsetHeight: {
       configurable: true,
       get() {
         return isFeed(this) ? 400 : 0;
@@ -166,12 +172,14 @@ function installViewportGeometry() {
     if (this instanceof HTMLDivElement && typeof options === "object") this.scrollTop = options.top ?? 0;
   };
   HTMLElement.prototype.getBoundingClientRect = function () {
-    if (isFeed(this)) return DOMRect.fromRect({ width: 600, height: 400 });
+    // App transform scale changes visual rectangles, while scrolling and
+    // client/offset dimensions remain in the scroller's layout coordinates.
+    if (isFeed(this)) return DOMRect.fromRect({ width: 600 * scale, height: 400 * scale });
     const contained = rows().flatMap((row, index) => (row === this || this.contains(row) ? [index] : []));
     if (contained.length > 0) {
       const top = contained[0]! * 400 + 100;
       const bottom = (contained.at(-1)! + 1) * 400;
-      return DOMRect.fromRect({ y: top - scrollTop, width: 600, height: bottom - top });
+      return DOMRect.fromRect({ y: (top - scrollTop) * scale, width: 600 * scale, height: (bottom - top) * scale });
     }
     return originalRect.call(this);
   };
@@ -208,7 +216,7 @@ afterEach(() => {
 });
 
 describe("MessageFeed bottom navigation across selected-window replacement", () => {
-  it("reaches the newest window when both ranges belong to the same human turn", async () => {
+  it.each([0.9, 1, 1.25])("reaches the newest long-turn window at %s scale", async (scale) => {
     // Injected triggers count toward server window bounds without becoming new
     // human turns. Equal-sized replacement ranges must still honor Go to bottom.
     const older = producerLongTurnWindow(50);
@@ -216,7 +224,7 @@ describe("MessageFeed bottom navigation across selected-window replacement", () 
     expect(older.window.leading_turn_id).toBe("human-start");
     expect(latest.window.leading_turn_id).toBe("human-start");
     act(() => handleMessage(SESSION_ID, older));
-    const restoreGeometry = installViewportGeometry();
+    const restoreGeometry = installViewportGeometry(scale);
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
     try {
       const feed = screen.getByTestId("message-feed-scroll-container");
@@ -235,20 +243,22 @@ describe("MessageFeed bottom navigation across selected-window replacement", () 
 
       const lastMessage = document.querySelector<HTMLElement>('[data-message-id="progress-99"]')!;
       expect(lastMessage).not.toBeNull();
-      expect(lastMessage.getBoundingClientRect().bottom).toBe(feed.clientHeight);
+      expect(lastMessage.getBoundingClientRect().bottom).toBeCloseTo(feed.getBoundingClientRect().bottom, 4);
     } finally {
       view.unmount();
       restoreGeometry();
     }
   });
 
-  it.each([
-    { manual: false, outcome: "reaches the real bottom after requesting the newest window" },
-    { manual: true, outcome: "preserves manual reading chosen after the bottom-arrow click" },
-  ])("$outcome", async ({ manual }) => {
+  it.each(
+    [0.9, 1, 1.25].flatMap((scale) => [
+      { scale, manual: false, outcome: "reaches the real bottom after requesting the newest window" },
+      { scale, manual: true, outcome: "preserves manual reading chosen after the bottom-arrow click" },
+    ]),
+  )("$outcome at $scale scale", async ({ manual, scale }) => {
     // The old and newest producer windows overlap at Request 3. A preserved
     // reading anchor must not override Go to bottom, but a later manual scroll must.
-    const restoreGeometry = installViewportGeometry();
+    const restoreGeometry = installViewportGeometry(scale);
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
     try {
       const feed = screen.getByTestId("message-feed-scroll-container");
@@ -277,12 +287,42 @@ describe("MessageFeed bottom navigation across selected-window replacement", () 
 
       expect(screen.getByText("Request 6")).toBeTruthy();
       if (manual) {
-        expect(anchor().getBoundingClientRect().top).toBe(readingOffset);
-        expect(feed.scrollTop).toBe(50);
+        expect(anchor().getBoundingClientRect().top).toBeCloseTo(readingOffset, 4);
+        expect(feed.scrollTop).toBeCloseTo(50, 4);
       } else {
         const latest = document.querySelector<HTMLElement>('[data-message-id="request-6"]')!;
-        expect(latest.getBoundingClientRect().bottom).toBe(feed.clientHeight);
-        expect(feed.scrollTop).toBe(1200);
+        expect(latest.getBoundingClientRect().bottom).toBeCloseTo(feed.getBoundingClientRect().bottom, 4);
+        expect(feed.scrollTop).toBeCloseTo(1200, 4);
+      }
+    } finally {
+      view.unmount();
+      restoreGeometry();
+    }
+  });
+
+  it.each([
+    0.9, 1, 1.25,
+  ])("preserves the retained message through older/newer replacements at %s scale", async (scale) => {
+    // Keep Request 3 visible while the producer adds and removes two older
+    // messages. Repeating the cycle must not accumulate zoom-proportional drift.
+    act(() => handleMessage(SESSION_ID, producerWindow(2)));
+    const restoreGeometry = installViewportGeometry(scale);
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
+    try {
+      const feed = screen.getByTestId("message-feed-scroll-container");
+      const anchor = () => document.querySelector<HTMLElement>('[data-message-id="request-3"]')!;
+      act(() => {
+        feed.scrollTop = 150;
+        fireEvent.scroll(feed);
+      });
+      const offset = anchor().getBoundingClientRect().top;
+      for (let cycle = 0; cycle < 2; cycle += 1) {
+        await act(async () => handleMessage(SESSION_ID, producerWindow(0)));
+        expect(anchor().getBoundingClientRect().top).toBeCloseTo(offset, 4);
+        expect(feed.scrollTop).toBeCloseTo(950, 4);
+        await act(async () => handleMessage(SESSION_ID, producerWindow(2)));
+        expect(anchor().getBoundingClientRect().top).toBeCloseTo(offset, 4);
+        expect(feed.scrollTop).toBeCloseTo(150, 4);
       }
     } finally {
       view.unmount();

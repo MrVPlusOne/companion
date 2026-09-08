@@ -3,7 +3,42 @@ import type { FeedViewportPosition } from "../utils/thread-viewport.js";
 export interface FeedViewportAnchor {
   messageId: string | null;
   turnId: string | null;
+  /** Visual viewport pixels, preserved unchanged in saved anchor records. */
   offsetTop: number;
+}
+
+/** Convert visual rectangle distances using this element's actual vertical scale. */
+export function getFeedViewportScale(container: HTMLElement, rect = container.getBoundingClientRect()): number {
+  const style = getComputedStyle(container);
+  let layoutHeight = style.height.endsWith("px") ? Number.parseFloat(style.height) : 0;
+  if (layoutHeight > 0 && style.boxSizing !== "border-box") {
+    for (const value of [style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth]) {
+      layoutHeight += Number.parseFloat(value) || 0;
+    }
+  }
+  // Computed height preserves fractional layout pixels that offsetHeight rounds
+  // away. Detached/zero-layout fixtures can fall back without inventing zoom.
+  if (!(layoutHeight > 0)) layoutHeight = container.offsetHeight || container.clientHeight;
+  const scale = rect.height / layoutHeight;
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+/** Measure a feed element in the scroll container's layout coordinate system. */
+export function getFeedElementScrollOffset(
+  container: HTMLDivElement,
+  element: HTMLElement,
+  edge: "top" | "bottom",
+  scale = getFeedViewportScale(container),
+): number {
+  const containerRect = container.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
+  if (rect.height > 0 || rect[edge] !== containerRect.top) {
+    return container.scrollTop + (rect[edge] - containerRect.top) / scale;
+  }
+  // Keep existing no-layout test behavior. In a painted feed, offsetTop may be
+  // relative to a nested offsetParent and cannot supply the scroller origin.
+  if (edge === "top") return element.offsetTop;
+  return element.offsetTop + element.offsetHeight || container.scrollHeight;
 }
 
 function escapeSelectorValue(value: string): string {
