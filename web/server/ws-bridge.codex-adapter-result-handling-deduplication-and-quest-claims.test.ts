@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { CodexItemEventManager } from "./codex-item-event-manager.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { SessionStore } from "./session-store.js";
@@ -578,6 +579,51 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex adapter result handling", () => {
+  it.each([
+    "original-completion",
+    "rekeyed-completion",
+  ])("retires a streamed replay even when its %s assistant is deduplicated", async (completionId) => {
+    // Drive the actual item producer through the bridge. History dedup must
+    // not swallow the independent lifecycle signal needed to retire text.
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    await subscribeCurrentBrowser(bridge, browser);
+    const manager = new CodexItemEventManager((message) => adapter.emitBrowserMessage(message), {
+      model: "test-model",
+    });
+    const emitMessage = (streamId: string, completedId: string) => {
+      manager.handleItemStarted({ item: { type: "agentMessage", id: streamId } });
+      manager.handleAgentMessageDelta({ itemId: streamId, delta: "Previously completed status." });
+      manager.handleItemCompleted({
+        item: { type: "agentMessage", id: completedId, text: "Previously completed status." },
+      });
+    };
+    emitMessage("original-stream", "original-completion");
+    await flushAsync();
+    browser.send.mockClear();
+
+    emitMessage("replayed-stream", completionId);
+    await flushAsync();
+    manager.dispose();
+
+    const messages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(messages.filter((message: any) => message.type === "assistant")).toHaveLength(0);
+    expect(bridge.getSession("s1")!.messageHistory.filter((message) => message.type === "assistant")).toHaveLength(1);
+    expect(
+      messages.filter(
+        (message: any) =>
+          message.type === "stream_event" &&
+          message.event.type === "content_block_delta" &&
+          message.event.delta.type === "text_delta",
+      ),
+    ).toHaveLength(1);
+    expect(
+      messages.filter((message: any) => message.type === "stream_event" && message.event.type === "message_stop"),
+    ).toHaveLength(1);
+  });
+
   it("deduplicates replayed Codex assistant messages with identical timestamp and content", async () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();

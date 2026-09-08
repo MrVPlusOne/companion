@@ -10,6 +10,14 @@ export function handleStreamEventMessage(sessionId: string, data: StreamEventMes
   const event = data.event as Record<string, unknown>;
   if (!event || typeof event !== "object") return;
 
+  if (event.type === "message_stop") {
+    // History replay may suppress the completed assistant row. The independent
+    // stream boundary still retires only its parent's transient output.
+    store.setStreaming(sessionId, null, data.parent_tool_use_id);
+    store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
+    return;
+  }
+
   if (event.type === "message_start" && !store.streamingStartedAt.has(sessionId)) {
     store.setStreamingStats(sessionId, { startedAt: Date.now(), outputTokens: 0 });
   }

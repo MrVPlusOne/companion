@@ -110,13 +110,86 @@ export function prepareBoundedConversationSubscribe(input: {
     (input.lastAckSeq === 0 && input.running) || (input.lastAckSeq > 0 && input.lastAckSeq < syncThroughSeq);
   const replayEvents =
     boundedView && shouldReplay
-      ? input.session.eventBuffer.filter((event) => {
-          if (event.seq > syncThroughSeq || (input.lastAckSeq > 0 && event.seq <= input.lastAckSeq)) return false;
+      ? filterCompletedStreamReplay(input.session.eventBuffer, syncThroughSeq).filter((event) => {
+          if (input.lastAckSeq > 0 && event.seq <= input.lastAckSeq) return false;
           if (input.isHistoryBackedEvent(event.message as ReplayableBrowserIncomingMessage)) return false;
           return shouldDeliverBrowserEventToSocket(input.session, event.message, input.socketData);
         })
       : [];
   return { boundedView, syncThroughSeq, replayEvents };
+}
+
+function filterCompletedStreamReplay(events: BufferedBrowserEvent[], throughSeq: number): BufferedBrowserEvent[] {
+  const completedTextScopes = new Set<string>();
+  const completedThinkingScopes = new Set<string>();
+  const completedOwners = new Set<string>();
+  const retained: BufferedBrowserEvent[] = [];
+
+  // Snapshot hydration replaces completed history without running the live
+  // assistant/result handlers that clear its stream. Mirror those clears in
+  // replay selection, using event order and ownership, never IDs or prose.
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.seq > throughSeq) continue;
+    const message = event.message;
+    if (message.type !== "assistant" && message.type !== "stream_event" && message.type !== "result") {
+      retained.push(event);
+      continue;
+    }
+    const owner = JSON.stringify([
+      message.codexSubagent?.childId ?? null,
+      message.codexSubagent?.parentChildId ?? null,
+      message.codexSubagent?.rootTurnId ?? null,
+    ]);
+    if (message.type === "result") {
+      // A root result also clears legacy parent-keyed streams; native
+      // children keep their separate completion authority.
+      completedOwners.add(owner);
+      retained.push(event);
+      continue;
+    }
+    const scope = JSON.stringify([owner, message.parent_tool_use_id ?? null]);
+    if (message.type === "assistant") {
+      const content = message.message?.content;
+      if (
+        Array.isArray(content) &&
+        content.every((block) => block && typeof block === "object" && typeof block.type === "string")
+      ) {
+        completedTextScopes.add(scope);
+        if (content.some((block) => block.type === "thinking")) completedThinkingScopes.add(scope);
+      }
+      retained.push(event);
+      continue;
+    }
+    const payload = message.event as {
+      type?: string;
+      delta?: { type?: string };
+      content_block?: { type?: string };
+    };
+    if (payload?.type === "message_stop") {
+      completedTextScopes.add(scope);
+      completedThinkingScopes.add(scope);
+      retained.push(event);
+      continue;
+    }
+    const kind =
+      payload?.type === "content_block_delta"
+        ? payload.delta?.type
+        : payload?.type === "content_block_start"
+          ? payload.content_block?.type
+          : undefined;
+    const text = kind === "text" || kind === "text_delta";
+    const thinking = kind === "thinking" || kind === "thinking_delta";
+    if (
+      ((text || thinking) && completedOwners.has(owner)) ||
+      (text && completedTextScopes.has(scope)) ||
+      (thinking && completedThinkingScopes.has(scope))
+    ) {
+      continue;
+    }
+    retained.push(event);
+  }
+  return retained.reverse();
 }
 
 export function normalizeInitialThreadWindowRequest(

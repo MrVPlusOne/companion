@@ -500,6 +500,13 @@ export class CodexItemEventManager {
           ...(codexMessagePhase ? { codexMessagePhase } : {}),
           timestamp: completedAt,
         });
+        // Completion must retire live text even when the bridge deduplicates
+        // the completed assistant row. Item completion is not turn completion.
+        this.emit({
+          type: "stream_event",
+          event: { type: "message_stop" },
+          parent_tool_use_id: parentToolUseId,
+        });
         this.markMessageFinished(completedAt);
         this.streamingTextByItemId.delete(item.id);
         this.messagePhaseByItemId.delete(item.id);

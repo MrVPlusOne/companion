@@ -37,6 +37,7 @@ import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
 import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygroundStates.js";
 import { PlaygroundTimerMessageStates } from "./TimerMessagePlaygroundStates.js";
 import { PlaygroundCodexSubagentStates } from "./CodexSubagentPlaygroundStates.js";
+import { ActiveStreamReplayPlayground } from "./ActiveStreamReplayPlayground.js";
 import { PlaygroundDiffViewerSection } from "./DiffViewerPlaygroundSection.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
@@ -1029,6 +1030,9 @@ export function PlaygroundStateSections() {
       {/* ─── Streaming Indicator ──────────────────────────────── */}
       <Section title="Streaming Indicator" description="Live typing animation shown while the assistant is generating">
         <div className="space-y-4 max-w-3xl">
+          <Card label="Active output after reconnect">
+            <ActiveStreamReplayPlayground />
+          </Card>
           <Card label="Codex streaming (complete lines only)">
             <div className="flex items-start gap-3">
               <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-0.5 -ml-0.5">
