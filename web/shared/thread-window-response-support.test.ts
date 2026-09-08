@@ -404,7 +404,9 @@ describe("selected thread-window routed answer support", () => {
 
     expect(sync.threadResponseSupportComplete).toBe(true);
     expect(deliveredIds(sync)).toEqual(expect.arrayContaining(["raw-u1", "raw-u2", "answer-2"]));
-    expect(resolvedPresentation(sync.entries, state, THREAD_KEY)?.currentResponses[0]).toMatchObject({
+    expect(
+      resolvedPresentation(sync.entries, sync.threadResponseProjection!, THREAD_KEY)?.currentResponses[0],
+    ).toMatchObject({
       anchorUserMessageId: "raw-u2",
       sourceTurnId: "raw-u2",
     });
@@ -618,7 +620,7 @@ describe("selected thread-window routed answer support", () => {
       visibleItemCount: 1,
       currentThreadResponseProjection: state,
     });
-    const boundedPresentation = resolvedPresentation(sync.entries, state, "main", {
+    const boundedPresentation = resolvedPresentation(sync.entries, sync.threadResponseProjection!, "main", {
       leaderMode: false,
       parentSessionId,
     });

@@ -96,7 +96,7 @@ function deliveredIds(message: Extract<BrowserIncomingMessage, { type: "thread_w
 }
 
 describe("explicit answer selected-window authority", () => {
-  it("retains every current response and covered prompt anchor for a bounded Ready projection", () => {
+  it("selects the window's independent answer set while preserving global pending and Ready authority", () => {
     const session = { id: "leader", messageHistory: [human("u1", 1, "q-42")] };
     const first = createResponse(session, "q-42", "First answer.");
     session.messageHistory.push(human("u2", 3, "q-42"));
@@ -110,15 +110,33 @@ describe("explicit answer selected-window authority", () => {
       threadKey: "q-42",
       pendingMessageCount: 0,
       ready: true,
-      currentAnswers: [
-        { currentMessageId: first.message.id, coveredUserMessageIds: ["u1"] },
-        { currentMessageId: second.message.id, coveredUserMessageIds: ["u2"] },
-        { currentMessageId: third.message.id, coveredUserMessageIds: ["u3"] },
-      ],
+      currentAnswers: [{ currentMessageId: third.message.id, coveredUserMessageIds: ["u3"] }],
     });
-    expect(deliveredIds(message)).toEqual(
-      expect.arrayContaining(["u1", "u2", "u3", first.message.id, second.message.id, third.message.id]),
+    expect(deliveredIds(message)).toEqual(expect.arrayContaining(["u3", third.message.id]));
+    expect(deliveredIds(message)).not.toContain(first.message.id);
+    expect(deliveredIds(message)).not.toContain(second.message.id);
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.currentAnswers).toHaveLength(3);
+
+    // Older navigation selects the older answer set without pulling the latest
+    // one into that page; unanswered requests remain global server authority.
+    session.messageHistory.push(human("u4", 7, "q-42"));
+    const sent: string[] = [];
+    sendThreadWindowSync(
+      session,
+      { send: (data) => sent.push(String(data)) },
+      { threadKey: "q-42", fromItem: 0, itemCount: 1, sectionItemCount: 1, visibleItemCount: 1 },
     );
+    const older = parseLast(sent);
+    expect(older.response_state).toMatchObject({
+      pendingMessageCount: 1,
+      pendingMessages: [{ historyMessageId: "u4" }],
+      ready: false,
+      currentAnswers: [{ currentMessageId: first.message.id, coveredUserMessageIds: ["u1"] }],
+    });
+    expect(deliveredIds(older)).toEqual(expect.arrayContaining(["u1", first.message.id, "u4"]));
+    expect(deliveredIds(older)).not.toContain(second.message.id);
+    expect(deliveredIds(older)).not.toContain(third.message.id);
+    expect(older.window.has_newer_items).toBe(true);
   });
 
   it("retains every same-ID explicit answer row while only the latest owns coverage", () => {
@@ -256,17 +274,42 @@ describe("explicit answer selected-window authority", () => {
     expect(deliveredIds(message)).not.toContain("legacy-quiz");
   });
 
-  it("fails closed to the ordinary bounded window when response support exceeds the cap", () => {
+  it.each(["q-42", "main"])("fails closed when one connected %s answer set exceeds the support cap", (sourceThread) => {
     const session = { id: "leader", messageHistory: [] as BrowserIncomingMessage[] };
+    const responseIds: string[] = [];
+    // Consecutive answers overlap one prompt with their predecessor. Selecting
+    // the last answer requires the whole connected set, not a partial proof.
     for (let index = 0; index <= THREAD_WINDOW_SUPPORT_RECORD_LIMIT / 2; index += 1) {
-      session.messageHistory.push(human(`raw-${index}`, index * 2 + 1, "q-42", `u${index + 1}`));
-      createResponse(session, "q-42", `Answer ${index}.`);
+      const request = human(`raw-${index}`, index * 2 + 1, sourceThread, `u${index + 1}`) as Extract<
+        BrowserIncomingMessage,
+        { type: "user_message" }
+      >;
+      if (sourceThread === "main") {
+        request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: index + 1 }];
+      }
+      session.messageHistory.push(request);
+      const response = assistant(`connected-${index}`, `Answer ${index}.`, index * 2 + 2, sourceThread);
+      response.leaderThreadRole = "answer";
+      response.leaderAnswerUserMessageIds = index === 0 ? ["u1"] : [`u${index}`, `u${index + 1}`];
+      response.leaderAnswerObservedHistoryLength = session.messageHistory.length;
+      session.messageHistory.push(response);
+      expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+      responseIds.push(response.message.id);
     }
+
+    expect(buildLeaderThreadResponseState(session, "q-42").projection).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+    });
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.currentAnswers).toHaveLength(responseIds.length);
 
     const message = sendLatest(session, "q-42");
 
     expect(message.response_state).toBeUndefined();
     expect(message.entries.length).toBeLessThan(THREAD_WINDOW_SUPPORT_RECORD_LIMIT);
+    if (sourceThread === "main") {
+      expect(deliveredIds(message).some((id) => responseIds.includes(id))).toBe(false);
+    }
   });
 
   it("omits cross-thread response state when duplicate raw prompt identity makes support ambiguous", () => {
@@ -290,7 +333,7 @@ describe("explicit answer selected-window authority", () => {
     expect(deliveredIds(message)).not.toContain(response.message.id);
   });
 
-  it("omits cross-thread response state when complete associated proof exceeds the support cap", () => {
+  it("delivers the latest associated answer set when unrelated historical sets exceed the support cap", () => {
     const session = { id: "leader", messageHistory: [] as BrowserIncomingMessage[] };
     const responseIds: string[] = [];
     for (let index = 0; index <= THREAD_WINDOW_SUPPORT_RECORD_LIMIT / 2; index += 1) {
@@ -308,13 +351,20 @@ describe("explicit answer selected-window authority", () => {
 
     const message = sendLatest(session, "q-42");
 
-    expect(message.response_state).toBeUndefined();
-    expect(deliveredIds(message).some((id) => responseIds.includes(id))).toBe(false);
+    expect(message.response_state).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [{ currentMessageId: responseIds.at(-1), coveredUserMessageIds: [] }],
+    });
+    expect(deliveredIds(message).filter((id) => responseIds.includes(id))).toEqual([responseIds.at(-1)]);
+    expect(message.entries.length).toBeLessThan(THREAD_WINDOW_SUPPORT_RECORD_LIMIT);
   });
 
   it("sends response state even on a cache hit", () => {
     const session = { id: "leader", messageHistory: [human("u1", 1)] };
-    const response = createResponse(session, "main", "Answer.");
+    const earlier = createResponse(session, "main", "Earlier answer.");
+    session.messageHistory.push(human("u2", 3));
+    const response = createResponse(session, "main", "Latest answer.");
     const sent: string[] = [];
     const socket = { send: (data: string) => sent.push(data) };
     const options = { threadKey: "main", fromItem: -1, itemCount: 1, sectionItemCount: 1, visibleItemCount: 1 };
@@ -326,7 +376,11 @@ describe("explicit answer selected-window authority", () => {
 
     expect(cached.cache_hit).toBe(true);
     expect(cached.entries).toEqual([]);
-    expect(cached.response_state?.currentAnswers[0]).toMatchObject({ currentMessageId: response.message.id });
+    expect(cached.response_state?.currentAnswers).toMatchObject([{ currentMessageId: response.message.id }]);
+    expect(cached.response_state).toEqual(first.response_state);
+    expect(cached.response_state?.currentAnswers.some((answer) => answer.currentMessageId === earlier.message.id)).toBe(
+      false,
+    );
   });
 
   it("omits malformed response authority and leaves its covered prompt pending", () => {

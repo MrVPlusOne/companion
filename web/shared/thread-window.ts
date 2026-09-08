@@ -15,7 +15,7 @@ import {
 } from "./leader-thread-response-routing.js";
 import { assignSessionScopedLeaderUserMessageIds } from "./leader-user-message-id.js";
 import { deriveWindowAvailability } from "./window-availability.js";
-import { isCodexLeaderRecoveryDiagnosticSourceId } from "./injected-event-message.js";
+import { isCodexLeaderRecoveryDiagnosticSourceId, isLeaderKickoffPrompt } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
 import {
   inferThreadTargetFromTextContent,
@@ -75,6 +75,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   entries: ThreadWindowEntry[];
   window: ThreadWindowState;
   threadResponseSupportComplete: boolean;
+  threadResponseProjection?: LeaderThreadResponseProjection;
 } {
   const threadKey = normalizeSelectedFeedThreadKey(input.threadKey);
   const sectionItemCount = Math.max(1, Math.floor(input.sectionItemCount));
@@ -116,6 +117,9 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     fromItem: initialFromItem,
     endItem,
     supportItemLimit: requestedItemCount,
+    latestTail: endItem === totalItems && !input.targetMessageId && input.targetHistoryIndex === undefined,
+    targetMessageId: input.targetMessageId,
+    targetHistoryIndex: input.targetHistoryIndex,
     includeMessage: input.includeMessage,
     currentThreadResponseProjection: input.currentThreadResponseProjection,
   });
@@ -131,6 +135,9 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     threadKey,
     entries,
     threadResponseSupportComplete: builtEntries.threadResponseSupportComplete,
+    ...(builtEntries.threadResponseProjection
+      ? { threadResponseProjection: builtEntries.threadResponseProjection }
+      : {}),
     window: {
       thread_key: threadKey,
       from_item: initialFromItem,
@@ -187,19 +194,27 @@ function buildThreadWindowEntries(input: {
   fromItem: number;
   endItem: number;
   supportItemLimit: number;
+  latestTail?: boolean;
+  targetMessageId?: string;
+  targetHistoryIndex?: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
   currentThreadResponseProjection?: LeaderThreadResponseProjection;
-}): { entries: ThreadWindowEntry[]; threadResponseSupportComplete: boolean } {
+}): {
+  entries: ThreadWindowEntry[];
+  threadResponseSupportComplete: boolean;
+  threadResponseProjection?: LeaderThreadResponseProjection;
+} {
   const selectedItems = selectConversationItems(input.items, input.ranges.slice(input.fromItem, input.endItem));
   const selectedOrFallbackItems =
     selectedItems.length > 0
       ? selectedItems
       : selectRecentStandalonePreviewItems(input.items, input.ranges, input.supportItemLimit);
+  const responseProjection = selectThreadResponseProjection(input, selectedOrFallbackItems);
   const responseSupport = addCurrentThreadResponseSupport(
     input.messageHistory,
     input.threadKey,
     selectedOrFallbackItems,
-    input.currentThreadResponseProjection,
+    responseProjection,
     input.includeMessage,
   );
   const sourceExpandedItems =
@@ -214,15 +229,113 @@ function buildThreadWindowEntries(input: {
   );
   return {
     entries: dedupeEntries(
-      filterThreadAnswerVisibility(
-        expandedItems,
-        input.threadKey,
-        input.currentThreadResponseProjection,
-        responseSupport.complete,
-      ),
+      filterThreadAnswerVisibility(expandedItems, input.threadKey, responseProjection, responseSupport.complete),
     ),
     threadResponseSupportComplete: responseSupport.complete,
+    ...(responseSupport.complete && responseProjection ? { threadResponseProjection: responseProjection } : {}),
   };
+}
+
+function selectThreadResponseProjection(
+  input: Pick<
+    BuildThreadWindowInput,
+    | "messageHistory"
+    | "threadKey"
+    | "targetMessageId"
+    | "targetHistoryIndex"
+    | "currentThreadResponseProjection"
+    | "includeMessage"
+  > & { latestTail?: boolean },
+  selectedItems: readonly FeedItem[],
+): LeaderThreadResponseProjection | undefined {
+  const projection = input.currentThreadResponseProjection;
+  if (!projection || projection.threadKey !== input.threadKey || input.threadKey === ALL_THREADS_KEY) return undefined;
+  const answers = projection.currentAnswers;
+  if (answers.length === 0) return projection;
+
+  const quizItems = latestQuestQuizSupportItems(
+    input.messageHistory,
+    input.threadKey,
+    projection.cutoverHistoryIndex,
+    input.includeMessage,
+  );
+  const questQuizBoundaries =
+    input.threadKey === MAIN_THREAD_KEY
+      ? []
+      : questQuizSourceBoundarySupportItems(input.messageHistory, input.threadKey, quizItems);
+  // Quiz support may itself be an older answer row in Main or a quest. Keep
+  // that host's complete answer set in the same proof as the visible window.
+  const selectedMessageIds = new Set(
+    [...selectedItems, ...quizItems].map(({ entry }) => rawMessageId(entry.message, entry.history_index)),
+  );
+  const selectedPromptIds = new Set(
+    selectedItems.flatMap(({ entry }) =>
+      entry.message.type === "user_message" &&
+      leaderResponseMessageIsAssociatedWithThread(entry.message, input.threadKey)
+        ? [rawMessageId(entry.message, entry.history_index)]
+        : [],
+    ),
+  );
+  const targetIds = new Set(input.targetMessageId ? [input.targetMessageId] : []);
+  const targetMessage =
+    input.targetHistoryIndex === undefined ? undefined : input.messageHistory[input.targetHistoryIndex];
+  if (targetMessage) targetIds.add(rawMessageId(targetMessage, input.targetHistoryIndex!));
+  const answersByPrompt = new Map<string, number[]>();
+  const included = new Set<number>();
+  const queue: number[] = [];
+  const supportIds = new Set(projection.pendingMessages.map((pending) => pending.historyMessageId));
+  const includeAnswer = (index: number) => {
+    if (included.has(index)) return;
+    included.add(index);
+    queue.push(index);
+    supportIds.add(answers[index]!.currentMessageId);
+    answers[index]!.referencedUserMessageIds.forEach((id) => supportIds.add(id));
+  };
+  answers.forEach((answer, index) => {
+    for (const id of answer.referencedUserMessageIds) {
+      const members = answersByPrompt.get(id) ?? [];
+      members.push(index);
+      answersByPrompt.set(id, members);
+    }
+    if (
+      selectedMessageIds.has(answer.currentMessageId) ||
+      targetIds.has(answer.currentMessageId) ||
+      answer.referencedUserMessageIds.some((id) => selectedPromptIds.has(id) || targetIds.has(id))
+    )
+      includeAnswer(index);
+  });
+  if (input.latestTail) {
+    const latestIndex = answers.reduce(
+      (latest, answer, index) => (answer.currentHistoryIndex > answers[latest]!.currentHistoryIndex ? index : latest),
+      0,
+    );
+    includeAnswer(latestIndex);
+  }
+
+  const includePromptAnswers = (id: string) => {
+    for (const index of answersByPrompt.get(id) ?? []) includeAnswer(index);
+    answersByPrompt.delete(id);
+  };
+  const includeSourceBoundaryAnswers = () => {
+    const boundaries =
+      input.threadKey === MAIN_THREAD_KEY
+        ? mainResponseSourceBoundarySupportItems(input.messageHistory, [
+            ...queue.map((index) => answers[index]!.currentHistoryIndex),
+            ...quizItems.map((item) => item.entry.history_index),
+          ])
+        : questQuizBoundaries;
+    for (const { entry } of boundaries) {
+      if (entry.message.type === "user_message" && entry.message.id) includePromptAnswers(entry.message.id);
+    }
+  };
+  includeSourceBoundaryAnswers();
+  // Every iteration consumes one previously unseen answer. Stop once the
+  // monotonic support set is oversized: nothing from that packet is published.
+  for (let cursor = 0; cursor < queue.length && supportIds.size <= THREAD_WINDOW_SUPPORT_RECORD_LIMIT; cursor += 1) {
+    answers[queue[cursor]!]!.referencedUserMessageIds.forEach(includePromptAnswers);
+    if (cursor === queue.length - 1) includeSourceBoundaryAnswers();
+  }
+  return { ...projection, currentAnswers: answers.filter((_answer, index) => included.has(index)) };
 }
 
 function filterThreadAnswerVisibility(
@@ -408,16 +521,16 @@ function addCurrentThreadResponseSupport(
   const quizItems = latestQuestQuizSupportItems(messages, threadKey, projection.cutoverHistoryIndex, includeMessage);
   for (const item of quizItems) required.set(entryKey(item.entry), item);
 
-  if (threadKey === MAIN_THREAD_KEY) {
-    const sourceHistoryIndexes = [
-      ...projection.currentAnswers.map((answer) => answer.currentHistoryIndex),
-      ...quizItems.map((item) => item.entry.history_index),
-    ];
-    const sourceBoundaryItems = mainResponseSourceBoundarySupportItems(messages, sourceHistoryIndexes);
-    for (const item of sourceBoundaryItems) {
-      if (!addRequired(item.entry.message, item.entry.history_index)) {
-        return { items: selectedItems, complete: false };
-      }
+  const sourceBoundaryItems =
+    threadKey === MAIN_THREAD_KEY
+      ? mainResponseSourceBoundarySupportItems(messages, [
+          ...projection.currentAnswers.map((answer) => answer.currentHistoryIndex),
+          ...quizItems.map((item) => item.entry.history_index),
+        ])
+      : questQuizSourceBoundarySupportItems(messages, threadKey, quizItems);
+  for (const item of sourceBoundaryItems) {
+    if (!addRequired(item.entry.message, item.entry.history_index)) {
+      return { items: selectedItems, complete: false };
     }
   }
 
@@ -489,6 +602,36 @@ function mainResponseSourceBoundarySupportItems(
     order: historyIndex,
     entry: { message: messages[historyIndex]!, history_index: historyIndex },
   }));
+}
+
+/** Match quest leader turn boundaries without transferring ownership of backfilled humans. */
+function questQuizSourceBoundarySupportItems(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  quizItems: readonly FeedItem[],
+): FeedItem[] {
+  if (quizItems.length === 0) return [];
+  const sourceIndexes = new Set(quizItems.map((item) => item.entry.history_index));
+  const latestSourceIndex = Math.max(...sourceIndexes);
+  const boundaries = new Map<number, FeedItem>();
+  let latestBoundary: FeedItem | undefined;
+  for (let historyIndex = 0; historyIndex <= latestSourceIndex; historyIndex += 1) {
+    if (sourceIndexes.has(historyIndex) && latestBoundary) {
+      boundaries.set(latestBoundary.entry.history_index, latestBoundary);
+    }
+    const message = messages[historyIndex];
+    if (
+      !message ||
+      message.type !== "user_message" ||
+      message.codexSubagent != null ||
+      message.agentSource?.sessionId != null ||
+      isLeaderKickoffPrompt(message.content) ||
+      !messageHasThreadRef(message, threadKey)
+    )
+      continue;
+    latestBoundary = { order: historyIndex, entry: { message, history_index: historyIndex } };
+  }
+  return [...boundaries.values()];
 }
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {

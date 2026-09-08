@@ -1270,7 +1270,7 @@ export function sendThreadWindowSync(
     thread_key: sync.threadKey,
     entries: cacheHit ? [] : sync.entries,
     window,
-    ...(sync.threadResponseSupportComplete ? { response_state: responseState.projection } : {}),
+    ...(sync.threadResponseProjection ? { response_state: sync.threadResponseProjection } : {}),
     ...(cacheHit ? { cache_hit: true } : {}),
   } as BrowserIncomingMessage);
 }

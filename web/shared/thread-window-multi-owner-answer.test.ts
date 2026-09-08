@@ -95,7 +95,7 @@ function project(history: BrowserIncomingMessage[], threadKey: string) {
   const delivered = sync.entries.flatMap((entry) =>
     normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
   );
-  const supportedState = sync.threadResponseSupportComplete ? state : undefined;
+  const supportedState = sync.threadResponseSupportComplete ? sync.threadResponseProjection : undefined;
   const feed = buildFeedMessageModel({
     leaderSessionId: "leader",
     threadKey,
@@ -119,6 +119,120 @@ function project(history: BrowserIncomingMessage[], threadKey: string) {
 }
 
 describe("multi-owner answer window and feed projection", () => {
+  it.each(["main", "q-42"])("retains an older Quiz answer's complete proof in a latest %s window", (threadKey) => {
+    // Quiz support retains its actual host outside the selected latest turn.
+    // Its older answer and covered user boundary must join the proof packet,
+    // or the frontend rejects the whole projection despite staying under cap.
+    const history: BrowserIncomingMessage[] = [human("u1", threadKey)];
+    const older = appendAnswer(history, "older-quiz-answer", ["u1"], threadKey);
+    older.message.content.push({ type: "text", text: "\n{[(Quest Quiz: q-42)]}\n" });
+    history.push(human("u2", threadKey));
+    appendAnswer(history, "latest-answer", ["u2"], threadKey);
+
+    const { sync, feed, presentation } = project(history, threadKey);
+    expect(sync.threadResponseSupportComplete).toBe(true);
+    expect(sync.threadResponseProjection?.currentAnswers.map((row) => row.currentMessageId)).toEqual([
+      "older-quiz-answer",
+      "latest-answer",
+    ]);
+    expect(presentation?.currentResponses.map((row) => row.response.currentMessageId)).toEqual([
+      "older-quiz-answer",
+      "latest-answer",
+    ]);
+    expect(presentation?.quizGroups).toEqual([{ hostTurnId: "raw-u1", questIds: ["q-42"] }]);
+    expect(feed.messages.filter((row) => row.id === older.message.id)).toHaveLength(1);
+  });
+
+  it.each([
+    { threadKey: "main", sourceOwner: "main" },
+    { threadKey: "q-42", sourceOwner: "q-42" },
+    { threadKey: "q-42", sourceOwner: "main" },
+  ])("closes $sourceOwner boundaries for a separate older Quiz in $threadKey", ({ threadKey, sourceOwner }) => {
+    // A commentary Quiz can introduce an answered human boundary without
+    // itself being an answer. Closure still needs that boundary's answer set.
+    const history: BrowserIncomingMessage[] = [human("u1", sourceOwner, sourceOwner === threadKey ? [] : [threadKey])];
+    const older = appendAnswer(history, "older-answer", ["u1"], threadKey);
+    history.push({
+      ...older,
+      ...route(threadKey),
+      leaderThreadRole: "commentary",
+      leaderAnswerUserMessageIds: undefined,
+      leaderAnswerObservedHistoryLength: undefined,
+      threadAnswer: undefined,
+      message: { ...older.message, id: "quiz-host", content: [{ type: "text", text: "{[(Quest Quiz: q-42)]}" }] },
+    });
+    history.push(human("u2", threadKey));
+    appendAnswer(history, "latest-answer", ["u2"], threadKey);
+
+    const { sync, presentation } = project(history, threadKey);
+    expect(sync.threadResponseSupportComplete).toBe(true);
+    expect(presentation?.currentResponses.map((row) => row.response.currentMessageId)).toEqual([
+      "older-answer",
+      "latest-answer",
+    ]);
+    expect(presentation?.quizGroups).toEqual([{ hostTurnId: "raw-u1", questIds: ["q-42"] }]);
+  });
+
+  it("keeps a recent shared answer visible when historical Main support exceeds the cap", () => {
+    // This models the live failure: 33 retained answer rows and 28 distinct
+    // original prompts fit the initial cap (61), but 20 historical source
+    // boundaries inflate all-history support to 81. The latest complete answer
+    // set needs only a few records and must remain visible in both destinations.
+    const history: BrowserIncomingMessage[] = [];
+    for (let index = 1; index <= 27; index += 1) {
+      history.push(human(`u${index}`, "main", index === 27 ? ["q-42"] : []));
+      if (index <= 20) {
+        history.push({
+          type: "user_message",
+          id: `history-source-${index}`,
+          content: "Background work completed.",
+          timestamp: history.length + 1,
+          threadKey: "main",
+          agentSource: { sessionId: "timer:history", sessionLabel: "History timer" },
+        });
+      }
+      appendAnswer(history, `historical-answer-${index}`, [`u${index}`], "main");
+      if (index <= 5) appendAnswer(history, `complement-${index}`, [`u${index}`], "main");
+    }
+    history.push(human("u28", "q-42"));
+    const answer = appendAnswer(history, "recent-shared-answer", ["u27", "u28"], "q-42");
+    const global = buildLeaderThreadResponseState({ id: "leader", messageHistory: history }, "main").projection;
+    expect(global.currentAnswers).toHaveLength(33);
+    expect(
+      new Set(global.currentAnswers.flatMap((row) => [row.currentMessageId, ...row.referencedUserMessageIds])).size,
+    ).toBe(61);
+
+    for (const threadKey of ["main", "q-42"]) {
+      const { sync, feed, presentation } = project(history, threadKey);
+      expect(sync.threadResponseSupportComplete).toBe(true);
+      expect(presentation?.currentResponses.map((row) => row.response.currentMessageId)).toEqual([
+        "historical-answer-27",
+        "recent-shared-answer",
+      ]);
+      expect(feed.messages.filter((row) => row.id === answer.message.id)).toHaveLength(1);
+      expect(sync.threadResponseProjection?.currentAnswers.at(-1)?.coveredAnswerUserMessageIds).toEqual(
+        threadKey === "main" ? ["u27"] : ["u28"],
+      );
+      expect(
+        sync.entries.some(
+          ({ message }) => message.type === "assistant" && message.message.id === "historical-answer-1",
+        ),
+      ).toBe(false);
+    }
+
+    // A newer unrelated prompt stays globally pending, even though retained
+    // answer support is now local to this latest window.
+    history.push(human("u29", "main"));
+    const pending = project(history, "main");
+    expect(pending.sync.threadResponseProjection).toMatchObject({
+      pendingMessageCount: 1,
+      pendingMessages: [{ userMessageId: "u29" }],
+      ready: false,
+    });
+    expect(pending.presentation).not.toBeNull();
+    expect(pending.sync.threadResponseProjection?.currentAnswers.at(-1)?.coveredAnswerUserMessageIds).toEqual(["u27"]);
+  });
+
   it("projects the same source row through every prompt's tabs and keeps coverage local", () => {
     const { history, answer } = fixture();
     for (const threadKey of ["main", "q-11", "q-12", "q-22", "q-23", "q-30"]) {
