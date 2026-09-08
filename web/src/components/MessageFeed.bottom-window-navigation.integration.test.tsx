@@ -55,7 +55,10 @@ function leaderSession(): SessionState {
   };
 }
 
-function producerWindow(fromItem: number): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+function producerWindow(
+  fromItem: number,
+  itemCount = 4,
+): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
   const messageHistory: BrowserIncomingMessage[] = Array.from({ length: 6 }, (_, index) => ({
     type: "user_message",
     id: `request-${index + 1}`,
@@ -69,7 +72,7 @@ function producerWindow(fromItem: number): Extract<BrowserIncomingMessage, { typ
     messageHistory,
     threadKey: THREAD_KEY,
     fromItem,
-    itemCount: 4,
+    itemCount,
     sectionItemCount: 4,
     visibleItemCount: 1,
   });
@@ -194,6 +197,39 @@ function installViewportGeometry(scale = 1) {
   };
 }
 
+function shortHistory(count = 6): BrowserIncomingMessage[] {
+  return Array.from({ length: count }, (_, index) => ({
+    type: "user_message",
+    id: `short-${index + 1}`,
+    content: `Short request ${index + 1}`,
+    timestamp: 1_700_000_000_000 + index,
+    history_index: index,
+    threadKey: THREAD_KEY,
+    questId: THREAD_KEY,
+    threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "explicit" }],
+  }));
+}
+
+function shortTailWindow(history: BrowserIncomingMessage[], from = -1, count = 30): BrowserIncomingMessage {
+  const sync = buildThreadWindowSync({
+    messageHistory: history,
+    threadKey: THREAD_KEY,
+    fromItem: from,
+    itemCount: count,
+    sectionItemCount: 10,
+    visibleItemCount: 3,
+  });
+  return { type: "thread_window_sync", thread_key: sync.threadKey, entries: sync.entries, window: sync.window };
+}
+
+function latestThreadAnnouncement() {
+  const message = sendToSession.mock.calls
+    .map(([, value]) => value)
+    .findLast((value) => value.type === "conversation_view_update" && value.view === "thread");
+  if (message?.type !== "conversation_view_update") throw new Error("Expected a thread subscription announcement");
+  return message;
+}
+
 beforeEach(() => {
   useStore.getState().reset();
   localStorage.clear();
@@ -236,7 +272,7 @@ describe("MessageFeed bottom navigation across selected-window replacement", () 
       fireEvent.click(screen.getByLabelText("Go to bottom"));
       expect(sendToSession).toHaveBeenCalledWith(
         SESSION_ID,
-        expect.objectContaining({ type: "thread_window_request", thread_key: THREAD_KEY, from_item: 91 }),
+        expect.objectContaining({ type: "thread_window_request", thread_key: THREAD_KEY, from_item: -1 }),
       );
 
       await act(async () => handleMessage(SESSION_ID, latest));
@@ -272,7 +308,7 @@ describe("MessageFeed bottom navigation across selected-window replacement", () 
       fireEvent.click(screen.getByLabelText("Go to bottom"));
       expect(sendToSession).toHaveBeenCalledWith(
         SESSION_ID,
-        expect.objectContaining({ type: "thread_window_request", thread_key: THREAD_KEY, from_item: 2 }),
+        expect.objectContaining({ type: "thread_window_request", thread_key: THREAD_KEY, from_item: -1 }),
       );
 
       if (manual) {
@@ -324,6 +360,132 @@ describe("MessageFeed bottom navigation across selected-window replacement", () 
         expect(anchor().getBoundingClientRect().top).toBeCloseTo(offset, 4);
         expect(feed.scrollTop).toBeCloseTo(150, 4);
       }
+    } finally {
+      view.unmount();
+      restoreGeometry();
+    }
+  });
+});
+
+describe("MessageFeed local send and follow subscription", () => {
+  it.each([false, true])("keeps a locally sent message through refresh after older reading: %s", async (readOlder) => {
+    // Replay the announcement through the real producer. Echo-only visibility
+    // is insufficient: a later watermark must not remove the accepted send.
+    act(() => {
+      useStore.getState().setConnectionStatus(SESSION_ID, "connected");
+      handleMessage(SESSION_ID, shortTailWindow(shortHistory()));
+    });
+    const restoreGeometry = installViewportGeometry(0.9);
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
+    try {
+      expect(latestThreadAnnouncement()).toMatchObject({ from: -1, count: 30 });
+      const feed = screen.getByTestId("message-feed-scroll-container");
+      if (readOlder) {
+        // An explicit Send takes precedence over the saved older-reading anchor.
+        act(() => {
+          feed.scrollTop = 850;
+          fireEvent.scroll(feed);
+        });
+        expect(latestThreadAnnouncement().from).toBe(0);
+      }
+      act(() => useStore.getState().requestBottomAlignOnNextUserMessage(SESSION_ID));
+      await act(async () => handleMessage(SESSION_ID, shortHistory(7)[6]!));
+      expect(screen.getByText("Short request 7")).toBeTruthy();
+      const announced = latestThreadAnnouncement();
+      expect(announced).toMatchObject({ from: -1, count: 30 });
+      await act(async () =>
+        handleMessage(SESSION_ID, shortTailWindow(shortHistory(7), announced.from, announced.count)),
+      );
+      expect(screen.getByText("Short request 7")).toBeTruthy();
+      expect(screen.queryByText("Load newer section")).toBeNull();
+      const sent = document.querySelector<HTMLElement>('[data-message-id="short-7"]')!;
+      expect(sent.getBoundingClientRect().bottom).toBeCloseTo(feed.getBoundingClientRect().bottom, 4);
+    } finally {
+      view.unmount();
+      restoreGeometry();
+    }
+  });
+
+  it("does not overwrite an explicit older-page request with the old applied window", async () => {
+    act(() => {
+      useStore.getState().setConnectionStatus(SESSION_ID, "connected");
+      handleMessage(SESSION_ID, producerWindow(2));
+    });
+    const restoreGeometry = installViewportGeometry();
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
+    try {
+      expect(latestThreadAnnouncement().from).toBe(-1);
+      sendToSession.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "Load older section" }));
+      // Until a new window is applied, the request owns the socket destination.
+      // Announcing from_item=2 here would overwrite the requested from_item=0.
+      expect(sendToSession).toHaveBeenLastCalledWith(
+        SESSION_ID,
+        expect.objectContaining({ type: "thread_window_request", from_item: 0, item_count: 6 }),
+      );
+      await act(async () => handleMessage(SESSION_ID, producerWindow(0, 6)));
+      expect(latestThreadAnnouncement()).toMatchObject({ from: 0, count: 6 });
+    } finally {
+      view.unmount();
+      restoreGeometry();
+    }
+  });
+
+  it("re-announces scroll-away/back and explicit latest without moving a passive older reader", async () => {
+    act(() => {
+      useStore.getState().setConnectionStatus(SESSION_ID, "connected");
+      handleMessage(SESSION_ID, shortTailWindow(shortHistory()));
+    });
+    const restoreGeometry = installViewportGeometry();
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
+    try {
+      const feed = screen.getByTestId("message-feed-scroll-container");
+      const anchor = () => document.querySelector<HTMLElement>('[data-message-id="short-3"]')!;
+      act(() => {
+        feed.scrollTop = 850;
+        fireEvent.scroll(feed);
+      });
+      expect(latestThreadAnnouncement()).toMatchObject({ from: 0, count: 30 });
+      const offset = anchor().getBoundingClientRect().top;
+      const announced = latestThreadAnnouncement();
+      await act(async () =>
+        handleMessage(SESSION_ID, shortTailWindow(shortHistory(7), announced.from, announced.count)),
+      );
+      expect(anchor().getBoundingClientRect().top).toBeCloseTo(offset, 4);
+      expect(latestThreadAnnouncement().from).toBe(0);
+
+      act(() => {
+        feed.scrollTop = 2400;
+        fireEvent.scroll(feed);
+      });
+      expect(latestThreadAnnouncement().from).toBe(-1);
+      act(() => {
+        feed.scrollTop = 850;
+        fireEvent.scroll(feed);
+      });
+      expect(latestThreadAnnouncement().from).toBe(0);
+      fireEvent.click(screen.getByLabelText("Go to bottom"));
+      expect(latestThreadAnnouncement().from).toBe(-1);
+    } finally {
+      view.unmount();
+      restoreGeometry();
+    }
+  });
+
+  it("does not publish stale latest intent while layout restores an older window", () => {
+    // The initial ref starts at latest, but the mounted window has newer rows.
+    // No transient -1 announcement may override layout's history decision.
+    act(() => useStore.getState().setConnectionStatus(SESSION_ID, "connected"));
+    const restoreGeometry = installViewportGeometry();
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);
+    try {
+      const announcements = sendToSession.mock.calls
+        .map(([, message]) => message)
+        .filter((message) => message.type === "conversation_view_update");
+      expect(announcements.length).toBeGreaterThan(0);
+      expect(announcements.every((message) => message.type === "conversation_view_update" && message.from === 0)).toBe(
+        true,
+      );
     } finally {
       view.unmount();
       restoreGeometry();

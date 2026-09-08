@@ -69,7 +69,7 @@ import {
   useUserViewportNavigationIntent,
 } from "./message-feed-viewport-state.js";
 import { useMessageFeedSectionWindowLoaders } from "./message-feed-section-window-loaders.js";
-import { useMessageFeedBoundedConversation } from "./message-feed-bounded-conversation.js";
+import { useMessageFeedBoundedConversation, useMessageFeedFollowState } from "./message-feed-bounded-conversation.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
@@ -235,7 +235,9 @@ export function MessageFeed({
   const contentRootRef = useRef<HTMLDivElement>(null);
   const feedEndScrollSlackRef = useRef(feedEndScrollSlack);
   feedEndScrollSlackRef.current = feedEndScrollSlack;
-  const autoFollowEnabledRef = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
+  const { autoFollowEnabledRef, followRevision, setAutoFollowEnabled } = useMessageFeedFollowState(
+    savedScrollPos ? savedScrollPos.isAtBottom : true,
+  );
   const isNearBottom = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const lastScrollTopRef = useRef(savedScrollPos?.scrollTop ?? 0);
   const programmaticScrollTargetRef = useRef<number | null>(null);
@@ -600,11 +602,23 @@ export function MessageFeed({
     return true;
   }, []);
 
+  const { historyWindowRevision, requestHistoryWindow, noteWindowRequest } = useMessageFeedBoundedConversation({
+    activeHistoryWindow,
+    activeThreadWindow,
+    connectionStatus,
+    normalizedThreadKey,
+    selectedFeedWindowEnabled,
+    sessionId,
+    autoFollowEnabledRef,
+    followRevision,
+  });
+
   const requestThreadWindow = useThreadWindowRequester({
     activeThreadWindow,
     normalizedThreadKey,
     sectionTurnCount,
     sessionId,
+    onWindowRequest: noteWindowRequest,
     setPendingInitialThreadWindowKey,
   });
 
@@ -828,15 +842,6 @@ export function MessageFeed({
     [ensureSectionForTurnVisible, handleUserNavigationIntent],
   );
 
-  const { historyWindowRevision, requestHistoryWindow } = useMessageFeedBoundedConversation({
-    activeHistoryWindow,
-    activeThreadWindow,
-    connectionStatus,
-    normalizedThreadKey,
-    selectedFeedWindowEnabled,
-    sessionId,
-  });
-
   const requestViewportAnchorWindowIfMissing = useCallback(
     (pos: FeedViewportPosition, restoreKey: string) => {
       const targetMessageId = pos.anchorMessageId ?? pos.anchorTurnId;
@@ -885,7 +890,7 @@ export function MessageFeed({
   const { handleLoadNewerSection, handleLoadOlderSection, explicitSectionLoad } = useMessageFeedSectionWindowLoaders({
     activeThreadWindow,
     activeHistoryWindow,
-    autoFollowEnabledRef,
+    setAutoFollowEnabled,
     latestVisibleSectionStartIndex,
     markPending: markSectionLoadPending,
     moveSectionWindow,
@@ -915,21 +920,19 @@ export function MessageFeed({
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
-      autoFollowEnabledRef.current = true;
+      setAutoFollowEnabled(true);
       // Window replacement must follow this destination, not the previous reading anchor.
       if (containerRef.current) snapshotViewportAnchor(containerRef.current);
       if (activeThreadWindow && hasNewerSections) {
-        const latestFromItem = Math.max(0, activeThreadWindow.total_items - activeThreadWindow.item_count);
-        requestThreadWindow(latestFromItem);
+        requestThreadWindow(-1);
         return;
       }
       if (activeHistoryWindow && hasNewerSections) {
         const turnCount =
           activeHistoryWindow.turn_count ||
           getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
-        const latestFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
         requestHistoryWindow(
-          latestFromTurn,
+          -1,
           turnCount,
           activeHistoryWindow.section_turn_count,
           activeHistoryWindow.visible_section_count,
@@ -965,6 +968,7 @@ export function MessageFeed({
       requestHistoryWindow,
       scrollContainerTo,
       snapshotViewportAnchor,
+      setAutoFollowEnabled,
       sectionWindowStart,
       totalSections,
     ],
@@ -988,7 +992,7 @@ export function MessageFeed({
     activeThreadWindow,
     normalizedThreadKey,
     visibleWindowSignature,
-    autoFollowEnabledRef,
+    setAutoFollowEnabled,
     markSectionLoadPending,
     requestThreadWindow,
     requestHistoryWindow,
@@ -1007,19 +1011,17 @@ export function MessageFeed({
   const resetVisibleSectionsToLatest = useCallback(
     (behavior: ScrollBehavior = "auto") => {
       if (activeThreadWindow && hasNewerSections) {
-        const latestFromItem = Math.max(0, activeThreadWindow.total_items - activeThreadWindow.item_count);
-        autoFollowEnabledRef.current = true;
-        requestThreadWindow(latestFromItem);
+        setAutoFollowEnabled(true);
+        requestThreadWindow(-1);
         return;
       }
       if (activeHistoryWindow && hasNewerSections) {
         const turnCount =
           activeHistoryWindow.turn_count ||
           getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
-        const latestFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
-        autoFollowEnabledRef.current = true;
+        setAutoFollowEnabled(true);
         requestHistoryWindow(
-          latestFromTurn,
+          -1,
           turnCount,
           activeHistoryWindow.section_turn_count,
           activeHistoryWindow.visible_section_count,
@@ -1027,7 +1029,7 @@ export function MessageFeed({
         return;
       }
       if (sectionWindowStart == null || totalSections <= DEFAULT_VISIBLE_SECTION_COUNT) return;
-      autoFollowEnabledRef.current = true;
+      setAutoFollowEnabled(true);
       setSectionWindowStart(null);
       requestAnimationFrame(() => {
         const container = containerRef.current;
@@ -1046,6 +1048,7 @@ export function MessageFeed({
       requestThreadWindow,
       requestHistoryWindow,
       scrollContainerTo,
+      setAutoFollowEnabled,
       sectionWindowStart,
       totalSections,
     ],
@@ -1193,21 +1196,20 @@ export function MessageFeed({
     const isProgrammaticScroll =
       programmaticScrollTargetRef.current != null &&
       Math.abs(currentScrollTop - programmaticScrollTargetRef.current) <= 2;
-    if (isProgrammaticScroll) {
-      programmaticScrollTargetRef.current = null;
-    }
+    // A correction owns only the next scroll event, not a later return to the same coordinate.
+    programmaticScrollTargetRef.current = null;
     const scrollingUp = currentScrollTop < lastScrollTopRef.current - 4;
     const scrollingDown = currentScrollTop > lastScrollTopRef.current + 4;
     if (!isProgrammaticScroll) {
       if (scrollingUp || scrollingDown) handleKeyboardScroll();
       if (scrollingUp) {
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
       } else if (!nearBottom) {
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
       } else if (nearBottom && !hasNewerSections) {
-        autoFollowEnabledRef.current = true;
+        setAutoFollowEnabled(true);
       } else if (hasNewerSections) {
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
       }
     }
     isNearBottom.current = nearBottom;
@@ -1265,7 +1267,7 @@ export function MessageFeed({
       lastViewportAnchorRef.current = null;
       if (restoreSavedViewportAnchor(pos)) {
         pendingViewportAnchorWindowRequestRef.current = null;
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         isNearBottom.current = false;
         setShowScrollButton(true);
         viewportAnchor.schedulePostLayoutViewportAnchorRestore({
@@ -1281,7 +1283,7 @@ export function MessageFeed({
         return;
       } else if (restoreSavedScrollPosition(pos)) {
         exactRestoreRef.current = null;
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         isNearBottom.current = false;
         setShowScrollButton(true);
       } else {
@@ -1290,13 +1292,13 @@ export function MessageFeed({
       }
     } else if (pos && !pos.isAtBottom) {
       if (restoreSavedScrollPosition(pos)) {
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         isNearBottom.current = false;
         setShowScrollButton(true);
       }
     } else if (activeThreadWindow && hasNewerSections) {
       const el = containerRef.current;
-      autoFollowEnabledRef.current = false;
+      setAutoFollowEnabled(false);
       isNearBottom.current = false;
       setShowScrollButton(true);
       if (el) {
@@ -1325,6 +1327,7 @@ export function MessageFeed({
     selectedFeedWindowEnabled,
     selectedThreadWindowRevision,
     sessionId,
+    setAutoFollowEnabled,
     showConversationLoading,
     viewportKey,
   ]);
@@ -1373,9 +1376,11 @@ export function MessageFeed({
       const messageBottom = getFeedBlockBottom(container, target);
       const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
       const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(messageBottom - container.clientHeight)));
-      autoFollowEnabledRef.current = true;
+      setAutoFollowEnabled(true);
       isNearBottom.current = true;
       setContainerScrollTop(targetTop);
+      // A local Send replaces the older-reading intent before continuity runs.
+      snapshotViewportAnchor(container);
       lastSeenContentBottomRef.current = getRealContentBottom();
       lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
       setShowScrollButton(false);
@@ -1397,7 +1402,9 @@ export function MessageFeed({
     sectionWindowStart,
     sessionId,
     setContainerScrollTop,
+    setAutoFollowEnabled,
     shouldBottomAlignNextUserMessage,
+    snapshotViewportAnchor,
     totalSections,
   ]);
 
@@ -1482,7 +1489,7 @@ export function MessageFeed({
         setShowScrollButton(false);
         setShowLatestPill(false);
       } else if (previous.anchor && restoreFeedAnchor(previous.anchor)) {
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         isNearBottom.current = false;
         setShowScrollButton(true);
       }
@@ -1493,6 +1500,7 @@ export function MessageFeed({
     restoreFeedAnchor,
     setContainerScrollTop,
     snapshotViewportAnchor,
+    setAutoFollowEnabled,
     viewportKey,
     viewportLayoutSignature,
   ]);
@@ -1503,7 +1511,7 @@ export function MessageFeed({
     if (!scrollToTurnId) return;
     handleUserNavigationIntent();
     clearScrollToTurn(sessionId);
-    autoFollowEnabledRef.current = false;
+    setAutoFollowEnabled(false);
     const overrides = useStore.getState().turnActivityOverrides.get(sessionId);
     const isExpanded = overrides?.get(scrollToTurnId);
     if (isExpanded !== true) {
@@ -1525,7 +1533,14 @@ export function MessageFeed({
       return;
     }
     scheduleScroll();
-  }, [clearScrollToTurn, ensureSectionForTurnVisible, handleUserNavigationIntent, scrollToTurnId, sessionId]);
+  }, [
+    clearScrollToTurn,
+    ensureSectionForTurnVisible,
+    handleUserNavigationIntent,
+    scrollToTurnId,
+    sessionId,
+    setAutoFollowEnabled,
+  ]);
 
   const expandAllInTurnTarget = useStore((s) => s.expandAllInTurn.get(sessionId));
   const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
@@ -1541,7 +1556,7 @@ export function MessageFeed({
       noteViewportDeliberateActivity(sessionId, normalizedThreadKey);
     }
     cancelExactRestore();
-    autoFollowEnabledRef.current = false;
+    setAutoFollowEnabled(false);
 
     const targetTurn = turns.find(
       (t) =>
@@ -1616,8 +1631,9 @@ export function MessageFeed({
             getRealContentBottom,
             markProgrammaticScroll,
             setShowScrollButton,
+            setAutoFollowEnabled,
             setFeedScrollPosition: useStore.getState().setFeedScrollPosition,
-            refs: { lastScrollTop: lastScrollTopRef, autoFollowEnabled: autoFollowEnabledRef, isNearBottom },
+            refs: { lastScrollTop: lastScrollTopRef, isNearBottom },
           });
           flashMessageFeedTarget(targetElement);
           clearScrollToMessage(sessionId);
@@ -1657,6 +1673,7 @@ export function MessageFeed({
     selectedThreadWindowRevision,
     sessionId,
     setShowScrollButton,
+    setAutoFollowEnabled,
     turns,
     viewportKey,
   ]);

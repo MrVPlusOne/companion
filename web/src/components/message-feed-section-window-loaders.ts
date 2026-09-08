@@ -8,7 +8,7 @@ export function useMessageFeedSectionWindowLoaders(input: {
   activeThreadWindow: ThreadWindowState | null;
   normalizedThreadKey: string;
   pendingRequestKeyRef: { current: string | null };
-  autoFollowEnabledRef: { current: boolean };
+  setAutoFollowEnabled: (enabled: boolean) => void;
   previousSectionStartIndex: number | null;
   nextSectionStartIndex: number | null;
   latestVisibleSectionStartIndex: number;
@@ -39,7 +39,7 @@ export function useMessageFeedSectionWindowLoaders(input: {
         })
       )
         return;
-      input.autoFollowEnabledRef.current = false;
+      input.setAutoFollowEnabled(false);
       input.setShowScrollButton(true);
       return;
     }
@@ -63,18 +63,18 @@ export function useMessageFeedSectionWindowLoaders(input: {
         })
       )
         return;
-      input.autoFollowEnabledRef.current = false;
+      input.setAutoFollowEnabled(false);
       input.setShowScrollButton(true);
       return;
     }
     if (input.previousSectionStartIndex == null) return;
-    input.autoFollowEnabledRef.current = false;
+    input.setAutoFollowEnabled(false);
     input.setShowScrollButton(true);
     input.moveSectionWindow(input.previousSectionStartIndex);
   }, [
     input.activeHistoryWindow,
     input.activeThreadWindow,
-    input.autoFollowEnabledRef,
+    input.setAutoFollowEnabled,
     input.markPending,
     input.moveSectionWindow,
     input.normalizedThreadKey,
@@ -100,7 +100,7 @@ export function useMessageFeedSectionWindowLoaders(input: {
         })
       )
         return;
-      input.autoFollowEnabledRef.current = false;
+      input.setAutoFollowEnabled(false);
       return;
     }
     if (input.activeHistoryWindow) {
@@ -123,18 +123,18 @@ export function useMessageFeedSectionWindowLoaders(input: {
         })
       )
         return;
-      input.autoFollowEnabledRef.current = false;
+      input.setAutoFollowEnabled(false);
       return;
     }
     if (input.nextSectionStartIndex == null) return;
-    input.autoFollowEnabledRef.current = false;
+    input.setAutoFollowEnabled(false);
     input.moveSectionWindow(
       input.nextSectionStartIndex === input.latestVisibleSectionStartIndex ? null : input.nextSectionStartIndex,
     );
   }, [
     input.activeHistoryWindow,
     input.activeThreadWindow,
-    input.autoFollowEnabledRef,
+    input.setAutoFollowEnabled,
     input.latestVisibleSectionStartIndex,
     input.markPending,
     input.moveSectionWindow,

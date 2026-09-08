@@ -32,7 +32,7 @@ describe("useMessageFeedSectionWindowLoaders", () => {
         activeThreadWindow: makeWindow(),
         normalizedThreadKey: "main",
         pendingRequestKeyRef: { current: null },
-        autoFollowEnabledRef: { current: false },
+        setAutoFollowEnabled: vi.fn(),
         previousSectionStartIndex: null,
         nextSectionStartIndex: null,
         latestVisibleSectionStartIndex: 0,

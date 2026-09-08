@@ -11,12 +11,14 @@ export function useThreadWindowRequester({
   normalizedThreadKey,
   sectionTurnCount,
   sessionId,
+  onWindowRequest,
   setPendingInitialThreadWindowKey,
 }: {
   activeThreadWindow: ThreadWindowState | null;
   normalizedThreadKey: string;
   sectionTurnCount: number;
   sessionId: string;
+  onWindowRequest: (window: ThreadWindowState | null) => void;
   setPendingInitialThreadWindowKey: (threadKey: string) => void;
 }) {
   return useCallback(
@@ -53,12 +55,20 @@ export function useThreadWindowRequester({
         ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
         ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),
       });
+      if (delivered) onWindowRequest(activeThreadWindow);
       if (delivered && !activeThreadWindow) {
         store.setPendingThreadWindowRequest?.(sessionId, normalizedThreadKey);
         setPendingInitialThreadWindowKey(normalizedThreadKey);
       }
       return delivered;
     },
-    [activeThreadWindow, normalizedThreadKey, sectionTurnCount, sessionId, setPendingInitialThreadWindowKey],
+    [
+      activeThreadWindow,
+      normalizedThreadKey,
+      onWindowRequest,
+      sectionTurnCount,
+      sessionId,
+      setPendingInitialThreadWindowKey,
+    ],
   );
 }

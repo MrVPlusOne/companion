@@ -23,6 +23,39 @@ afterEach(() => {
 });
 
 describe("PlaygroundTurnWindowStabilitySection", () => {
+  it("keeps the local send after the producer refresh advances its history watermark", async () => {
+    // The echo must survive authoritative replacement, not merely remain as a
+    // live tail on an old window. All delivery stays inside this local fixture.
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected fixture request"));
+    const socket = vi.spyOn(globalThis, "WebSocket");
+    const view = render(<PlaygroundTurnWindowStabilitySection />);
+    const fixture = within(screen.getByTestId("playground-turn-window-stability"));
+    await fixture.findByRole("button", { name: "Collapse turn" });
+    const sessionId = "playground-turn-window-stability";
+    const selectedWindow = () => useStore.getState().threadWindows.get(sessionId)!.get("q-1")!;
+    const previousHistoryLength = selectedWindow().source_history_length;
+    fireEvent.click(fixture.getByRole("button", { name: "90%" }));
+    fireEvent.click(fixture.getByRole("button", { name: "Send at latest" }));
+
+    const sentText = "Local follow-up 1: keep this message at the bottom.";
+    expect(fixture.getAllByText(sentText)).toHaveLength(1);
+    expect(selectedWindow().source_history_length).toBe(previousHistoryLength);
+    expect(fixture.getByRole("button", { name: "Send at latest" })).toBeDisabled();
+    fireEvent.click(fixture.getByRole("button", { name: "Refresh latest window" }));
+
+    expect(fixture.getAllByText(sentText)).toHaveLength(1);
+    expect(selectedWindow().source_history_length).toBe(previousHistoryLength + 1);
+    expect(selectedWindow().has_newer_items).toBe(false);
+    expect(fixture.queryByRole("button", { name: "Load newer section" })).not.toBeInTheDocument();
+    expect(fixture.getByRole("button", { name: "Refresh latest window" })).toBeDisabled();
+    expect(useStore.getState().connectionStatus.get(sessionId)).not.toBe("connected");
+    view.unmount();
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(socket).not.toHaveBeenCalled();
+    expect(useStore.getState().sessions.has(sessionId)).toBe(false);
+  });
+
   it("keeps collapse stable across locally scaled fixture windows without backend requests", async () => {
     // Exercise the real MessageFeed and store against producer-built windows,
     // and ensure this visible fixture never creates or queries a live session.

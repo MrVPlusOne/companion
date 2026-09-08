@@ -118,7 +118,7 @@ interface UseUserMessageNavigationInput {
   activeThreadWindow: ThreadWindowState | null;
   normalizedThreadKey: string;
   visibleWindowSignature: string;
-  autoFollowEnabledRef: ElementRef<boolean>;
+  setAutoFollowEnabled: (enabled: boolean) => void;
   markSectionLoadPending: (direction: "older" | "newer", key: string) => boolean;
   requestThreadWindow: (fromItem: number, requestedItemCount?: number, targetMessageId?: string) => void;
   requestHistoryWindow: (
@@ -146,7 +146,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     activeThreadWindow,
     normalizedThreadKey,
     visibleWindowSignature,
-    autoFollowEnabledRef,
+    setAutoFollowEnabled,
     markSectionLoadPending,
     requestThreadWindow,
     requestHistoryWindow,
@@ -201,7 +201,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
         const direction = targetIndex < activeThreadWindow.from_item ? "older" : "newer";
         const requestKey = `thread:${normalizedThreadKey}:${fromItem}:${itemCount}:target:${target.messageId}`;
         if (!markSectionLoadPending(direction, requestKey)) return true;
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         pendingSpecificTargetRef.current = target;
         requestThreadWindow(fromItem, itemCount, target.messageId);
         return true;
@@ -221,7 +221,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
         const direction = targetIndex < activeHistoryWindow.from_turn ? "older" : "newer";
         const requestKey = `history:${fromTurn}:${turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}:target:${target.messageId}`;
         if (!markSectionLoadPending(direction, requestKey)) return true;
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         pendingSpecificTargetRef.current = target;
         requestHistoryWindow(
           fromTurn,
@@ -237,7 +237,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     [
       activeHistoryWindow,
       activeThreadWindow,
-      autoFollowEnabledRef,
+      setAutoFollowEnabled,
       markSectionLoadPending,
       normalizedThreadKey,
       requestHistoryWindow,
@@ -298,7 +298,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
         if (!request) return false;
         const requestKey = `thread:${normalizedThreadKey}:${request.fromItem}:${request.itemCount}`;
         if (!markSectionLoadPending(loadDirection, requestKey)) return true;
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         rememberPendingTarget();
         requestThreadWindow(request.fromItem, request.itemCount);
         return true;
@@ -308,7 +308,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
         if (!request) return false;
         const requestKey = `history:${request.fromTurn}:${request.turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
         if (!markSectionLoadPending(loadDirection, requestKey)) return true;
-        autoFollowEnabledRef.current = false;
+        setAutoFollowEnabled(false);
         rememberPendingTarget();
         requestHistoryWindow(
           request.fromTurn,
@@ -323,7 +323,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     [
       activeHistoryWindow,
       activeThreadWindow,
-      autoFollowEnabledRef,
+      setAutoFollowEnabled,
       markSectionLoadPending,
       normalizedThreadKey,
       requestHistoryWindow,

@@ -49,7 +49,7 @@ describe("useUserMessageNavigation", () => {
         activeThreadWindow: makeWindow(),
         normalizedThreadKey: "main",
         visibleWindowSignature: "window-117",
-        autoFollowEnabledRef: { current: false },
+        setAutoFollowEnabled: vi.fn(),
         markSectionLoadPending: () => true,
         requestThreadWindow,
         requestHistoryWindow: vi.fn(),

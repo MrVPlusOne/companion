@@ -26,6 +26,7 @@ export function scrollMessageFeedTargetIntoView({
   getRealContentBottom,
   markProgrammaticScroll,
   setShowScrollButton,
+  setAutoFollowEnabled,
   setFeedScrollPosition,
   refs,
 }: {
@@ -41,10 +42,10 @@ export function scrollMessageFeedTargetIntoView({
   getRealContentBottom: () => number | null;
   markProgrammaticScroll: (top: number) => void;
   setShowScrollButton: (show: boolean) => void;
+  setAutoFollowEnabled: (enabled: boolean) => void;
   setFeedScrollPosition: (viewportKey: string, position: FeedViewportPosition) => void;
   refs: {
     lastScrollTop: { current: number };
-    autoFollowEnabled: { current: boolean };
     isNearBottom: { current: boolean };
   };
 }): FeedViewportPosition {
@@ -56,7 +57,7 @@ export function scrollMessageFeedTargetIntoView({
   markProgrammaticScroll(nextTop);
   container.scrollTop = nextTop;
   refs.lastScrollTop.current = container.scrollTop;
-  refs.autoFollowEnabled.current = false;
+  setAutoFollowEnabled(false);
   refs.isNearBottom.current = false;
   setShowScrollButton(true);
 

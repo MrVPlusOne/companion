@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { buildThreadWindowSync } from "../../../shared/thread-window.js";
 import { api } from "../../api.js";
 import { useStore } from "../../store.js";
 import type { BrowserIncomingMessage, SessionState } from "../../types.js";
-import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
+import { createWsMessageHandler } from "../../ws-handlers.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { Section } from "./shared.js";
 
@@ -54,20 +54,12 @@ const HISTORY: BrowserIncomingMessage[] = [
   ]).flat(),
 ];
 const WINDOWS = [
-  { label: "Latest window", fromItem: 8, itemCount: 5 },
+  { label: "Latest window", fromItem: -1, itemCount: 5 },
   { label: "Older window", fromItem: 4, itemCount: 9 },
   { label: "Newer window", fromItem: 6, itemCount: 7 },
   { label: "Complete turn", fromItem: 0, itemCount: 13 },
-].map(({ label, ...bounds }) => ({
-  label,
-  ...buildThreadWindowSync({
-    messageHistory: HISTORY,
-    threadKey: THREAD_KEY,
-    sectionItemCount: 2,
-    visibleItemCount: 3,
-    ...bounds,
-  }),
-}));
+];
+const receive = createWsMessageHandler({ sendToSession: () => false, disconnectSession: () => {} });
 const SESSION: SessionState = {
   session_id: SESSION_ID,
   backend_type: "codex",
@@ -95,18 +87,59 @@ const SESSION: SessionState = {
   total_lines_removed: 0,
 };
 
-function loadWindow(index: number) {
-  const selected = WINDOWS[index]!;
-  const messages = selected.entries.flatMap((entry) =>
-    normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
-  );
-  useStore.getState().setThreadWindow(SESSION_ID, THREAD_KEY, selected.window, messages);
+function loadWindow(bounds: { fromItem: number; itemCount: number }, messageHistory: BrowserIncomingMessage[]) {
+  const selected = buildThreadWindowSync({
+    messageHistory,
+    threadKey: THREAD_KEY,
+    sectionItemCount: 2,
+    visibleItemCount: 3,
+    ...bounds,
+  });
+  receive(SESSION_ID, {
+    type: "thread_window_sync",
+    thread_key: THREAD_KEY,
+    entries: selected.entries,
+    window: selected.window,
+  });
 }
 
 export function PlaygroundTurnWindowStabilitySection() {
+  const history = useRef([...HISTORY]);
   const [ready, setReady] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [scale, setScale] = useState(1);
+  const [pendingRefresh, setPendingRefresh] = useState(false);
+
+  const sendAtLatest = () => {
+    loadWindow(WINDOWS[0]!, history.current);
+    setSelectedIndex(0);
+    const historyIndex = history.current.length;
+    const sequence = historyIndex - HISTORY.length + 1;
+    const message: BrowserIncomingMessage = {
+      type: "user_message",
+      id: `playground-window-follow-up-${sequence}`,
+      content: `Local follow-up ${sequence}: keep this message at the bottom.`,
+      timestamp: TIMESTAMP + historyIndex,
+      history_index: historyIndex,
+      ...ROUTE,
+    };
+    history.current.push(message);
+    useStore.getState().requestBottomAlignOnNextUserMessage(SESSION_ID);
+    receive(SESSION_ID, message);
+    setPendingRefresh(true);
+  };
+
+  const refreshLatest = () => {
+    const window = useStore.getState().threadWindows.get(SESSION_ID)!.get(THREAD_KEY)!;
+    // Simulate the latest-view announcement locally: retain requested capacity
+    // and resolve -1 against the new history rather than pinning the old slice.
+    loadWindow(
+      { fromItem: -1, itemCount: Math.max(window.item_count, window.section_item_count * window.visible_item_count) },
+      history.current,
+    );
+    setSelectedIndex(0);
+    setPendingRefresh(false);
+  };
 
   useEffect(() => {
     // This local fixture has no backend session or socket. Scope the existing
@@ -144,7 +177,7 @@ export function PlaygroundTurnWindowStabilitySection() {
     };
     api.searchSessionMessages = search;
     useStore.getState().addSession(SESSION);
-    loadWindow(0);
+    loadWindow(WINDOWS[0]!, history.current);
     setReady(true);
     return () => {
       if (api.searchSessionMessages === search) api.searchSessionMessages = originalSearch;
@@ -155,7 +188,7 @@ export function PlaygroundTurnWindowStabilitySection() {
   return (
     <Section
       title="Turn Collapse Across Windows"
-      description="At each local scale, read an update and load older or newer windows: your place should stay fixed. Collapse the long turn and repeat; its manual choice should survive every swap."
+      description="At each local scale, read an update and load older or newer windows: your place and manual collapse choice should survive. Send a local follow-up, then refresh the latest window; the new message should remain at the bottom."
     >
       <div className="max-w-3xl space-y-3" data-testid="playground-turn-window-stability">
         <div className="flex flex-wrap gap-2">
@@ -165,8 +198,9 @@ export function PlaygroundTurnWindowStabilitySection() {
               type="button"
               aria-pressed={selectedIndex === index}
               onClick={() => {
-                loadWindow(index);
+                loadWindow(window, history.current);
                 setSelectedIndex(index);
+                setPendingRefresh(false);
               }}
               className="min-h-11 rounded-md border border-cc-border bg-cc-card px-3 py-2 text-xs text-cc-fg hover:bg-cc-hover aria-pressed:bg-cc-active"
             >
@@ -188,8 +222,28 @@ export function PlaygroundTurnWindowStabilitySection() {
             </button>
           ))}
         </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={sendAtLatest}
+            disabled={pendingRefresh}
+            className="min-h-11 rounded-md border border-cc-border bg-cc-card px-3 py-2 text-xs text-cc-fg hover:bg-cc-hover disabled:opacity-50"
+          >
+            Send at latest
+          </button>
+          <button
+            type="button"
+            onClick={refreshLatest}
+            disabled={!pendingRefresh}
+            className="min-h-11 rounded-md border border-cc-border bg-cc-card px-3 py-2 text-xs text-cc-fg hover:bg-cc-hover disabled:opacity-50"
+          >
+            Refresh latest window
+          </button>
+        </div>
         <p className="text-xs text-cc-muted">
-          Use the fixture buttons to load slices; feed arrows have no connected backend here.
+          {pendingRefresh
+            ? "Local send received. Refresh the latest window to check that the message stays visible."
+            : "Local simulation only. Use the fixture buttons to load slices; feed arrows have no connected backend here."}
         </p>
         <div className="h-[420px] overflow-hidden rounded-xl border border-cc-border bg-cc-bg">
           <div
