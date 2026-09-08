@@ -222,7 +222,6 @@ export function QuestJourneyCompactSummary({
   const currentItem = items.find((item) => item.state === "current");
   const label =
     mode === "proposed" ? "Proposed" : mode === "completed" ? "Completed" : (currentItem?.phase.label ?? "Journey");
-  const sequence = mode === "proposed" ? items.map((item) => item.phase.label).join(" -> ") : "";
   const position =
     mode === "active" ? (currentItem ? `${currentItem.index + 1}/${items.length}` : "") : `${items.length} phases`;
   const notes = noteCount(journey);
@@ -239,11 +238,6 @@ export function QuestJourneyCompactSummary({
         aria-hidden="true"
       />
       <span className="shrink-0 font-medium text-cc-fg">{label}</span>
-      {sequence && (
-        <span className="min-w-0 truncate text-cc-muted" data-testid="quest-journey-compact-sequence">
-          {sequence}
-        </span>
-      )}
       {position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
       {showNotes && notes > 0 && (
         <span className="shrink-0 text-[10px] text-cc-attention">{`${notes} note${notes === 1 ? "" : "s"}`}</span>

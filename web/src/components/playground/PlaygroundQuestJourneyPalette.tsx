@@ -1,10 +1,11 @@
 import {
   getQuestJourneyPhase,
   type ActiveQuestJourneyPhaseId,
+  type QuestJourneyPlanState,
   type QuestJourneyState,
 } from "../../../shared/quest-journey.js";
 import { getQuestPhaseDotStyle, getQuestPhaseTextStyle } from "../../utils/quest-phase-theme.js";
-import { QuestJourneyTimeline } from "../QuestJourneyTimeline.js";
+import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "../QuestJourneyTimeline.js";
 
 const ACTIVE_PHASE_PALETTE: Array<{
   id: ActiveQuestJourneyPhaseId;
@@ -16,6 +17,12 @@ const ACTIVE_PHASE_PALETTE: Array<{
   { id: "user-checkpoint", status: "USER_CHECKPOINTING", description: "Amber decision pause" },
   { id: "memory", status: "MEMORY", description: "Violet durable closure" },
 ];
+
+const PROPOSED_JOURNEY: QuestJourneyPlanState = {
+  mode: "proposed",
+  phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+  phaseNotes: { "2": "Confirm the delivery choice before Work resumes." },
+};
 
 export function PlaygroundQuestJourneyPalette() {
   return (
@@ -54,6 +61,17 @@ export function PlaygroundQuestJourneyPalette() {
           </div>
         );
       })}
+      <div
+        className="min-w-0 rounded-md border border-cc-border bg-cc-bg/60 p-2.5 sm:col-span-2 xl:col-span-4"
+        data-testid="playground-proposed-journey-summary"
+      >
+        <p className="mb-2 text-xs font-semibold">Proposed Journey summary</p>
+        <QuestJourneyTimeline compact journey={PROPOSED_JOURNEY} status="PROPOSED" />
+        <details className="mt-2 max-w-md text-xs">
+          <summary className="cursor-pointer text-cc-muted">Full Journey</summary>
+          <QuestJourneyPreviewCard journey={PROPOSED_JOURNEY} status="PROPOSED" className="mt-2" />
+        </details>
+      </div>
     </div>
   );
 }

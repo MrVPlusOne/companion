@@ -1279,7 +1279,7 @@ export function PlaygroundInteractiveSections() {
               ]}
             />
           </Card>
-          <Card label="Active v2 phase palette">
+          <Card label="Journey phase summaries">
             <div className="p-3">
               <PlaygroundQuestJourneyPalette />
             </div>

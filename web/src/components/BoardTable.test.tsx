@@ -252,7 +252,9 @@ describe("BoardTable", () => {
     expect(within(summary).getByText("5/7")).toBeInTheDocument();
   });
 
-  it("renders proposed Journey rows as scheduling previews with the phase sequence in compact board cells", () => {
+  it("keeps proposed Journey board cells to one status instead of the planned phase sequence", () => {
+    // Proposed rows can carry an active index, but the compact cell must still
+    // describe the proposal rather than displaying any of its planned phases.
     const board: BoardRowData[] = [
       {
         questId: "q-924",
@@ -273,9 +275,7 @@ describe("BoardTable", () => {
     const summary = screen.getByTestId("quest-journey-compact-summary");
     expect(summary).toHaveAttribute("data-journey-mode", "proposed");
     expect(within(summary).getByText("Proposed")).toBeInTheDocument();
-    expect(within(summary).getByTestId("quest-journey-compact-sequence")).toHaveTextContent(
-      "Alignment -> Work -> Memory",
-    );
+    expect(summary).not.toHaveTextContent(/Alignment|Work|Memory|->/);
     expect(within(summary).getByText("3 phases")).toBeInTheDocument();
   });
 
