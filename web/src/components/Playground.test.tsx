@@ -293,7 +293,14 @@ describe("Playground", () => {
       "Please include this quest's request in the same answer.",
     );
     fireEvent.click(sharedCoverage);
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(6);
+    // The pinned decision fixture reuses both answers but renders its source
+    // Quiz only once beside the retained prompt and notification.
+    const pinnedDecision = within(routedFinalStates.getByTestId("playground-pinned-quiz-source"));
+    expect(pinnedDecision.getAllByTestId("thread-response-answer-count")).toHaveLength(2);
+    expect(pinnedDecision.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+    expect(pinnedDecision.getByText("Choose whether the follow-up should remain parked.")).toBeVisible();
+    expect(pinnedDecision.getByText("Choose the follow-up boundary")).toBeVisible();
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(8);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
