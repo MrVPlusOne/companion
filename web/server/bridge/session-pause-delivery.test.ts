@@ -212,7 +212,7 @@ describe("manual pause recovery-link transfer", () => {
       }),
       undefined,
     );
-    expect(session.pendingCodexInputs[0]).toMatchObject({ leaderTimerMessageId: "f1", threadKey: "q-42" });
+    expect(session.pendingCodexInputs[0]).toMatchObject({ leaderTimerMessageId: "timer-m1", threadKey: "q-42" });
   });
 
   it("transfers a released link into normal pending delivery", async () => {

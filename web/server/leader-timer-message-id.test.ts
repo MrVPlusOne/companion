@@ -18,14 +18,16 @@ describe("leader timer-firing IDs", () => {
   it("keeps recurring firings distinct across history replay without minting historic IDs", () => {
     // Both accepted deliveries belong to t1, while the older reminder predates
     // firing identity and remains outside answer authority.
-    const history = [firing("legacy"), firing("first", "f1"), firing("second", "f2")];
+    const history = [firing("legacy"), firing("first", "f1"), firing("second", "timer-m2")];
     const identities = buildLeaderTimerMessageIdentities(history);
     expect(identities.map((entry) => [entry.userMessageId, entry.historyMessageId])).toEqual([
       ["f1", "first"],
-      ["f2", "second"],
+      ["timer-m2", "second"],
     ]);
     expect(buildLeaderTimerMessageIdentities(JSON.parse(JSON.stringify(history)))).toEqual(identities);
-    expect(nextLeaderTimerMessageId(history, ["f4", undefined])).toBe("f5");
+    expect(nextLeaderTimerMessageId(history, ["f4", undefined])).toBe("timer-m5");
+    expect(nextLeaderTimerMessageId(history, ["timer-m6", "f8"])).toBe("timer-m9");
+    expect(nextLeaderTimerMessageId([])).toBe("timer-m1");
   });
 
   it("rejects duplicate raw or firing identities instead of reassigning authority", () => {
@@ -36,9 +38,10 @@ describe("leader timer-firing IDs", () => {
       [firing("same", "f99"), firing("same", "f100")],
     ]) {
       expect(buildLeaderTimerMessageIdentities(history)).toEqual([]);
-      expect(nextLeaderTimerMessageId(history)).toBe("f101");
+      expect(nextLeaderTimerMessageId(history)).toBe("timer-m101");
     }
-    expect(nextLeaderTimerMessageId([], ["f9007199254740992"])).toBe("f9007199254740993");
+    expect(nextLeaderTimerMessageId([], ["f9007199254740992"])).toBe("timer-m9007199254740993");
+    expect(nextLeaderTimerMessageId([], ["timer-m9007199254740993"])).toBe("timer-m9007199254740994");
   });
 
   it("excludes cancellation, other injected sources, child ownership, and retired recovery rows", () => {

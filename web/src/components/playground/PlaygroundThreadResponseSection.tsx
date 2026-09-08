@@ -382,7 +382,7 @@ const TIMER_REPORT_ENTRIES = [1, 2].map((ordinal) => {
         threadKey: "q-2042",
         threadAnswer: {
           version: 2 as const,
-          answerUserMessageIds: [`f${ordinal}`],
+          answerUserMessageIds: [`timer-m${ordinal}`],
           observedHistoryLength: ordinal * 2,
         },
       },
@@ -403,9 +403,9 @@ const TIMER_REPORT_PRESENTATION: ThreadResponsePresentation = {
   currentResponses: TIMER_REPORT_ENTRIES.map((entry, index) => ({
     response: {
       ...PRESENTATION.currentResponses[0]!.response,
-      answerUserMessageIds: [`f${index + 1}`],
+      answerUserMessageIds: [`timer-m${index + 1}`],
       referencedUserMessageIds: [`playground-timer-firing-${index + 1}`],
-      coveredAnswerUserMessageIds: [`f${index + 1}`],
+      coveredAnswerUserMessageIds: [`timer-m${index + 1}`],
       coveredUserMessageIds: [`playground-timer-firing-${index + 1}`],
       currentMessageId: entry.msg.id,
       currentHistoryIndex: entry.msg.historyIndex!,
@@ -419,7 +419,7 @@ const TIMER_REPORT_PRESENTATION: ThreadResponsePresentation = {
     referencedUserMessages: [
       {
         historyMessageId: `playground-timer-firing-${index + 1}`,
-        userMessageId: `f${index + 1}`,
+        userMessageId: `timer-m${index + 1}`,
         content: "[⏰ Timer t2 reminder] Check build health\n\nInspect the latest failing shard if the build is red.",
       },
     ],

@@ -800,9 +800,13 @@ describe("takode peek/scan source-aware truncation", () => {
     }
   });
 
-  it("reveals the full timer source through an explicit firing ID while keeping ordinary reads compact", async () => {
+  it.each([
+    "timer-m2",
+    "f2",
+  ])("reveals the full timer source through exact %s while keeping numeric reads compact", async (id) => {
     // Exact supplied source references are the explicit detail path; a large
-    // automatic note must not make ordinary numeric reads more verbose.
+    // automatic note must not make ordinary numeric reads more verbose. Both
+    // current and historical IDs are forwarded without alias substitution.
     const content = `[⏰ Timer t1 reminder] Check progress\n${"x".repeat(20_000)} FIRING_DETAIL_END`;
     const requests: string[] = [];
     const server = createServer((req, res) => {
@@ -827,14 +831,14 @@ describe("takode peek/scan source-aware truncation", () => {
     const env = { ...process.env, COMPANION_SESSION_ID: undefined, COMPANION_AUTH_TOKEN: undefined };
     try {
       const ordinary = await runTakode(["read", "153", "7", "--port", String(port)], env);
-      const exact = await runTakode(["read", "153", "f2", "--port", String(port)], env);
+      const exact = await runTakode(["read", "153", id, "--port", String(port)], env);
       expect(ordinary.status).toBe(0);
       expect(ordinary.stdout).toContain("more chars hidden");
       expect(ordinary.stdout).not.toContain("FIRING_DETAIL_END");
       expect(exact.status).toBe(0);
       expect(exact.stdout).toContain("FIRING_DETAIL_END");
       expect(exact.stdout).not.toContain("more chars hidden");
-      expect(requests).toEqual(["/api/sessions/153/messages/7", "/api/sessions/153/messages/f2"]);
+      expect(requests).toEqual(["/api/sessions/153/messages/7", `/api/sessions/153/messages/${id}`]);
     } finally {
       server.close();
     }

@@ -315,7 +315,7 @@ describe("Playground", () => {
       expect(badge).toHaveTextContent("Answers 1 message");
       fireEvent.click(badge);
       const preview = screen.getByRole("dialog", { name: "Referenced user messages" });
-      expect(within(preview).getByText(`f${index + 1}`)).toBeVisible();
+      expect(within(preview).getByText(`timer-m${index + 1}`)).toBeVisible();
       expect(preview).toHaveTextContent("[⏰ Timer t2 reminder] Check build health");
       fireEvent.click(badge);
     }

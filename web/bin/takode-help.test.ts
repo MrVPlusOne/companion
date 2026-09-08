@@ -24,10 +24,12 @@ describe("takode help", () => {
     expect(printCommandHelp("read", [])).toBe(true);
 
     const output = log.mock.calls.map((call) => String(call[0])).join("\n");
-    expect(output).toContain("takode read <session> <history-index|uN|fN>");
+    expect(output).toContain("takode read <session> <history-index|uN|timer-mN>");
     expect(output).toContain("Leader source-envelope IDs such as u12");
     expect(output).toContain("session-scoped");
-    expect(output).toContain("f3 (individual timer firing)");
+    expect(output).toContain("timer-m3 (individual timer firing)");
     expect(output).toContain("cannot select an individual firing");
+    expect(output).toContain("fN references still select their exact historical messages");
+    expect(output).toContain("they are not aliases");
   });
 });

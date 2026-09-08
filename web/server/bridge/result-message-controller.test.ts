@@ -682,9 +682,9 @@ describe("result-message-controller", () => {
       timestamp: 2,
       threadKey: "main",
       agentSource: { sessionId: "timer:t1" },
-      leaderTimerMessageId: "f1",
+      leaderTimerMessageId: "timer-m1",
     });
-    const response = routedFinal("timer-final", 2, { ready: true, answerIds: ["f1"] });
+    const response = routedFinal("timer-final", 2, { ready: true, answerIds: ["timer-m1"] });
     session.messageHistory.push(response);
     session.userMessageIdsThisTurn = [1];
     const deps = makeDeps();
@@ -700,7 +700,7 @@ describe("result-message-controller", () => {
       expect(response.threadAnswer).toBeUndefined();
       expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
     } else {
-      expect(response.threadAnswer?.answerUserMessageIds).toEqual(["f1"]);
+      expect(response.threadAnswer?.answerUserMessageIds).toEqual(["timer-m1"]);
     }
     expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
     expect(

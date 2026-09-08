@@ -40,7 +40,7 @@ function firing(
     timestamp: ordinal,
     content: "[⏰ Timer t2 reminder] Daily build report\n\nSummarize the completed build checks.",
     agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
-    leaderTimerMessageId: `f${ordinal}`,
+    leaderTimerMessageId: `timer-m${ordinal}`,
     ...route(threadKey),
   };
 }
@@ -127,10 +127,10 @@ describe("timer report answer presentation", () => {
     "q-42",
   ])("keeps distinct recurring reports and complementary answers in %s with a human request pending", (threadKey) => {
     const history = [human("u1", threadKey), firing("first-firing", 1, threadKey)];
-    appendAnswer(history, "first-report", ["f1"], threadKey);
-    appendAnswer(history, "first-report-addition", ["f1"], threadKey);
+    appendAnswer(history, "first-report", ["timer-m1"], threadKey);
+    appendAnswer(history, "first-report-addition", ["timer-m1"], threadKey);
     history.push(firing("second-firing", 2, threadKey));
-    appendAnswer(history, "second-report", ["f2"], threadKey);
+    appendAnswer(history, "second-report", ["timer-m2"], threadKey);
     history.push(firing("progress-only-firing", 3, threadKey));
 
     const result = selected(history, threadKey, 10);
@@ -143,21 +143,25 @@ describe("timer report answer presentation", () => {
       ]),
     ).toEqual([
       ["first-report", []],
-      ["first-report-addition", ["f1"]],
-      ["second-report", ["f2"]],
+      ["first-report-addition", ["timer-m1"]],
+      ["second-report", ["timer-m2"]],
     ]);
     expect(
       result.presentation.currentResponses.map((item) => item.referencedUserMessages?.[0]?.historyMessageId),
     ).toEqual(["first-firing", "first-firing", "second-firing"]);
     expect(result.messages.find((message) => message.id === "first-firing")?.agentSource?.sessionId).toBe("timer:t2");
     expect(result.messages.find((message) => message.id === "second-firing")?.metadata?.leaderTimerMessageId).toBe(
-      "f2",
+      "timer-m2",
     );
   });
 
-  it("renders the ordinary collapsed answer and previews the exact timer firing", () => {
-    const history = [firing("first-firing", 1, "q-42")];
-    appendAnswer(history, "first-report", ["f1"], "q-42");
+  it.each(["timer-m1", "f1"])("renders the collapsed answer and previews exact timer reference %s", (reference) => {
+    // Historical references survive the same server window and preview path;
+    // the renderer must display the stored ID without replacing its prefix.
+    const timer = firing("first-firing", 1, "q-42");
+    timer.leaderTimerMessageId = reference;
+    const history = [timer];
+    appendAnswer(history, "first-report", [reference], "q-42");
     const result = selected(history, "q-42");
     render(
       <>
@@ -175,7 +179,7 @@ describe("timer report answer presentation", () => {
     );
     expect(screen.getByText("Substantive report first-report")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Answers 1 message/ }));
-    expect(screen.getByText("f1")).toBeInTheDocument();
+    expect(screen.getByText(reference)).toBeInTheDocument();
     expect(screen.getByTestId("thread-response-covered-message-content")).toHaveTextContent(
       "[⏰ Timer t2 reminder] Daily build report",
     );
@@ -190,14 +194,14 @@ describe("timer report answer presentation", () => {
       "[Takode auto-pause resumed: 3 similar automatic inputs were coalesced while delivery was paused.]\n\n" +
       timer.content;
     const history: BrowserIncomingMessage[] = [human("u1", "q-42"), timer];
-    appendAnswer(history, "resumed-report", ["f1"], "q-42");
+    appendAnswer(history, "resumed-report", ["timer-m1"], "q-42");
     const result = selected(history, "q-42");
     expect(result.projection.pendingMessages.map((message) => message.userMessageId)).toEqual(["u1"]);
     expect(result.messages.find((message) => message.id === timer.id)?.content).toBe(timer.content);
     expect(result.presentation.currentResponses[0]?.referencedUserMessages).toEqual([
       {
         historyMessageId: timer.id,
-        userMessageId: "f1",
+        userMessageId: "timer-m1",
         content: timer.content,
       },
     ]);
@@ -208,24 +212,24 @@ describe("timer report answer presentation", () => {
 
   it("projects one mixed human/timer answer into its Main and quest destinations without covering unrelated requests", () => {
     const history = [human("u1", "main"), human("u2", "q-42"), firing("quest-firing", 1, "q-42")];
-    const answer = appendAnswer(history, "shared-report", ["u1", "f1"], "q-42");
+    const answer = appendAnswer(history, "shared-report", ["u1", "timer-m1"], "q-42");
     const main = selected(history, "main");
     const quest = selected(history, "q-42");
     expect(main.projection.pendingMessages).toEqual([]);
     expect(quest.projection.pendingMessages.map((message) => message.userMessageId)).toEqual(["u2"]);
     expect(main.presentation.currentResponses[0]?.response.coveredAnswerUserMessageIds).toEqual(["u1"]);
-    expect(quest.presentation.currentResponses[0]?.response.coveredAnswerUserMessageIds).toEqual(["f1"]);
+    expect(quest.presentation.currentResponses[0]?.response.coveredAnswerUserMessageIds).toEqual(["timer-m1"]);
     for (const result of [main, quest]) {
       expect(result.presentation.currentResponses[0]?.messageEntry.msg.id).toBe(answer.message.id);
       expect(
         result.presentation.currentResponses[0]?.referencedUserMessages?.map((message) => message.userMessageId),
-      ).toEqual(["u1", "f1"]);
+      ).toEqual(["u1", "timer-m1"]);
     }
   });
 
   it("refuses selected-window proof after a firing becomes a cancellation or gains a duplicate firing ID", () => {
     const history = [firing("first-firing", 1, "main")];
-    appendAnswer(history, "first-report", ["f1"], "main");
+    appendAnswer(history, "first-report", ["timer-m1"], "main");
     const projection = buildLeaderThreadResponseState(
       { id: "timer-leader", messageHistory: history },
       "main",

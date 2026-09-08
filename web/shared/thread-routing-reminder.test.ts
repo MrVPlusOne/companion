@@ -8,7 +8,7 @@ describe("buildThreadRoutingReminderContent", () => {
     const diagnostic = {
       reason: "invalid_ids",
       selectedThreadKey: "main",
-      answerUserMessageIds: ["u1", "f2"],
+      answerUserMessageIds: ["u1", "timer-m2"],
       ownerGroups: [],
     };
     expect(isLeaderAnswerRouteDiagnostic(diagnostic)).toBe(true);
@@ -18,15 +18,34 @@ describe("buildThreadRoutingReminderContent", () => {
       answerRouteDiagnostic: {
         reason: "invalid_ids",
         selectedThreadKey: "main",
-        answerUserMessageIds: ["f2"],
+        answerUserMessageIds: ["timer-m2"],
         ownerGroups: [],
       },
     });
-    expect(content).toContain("timer-firing `fN` IDs");
+    expect(content).toContain("timer-firing `timer-mN` IDs");
     expect(content).toContain("Never use recurring timer `tN`");
     const routing = buildThreadRoutingReminderContent({ reason: "missing", source: "visible_text" });
-    expect(routing).toContain("[thread:main:A:f1]");
+    expect(routing).toContain("[thread:main:A:timer-m1]");
     expect(routing).toContain("Timer progress remains commentary");
+  });
+
+  it("preserves the exact references in a historical timer answer diagnostic", () => {
+    // Persisted diagnostics remain readable without converting an old firing
+    // reference into a different current-format answer target.
+    const diagnostic = {
+      reason: "invalid_ids" as const,
+      selectedThreadKey: "main",
+      answerUserMessageIds: ["f2"],
+      ownerGroups: [],
+    };
+    expect(isLeaderAnswerRouteDiagnostic(diagnostic)).toBe(true);
+    const content = buildThreadRoutingReminderContent({
+      reason: "invalid_answer_route",
+      answerRouteDiagnostic: diagnostic,
+    });
+    expect(content).toContain("otherwise invalid: f2.");
+    expect(content).not.toContain("otherwise invalid: timer-m2.");
+    expect(content).toContain("Preserve exact older supplied `fN` references");
   });
 
   // Leaders recovering from compaction need to know whether visible text or a shell command missed routing.
@@ -133,7 +152,7 @@ describe("buildThreadRoutingReminderContent", () => {
     });
 
     expect(content).toContain("answer metadata or message shape is invalid: u7");
-    expect(content).toContain("Use the supplied earlier human `uN` or timer-firing `fN` IDs");
+    expect(content).toContain("Use the supplied earlier human `uN` or timer-firing `timer-mN` IDs");
     expect(content).toContain("did not gain coverage");
   });
 

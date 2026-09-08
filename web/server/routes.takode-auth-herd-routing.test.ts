@@ -710,15 +710,15 @@ describe("Takode server-authoritative auth", () => {
       threadRefs: [{ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 10 }],
     });
     const first = firing("first", "f1", "First firing");
-    const second = firing("second", "f2", "Second firing");
+    const second = firing("second", "timer-m2", "Second firing");
     bridge._sessions["leader-a"] = { id: "leader-a", messageHistory: [first, second] };
-    bridge._sessions["leader-b"] = { id: "leader-b", messageHistory: [firing("other", "f1", "Other leader")] };
+    bridge._sessions["leader-b"] = { id: "leader-b", messageHistory: [firing("other", "timer-m1", "Other leader")] };
     bridge._sessions.worker = { id: "worker", messageHistory: [first] };
 
     for (const [leader, firingId, content] of [
       ["leader-a", "f1", first.content],
-      ["leader-a", "f2", second.content],
-      ["leader-b", "f1", "[⏰ Timer t1 reminder] Other leader"],
+      ["leader-a", "timer-m2", second.content],
+      ["leader-b", "timer-m1", "[⏰ Timer t1 reminder] Other leader"],
     ]) {
       const response = await app.request(`/api/sessions/${leader}/messages/${firingId}?threadKey=q-2`);
       expect(response.status).toBe(200);
@@ -726,8 +726,11 @@ describe("Takode server-authoritative auth", () => {
     }
     expect((await app.request("/api/sessions/worker/messages/f1")).status).toBe(400);
     expect((await app.request("/api/sessions/leader-a/messages/f3")).status).toBe(404);
+    // Old and new spellings address their exact stored messages, not aliases.
+    expect((await app.request("/api/sessions/leader-a/messages/timer-m1")).status).toBe(404);
+    expect((await app.request("/api/sessions/leader-a/messages/f2")).status).toBe(404);
     expect((await app.request("/api/sessions/leader-a/messages/f1?threadKey=q-3")).status).toBe(404);
-    for (const invalid of ["t1", "f0", "f01"]) {
+    for (const invalid of ["t1", "timer-m0", "timer-m01", "f0", "f01"]) {
       expect((await app.request(`/api/sessions/leader-a/messages/${invalid}`)).status).toBe(400);
     }
     for (const invalidHistory of [

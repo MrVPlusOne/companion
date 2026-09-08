@@ -139,27 +139,60 @@ function legacyResponse(
 }
 
 describe("explicit routed leader answers", () => {
+  it("preserves sealed legacy references alongside new timer-message answers after restoration", () => {
+    // Durable old answers are not rewritten when later deliveries use the
+    // readable spelling. Both retain their exact raw source and owner proof.
+    const original = session();
+    original.messageHistory.push(timerFiring("f4", 1));
+    appendAnswer(original, "legacy-report", ["f4"], "Earlier timed check completed.", 1);
+    const saved = JSON.stringify(original.messageHistory);
+    const restored = JSON.parse(JSON.stringify(original)) as ReturnType<typeof session>;
+    restored.messageHistory.push(timerFiring("timer-m5", 3));
+    appendAnswer(restored, "new-report", ["timer-m5"], "New timed check completed.", 3);
+    appendAnswer(restored, "combined-detail", ["f4", "timer-m5"], "Both checks have supporting details.", 4);
+
+    expect(JSON.stringify(restored.messageHistory.slice(0, 2))).toBe(saved);
+    expect(
+      buildLeaderThreadResponseState(restored, "main").projection.currentAnswers.map(
+        (answer) => answer.answerUserMessageIds,
+      ),
+    ).toEqual([["f4"], ["timer-m5"], ["f4", "timer-m5"]]);
+  });
+
+  it.each([
+    ["f1", "timer-m1"],
+    ["timer-m1", "f1"],
+  ])("does not alias stored %s into a fabricated %s reference", (storedId, wrongId) => {
+    // Prefix recognition alone grants no lookup or answer authority.
+    const target = session();
+    target.messageHistory.push(timerFiring(storedId, 1));
+    const response = routedAssistant("wrong-spelling", "Unproven result.", [wrongId], 1);
+    target.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(target, response)).toMatchObject({ finalized: false });
+    expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers).toEqual([]);
+  });
+
   it("retains timer answers without making each firing a pending human obligation", () => {
     // A recurring timer's deliveries are separate optional targets; adding a
     // later firing neither supersedes an earlier result nor prevents Ready.
     const target = session();
-    target.messageHistory.push(timerFiring("f1", 1));
+    target.messageHistory.push(timerFiring("timer-m1", 1));
     expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
       pendingMessageCount: 0,
       ready: true,
     });
-    const first = appendAnswer(target, "first-result", ["f1"], "First check completed.", 1);
-    target.messageHistory.push(timerFiring("f2", 2));
-    appendAnswer(target, "second-result", ["f2"], "Second check completed.", 3);
-    appendAnswer(target, "first-detail", ["f1"], "Additional first-check detail.", 4);
+    const first = appendAnswer(target, "first-result", ["timer-m1"], "First check completed.", 1);
+    target.messageHistory.push(timerFiring("timer-m2", 2));
+    appendAnswer(target, "second-result", ["timer-m2"], "Second check completed.", 3);
+    appendAnswer(target, "first-detail", ["timer-m1"], "Additional first-check detail.", 4);
     const { projection } = buildLeaderThreadResponseState(target, "main");
     expect(projection).toMatchObject({ pendingMessageCount: 0, ready: true });
     expect(
       projection.currentAnswers.map((answer) => [answer.currentMessageId, answer.coveredAnswerUserMessageIds]),
     ).toEqual([
       ["first-result", []],
-      ["second-result", ["f2"]],
-      ["first-detail", ["f1"]],
+      ["second-result", ["timer-m2"]],
+      ["first-detail", ["timer-m1"]],
     ]);
     expect(isCurrentValidRoutedLeaderResponseMessage(target, first)).toBe(false);
     expect(buildLeaderThreadResponseState(JSON.parse(JSON.stringify(target)), "main")).toEqual(
@@ -170,13 +203,20 @@ describe("explicit routed leader answers", () => {
   it("routes a mixed human and firing answer while unrelated human work remains pending", () => {
     // Coverage is per referenced prompt, not per generating turn or authored tab.
     const target = session();
-    target.messageHistory.push(human("u1", 1, "q-1"), timerFiring("f1", 2, "q-2"), human("u2", 3));
-    appendAnswer(target, "mixed-result", ["u1", "f1"], "The requested work and timed check are complete.", 3, "q-3");
+    target.messageHistory.push(human("u1", 1, "q-1"), timerFiring("timer-m1", 2, "q-2"), human("u2", 3));
+    appendAnswer(
+      target,
+      "mixed-result",
+      ["u1", "timer-m1"],
+      "The requested work and timed check are complete.",
+      3,
+      "q-3",
+    );
     for (const threadKey of ["q-1", "q-2", "q-3"]) {
       expect(buildLeaderThreadResponseState(target, threadKey).projection).toMatchObject({
         pendingMessageCount: 0,
         ready: true,
-        currentAnswers: [{ currentMessageId: "mixed-result", answerUserMessageIds: ["u1", "f1"] }],
+        currentAnswers: [{ currentMessageId: "mixed-result", answerUserMessageIds: ["u1", "timer-m1"] }],
       });
     }
     expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({

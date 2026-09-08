@@ -197,7 +197,7 @@ describe("timer grouping in FeedEntries", () => {
     // compatible recurring events keep their existing presentation group.
     const messages = Array.from({ length: 10 }, (_, index) =>
       makeTimer(`timer-${index + 1}`, 1_000 + index * 1_800_000, {
-        metadata: { leaderTimerMessageId: `f${index + 1}`, threadKey: "main" },
+        metadata: { leaderTimerMessageId: `timer-m${index + 1}`, threadKey: "main" },
       }),
     );
     renderFeed(messages);

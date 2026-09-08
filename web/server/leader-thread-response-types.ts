@@ -57,7 +57,7 @@ export interface LegacyLeaderThreadResponseRevisionMetadata {
 /** Immutable proof stored on one explicit routed leader answer. */
 export interface LeaderThreadAnswerMetadata {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
-  /** Explicit human (uN) or individual timer-firing (fN) references. */
+  /** Explicit human (uN) or timer-message (timer-mN; retained legacy fN) references. */
   answerUserMessageIds: string[];
   observedHistoryLength: number;
   /** Original selected tab, retained independently of automatically derived visibility. */

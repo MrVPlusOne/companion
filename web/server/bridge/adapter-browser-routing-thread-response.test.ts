@@ -25,7 +25,7 @@ describe("leader timer firing ingestion", () => {
     const ingested = await ingestUserMessage(target, firing, runtime);
     expect(ingested.historyEntry).toMatchObject({
       content: firing.content,
-      leaderTimerMessageId: "f1",
+      leaderTimerMessageId: "timer-m1",
       threadKey: "q-42",
       questId: "q-42",
     });
@@ -43,7 +43,7 @@ describe("leader timer firing ingestion", () => {
       undefined,
       ingested.historyEntry.leaderTimerMessageId,
     );
-    expect(prefix).toMatch(/^\[Timer reminder .* id:f1\] \[thread:q-42\] $/);
+    expect(prefix).toMatch(/^\[Timer reminder .* id:timer-m1\] \[thread:q-42\] $/);
   });
 
   it("reserves references for queued recurring firings before either commits", async () => {
@@ -59,8 +59,8 @@ describe("leader timer firing ingestion", () => {
       leaderTimerMessageId: first.historyEntry.leaderTimerMessageId,
     });
     const second = await ingestUserMessage(target, firing, runtime, { commit: false });
-    expect(first.historyEntry.leaderTimerMessageId).toBe("f1");
-    expect(second.historyEntry.leaderTimerMessageId).toBe("f2");
+    expect(first.historyEntry.leaderTimerMessageId).toBe("timer-m1");
+    expect(second.historyEntry.leaderTimerMessageId).toBe("timer-m2");
     expect(target.messageHistory).toEqual([]);
   });
 
@@ -107,7 +107,7 @@ describe("leader timer firing ingestion", () => {
 
     const ingested = await ingestUserMessage(target, firing, deps(), { commit: false });
 
-    expect(ingested.historyEntry.leaderTimerMessageId).toBe("f8");
+    expect(ingested.historyEntry.leaderTimerMessageId).toBe("timer-m8");
     expect(target.messageHistory).toEqual([]);
   });
 
@@ -124,6 +124,43 @@ describe("leader timer firing ingestion", () => {
     expect(message.deliveryContent).toBe(deliveryContent);
   });
 
+  it("keeps legacy and readable references with the same ordinal as distinct queued owners", async () => {
+    // Retained identity uses the exact string, while allocation reserves ordinals
+    // across both formats. Re-admitting an older held input must not alias it.
+    const target = session();
+    const runtime = deps();
+    const readable = await ingestUserMessage(target, firing, runtime, { commit: false });
+    target.pendingCodexInputs.push({
+      id: "readable-input",
+      content: firing.content,
+      timestamp: readable.timestamp,
+      cancelable: true,
+      leaderTimerMessageId: readable.historyEntry.leaderTimerMessageId,
+    });
+    const legacy = JSON.parse(
+      JSON.stringify({
+        ...firing,
+        deliveryContent: "[Timer reminder earlier id:f1] [thread:q-42] " + firing.content,
+        timerFiring: { ...firing.timerFiring, messageId: "f1" },
+      }),
+    );
+    target.state.pause = {
+      pausedAt: 1,
+      queuedMessages: [{ id: "legacy-held", queuedAt: 2, source: "programmatic", message: legacy }],
+    };
+    const legacyBefore = structuredClone(legacy);
+
+    const retained = await ingestUserMessage(target, legacy, runtime, { commit: false });
+    const next = await ingestUserMessage(target, firing, runtime, { commit: false });
+
+    expect(readable.historyEntry.leaderTimerMessageId).toBe("timer-m1");
+    expect(retained.historyEntry.leaderTimerMessageId).toBe("f1");
+    expect(buildUserMessageDeliveryPrefix(target, retained, legacy, legacy.deliveryContent, runtime)).toBe("");
+    expect(next.historyEntry.leaderTimerMessageId).toBe("timer-m2");
+    expect(target.state.pause.queuedMessages[0].message).toEqual(legacyBefore);
+    expect(target.messageHistory).toEqual([]);
+  });
+
   it("keeps the firing reference in a wrapped timer's model envelope without rewriting raw content", async () => {
     // Materialized auto-pause groups retain their existing wrapper and one
     // representative; the wrapper must not downgrade a genuine firing to an event.
@@ -138,8 +175,10 @@ describe("leader timer firing ingestion", () => {
     const ingested = await ingestUserMessage(target, message, runtime);
 
     expect(ingested.historyEntry.content).toBe(message.content);
-    expect(ingested.historyEntry.leaderTimerMessageId).toBe("f1");
-    expect(buildUserMessageDeliveryPrefix(target, ingested, message, message.content, runtime)).toMatch(/id:f1\]/);
+    expect(ingested.historyEntry.leaderTimerMessageId).toBe("timer-m1");
+    expect(buildUserMessageDeliveryPrefix(target, ingested, message, message.content, runtime)).toMatch(
+      /id:timer-m1\]/,
+    );
   });
 
   it.each([
@@ -157,14 +196,14 @@ describe("leader timer firing ingestion", () => {
         content: firing.content,
         timestamp: 1,
         cancelable: true,
-        leaderTimerMessageId: "f1",
+        leaderTimerMessageId: "timer-m1",
       });
     const message = {
       ...firing,
-      deliveryContent: "[Timer reminder earlier id:f1] " + firing.content,
+      deliveryContent: "[Timer reminder earlier id:timer-m1] " + firing.content,
       timerFiring: {
         ...firing.timerFiring,
-        messageId: kind === "malformed ID" ? "u1" : "f1",
+        messageId: kind === "malformed ID" ? "u1" : "timer-m1",
         ...(kind === "malformed provenance" ? { scheduledFireAt: -1 } : {}),
       },
     };

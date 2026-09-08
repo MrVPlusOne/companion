@@ -22,8 +22,10 @@ export type ThreadRouteParseResult =
       body: string;
     };
 
-const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:([uf][1-9]\d*(?:,[uf][1-9]\d*)*))?\](?=$|[ \t]|\r?\n)/i;
-const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:([uf][1-9]\d*(?:,[uf][1-9]\d*)*))?\]/i;
+const TEXT_THREAD_MARKER_RE =
+  /^\[thread:(main|q-\d+)(?::(C)|:A:((?:u|timer-m|f)[1-9]\d*(?:,(?:u|timer-m|f)[1-9]\d*)*))?\](?=$|[ \t]|\r?\n)/i;
+const TEXT_THREAD_MARKER_AT_LINE_START_RE =
+  /^\[thread:(main|q-\d+)(?::(C)|:A:((?:u|timer-m|f)[1-9]\d*(?:,(?:u|timer-m|f)[1-9]\d*)*))?\]/i;
 const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
 const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;

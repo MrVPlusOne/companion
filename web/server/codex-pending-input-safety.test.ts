@@ -33,11 +33,11 @@ function recoveryInput(overrides: Partial<PendingCodexInput> = {}): PendingCodex
 }
 
 describe("Codex pending input browser projection", () => {
-  it("omits server-only timer provenance from compact and cancelled projections", () => {
+  it.each(["timer-m1", "f1"])("omits %s timer provenance from compact and cancelled projections", (messageId) => {
     const input = recoveryInput({
       agentSource: { sessionId: "timer:t1" },
-      leaderTimerMessageId: "f1",
-      timerFiring: { timerId: "t1", scheduledFireAt: 1, messageId: "f1" },
+      leaderTimerMessageId: messageId,
+      timerFiring: { timerId: "t1", scheduledFireAt: 1, messageId },
     });
 
     for (const projected of [
@@ -45,9 +45,9 @@ describe("Codex pending input browser projection", () => {
       projectCancelledCodexInputForBrowser(input),
     ]) {
       expect(projected).not.toHaveProperty("timerFiring");
-      expect(projected.leaderTimerMessageId).toBe("f1");
+      expect(projected.leaderTimerMessageId).toBe(messageId);
     }
-    expect(input.timerFiring?.messageId).toBe("f1");
+    expect(input.timerFiring?.messageId).toBe(messageId);
   });
 
   it("omits delivery-only recovery instructions and FIFO policy from ordinary snapshots", () => {

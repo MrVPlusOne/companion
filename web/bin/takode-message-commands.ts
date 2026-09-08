@@ -984,7 +984,9 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   const msgIdx = args[1];
   if (!sessionRef || !msgIdx)
-    err("Usage: takode read <session> <history-index|uN|fN> [--offset N] [--limit N] [--thread main|q-N] [--json]");
+    err(
+      "Usage: takode read <session> <history-index|uN|timer-mN> [--offset N] [--limit N] [--thread main|q-N] [--json]",
+    );
 
   const flags = parseFlags(args.slice(2));
   const offset = Number(flags.offset) || 0;

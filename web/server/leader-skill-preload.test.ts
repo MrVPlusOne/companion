@@ -87,10 +87,12 @@ describe("leader skill preload builder", () => {
     const orchestration = bundles.find((bundle) => bundle.skillName === "takode-orchestration");
 
     expect(orchestration?.content).toContain("Write the answer once using its supplied references");
-    expect(orchestration?.content).toContain("[thread:main:A:f1]");
+    expect(orchestration?.content).toContain("[thread:main:A:timer-m1]");
     expect(orchestration?.content).toContain("`--thread main` selects Main explicitly");
     expect(orchestration?.content).toContain("A firing is optional to answer");
-    expect(orchestration?.content).toContain("takode read <leader-session> fN");
+    expect(orchestration?.content).toContain("takode read <leader-session> timer-mN");
+    expect(orchestration?.content).toContain("Older supplied `fN` references retain their exact spelling");
+    expect(orchestration?.content).not.toContain("[thread:main:A:f1]");
     expect(orchestration?.content).toContain(
       "Answers may cover nonconsecutive IDs and messages with different owning threads",
     );

@@ -12,7 +12,7 @@ import type {
 } from "./codex-recovery-orchestrator.js";
 
 describe("Codex pending-input thread response coverage", () => {
-  it("keeps the delivered firing reference through restored queues and repeated receipt handling", () => {
+  it.each(["timer-m7", "f7"])("keeps %s through restored queues and repeated receipt handling", (messageId) => {
     // A restored pending timer is the same answer target; it must never mint a new ID or human obligation.
     const input: PendingCodexInput = {
       id: "timer-occurrence",
@@ -22,7 +22,9 @@ describe("Codex pending-input thread response coverage", () => {
       agentSource: { sessionId: "timer:t3", sessionLabel: "Timer t3" },
       threadKey: "q-42",
       questId: "q-42",
-      leaderTimerMessageId: "f7",
+      leaderTimerMessageId: messageId,
+      deliveryContent: `[Timer reminder earlier id:${messageId}] [thread:q-42] [⏰ Timer t3 reminder] Report`,
+      timerFiring: { timerId: "t3", scheduledFireAt: 1, messageId },
       threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
     };
     const session = {
@@ -44,7 +46,12 @@ describe("Codex pending-input thread response coverage", () => {
     commitPendingCodexInputs(session, [input.id], deps);
     commitPendingCodexInputs(session, [input.id], deps);
     expect(session.messageHistory).toHaveLength(1);
-    expect(session.messageHistory[0]).toMatchObject({ id: input.id, leaderTimerMessageId: "f7", threadKey: "q-42" });
+    expect(session.messageHistory[0]).toMatchObject({
+      id: input.id,
+      content: input.content,
+      leaderTimerMessageId: messageId,
+      threadKey: "q-42",
+    });
     expect(session.messageHistory[0]).not.toHaveProperty("leaderResponseCoverageVersion");
     expect(session.messageHistory[0]).not.toHaveProperty("leaderUserMessageId");
     expect(deps.touchUserMessage).not.toHaveBeenCalled();

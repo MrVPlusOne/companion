@@ -361,8 +361,13 @@ describe("Codex result-error auto-pause", () => {
     ]);
   });
 
-  it("keeps assigned firings distinct while preserving unassigned timer coalescing", () => {
-    // Different admitted fN identities cannot share a held representative.
+  it.each([
+    ["f1", "f2"],
+    ["timer-m1", "timer-m2"],
+    ["f1", "timer-m1"],
+  ])("keeps %s and %s distinct while preserving unassigned timer coalescing", (first, second) => {
+    // Exact admitted identities cannot share a held representative, including
+    // legacy and readable references with the same ordinal.
     // Timers held before admission retain the existing content-based policy.
     const target = session();
     noteCodexResultForAutoPause(target, copilotAuthRefreshResult(), turn("automatic"), 100);
@@ -373,7 +378,7 @@ describe("Codex result-error auto-pause", () => {
       threadKey: "q-42",
       timerFiring: { timerId: "t1", scheduledFireAt: 1 },
     };
-    for (const messageId of ["f1", "f2"]) {
+    for (const messageId of [first, second]) {
       queueCodexAutoPausedInput(
         target,
         "programmatic",
@@ -397,11 +402,12 @@ describe("Codex result-error auto-pause", () => {
 
     const held = target.state.codex_result_error_auto_pause!.heldInputs;
     expect(held.map((item) => [item.count, item.message.timerFiring?.messageId])).toEqual([
-      [1, "f1"],
-      [1, "f2"],
+      [1, first],
+      [1, second],
       [2, undefined],
     ]);
     const drained = materializeCodexAutoPausedInputsForDrain(held);
+    expect(drained.map((item) => item.timerFiring?.messageId)).toEqual([first, second, undefined]);
     expect(drained[0].content).toBe(message.content);
     expect(drained[1].content).toBe(message.content);
     expect(drained[2].content).toBe(

@@ -776,7 +776,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
       if (!resolved) return c.json({ error: `Message ${messageRef} not found in leader session` }, 404);
       idx = resolved.historyIndex;
     } else {
-      return c.json({ error: "Message reference must be a history index or session-scoped ID like u12 or f3" }, 400);
+      return c.json(
+        { error: "Message reference must be a history index or session-scoped ID like u12 or timer-m3" },
+        400,
+      );
     }
 
     const result = buildReadResponse(

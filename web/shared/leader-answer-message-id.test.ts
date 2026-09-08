@@ -8,10 +8,24 @@ import {
 
 describe("leader answer message identities", () => {
   it("accepts direct-user and individual-firing IDs without accepting timer schedule IDs", () => {
-    // A recurring tN schedule can fire repeatedly; only its individual fN rows
-    // and real uN requests can be named by an answer marker.
-    for (const id of ["u1", "f1", "f200"]) expect(isCanonicalLeaderAnswerMessageId(id)).toBe(true);
-    for (const id of ["t1", "f0", "f01", "F1", "u0", "f1,f2", undefined]) {
+    // Current timer-mN and retained fN records use exact, distinct spellings;
+    // accepting either does not alias one to the other or accept schedule IDs.
+    for (const id of ["u1", "timer-m1", "timer-m200", "f1", "f200"])
+      expect(isCanonicalLeaderAnswerMessageId(id)).toBe(true);
+    for (const id of [
+      "t1",
+      "timer-m0",
+      "timer-m01",
+      "timer-m-1",
+      "TIMER-M1",
+      "timer-m1suffix",
+      "f0",
+      "f01",
+      "F1",
+      "u0",
+      "f1,f2",
+      undefined,
+    ]) {
       expect(isCanonicalLeaderAnswerMessageId(id)).toBe(false);
     }
     expect(isCanonicalLeaderTimerMessageId("u1")).toBe(false);
@@ -21,7 +35,7 @@ describe("leader answer message identities", () => {
     // Cancellation events use the same source and must stay ineligible even
     // when malformed history happens to carry an fN field.
     const firing = {
-      leaderTimerMessageId: "f1",
+      leaderTimerMessageId: "timer-m1",
       agentSource: { sessionId: "timer:t2" },
       content: "[⏰ Timer t2 reminder] Check progress",
     };
