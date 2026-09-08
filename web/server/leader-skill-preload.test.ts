@@ -59,10 +59,10 @@ describe("leader skill preload builder", () => {
     expect(orchestration?.content).toContain("send final Memory to the normal same worker without waiting for closure");
     expect(orchestration?.content).toContain("Ordinary read-only follow-ups during Memory use accepted evidence");
     expect(orchestration?.content).toContain("Final Memory is mandatory");
-    expect(orchestration?.content).toContain("retrieve or reread every listed user message");
+    expect(orchestration?.content).toContain("Use the supplied user-message IDs and available conversation context");
     expect(orchestration?.content).toContain("Prefer one self-contained explicit answer per user request");
     expect(orchestration?.content).toContain("progress, status, recovery, verification, bookkeeping");
-    expect(orchestration?.content).toContain("inspect every earlier visible valid answer");
+    expect(orchestration?.content).toContain("inspect source messages or earlier answers only when needed");
     expect(orchestration?.content).toContain("apply `explain-clearly`");
     expect(orchestration?.content).toContain(
       "accepted-Work response normally carries the substantive user-facing answer",
@@ -73,18 +73,35 @@ describe("leader skill preload builder", () => {
     expect(orchestration?.content).toContain("collapsed presentation shows the complete answer set together");
     expect(orchestration?.content).toContain("implementation is still owed");
     expect(orchestration?.content).toContain("they are answers only when setup or dispatch itself fully satisfies");
-    expect(orchestration?.content).toContain("preserves the original append-only response row");
-    expect(orchestration?.content).toContain("automatically canonicalizing coverage");
-    expect(orchestration?.content).toContain("does not require the leader to regenerate the prose");
-    expect(orchestration?.content).toContain("ownerless or mixed-owner sets, incomplete associations");
     expect(orchestration?.content).toContain("remain non-answers and receive a precise actionable diagnostic");
-    expect(orchestration?.content).toContain(
-      "Canonicalized coverage, supersession, pending state, and Ready authority",
-    );
     expect(orchestration?.content).not.toContain("Quest completion responses are answers");
     for (const label of Object.values(HERD_EVENT_LIFECYCLE_LABELS)) {
       expect(orchestration?.content).toContain(label);
     }
+  });
+
+  it("preloads automatic answer routing from the canonical skill", async () => {
+    // Inspect the actual model-bound skill, including negative assertions for the
+    // former restrictions that forced leaders to repeat routing work.
+    const bundles = await buildLeaderSkillPreloadBundles();
+    const orchestration = bundles.find((bundle) => bundle.skillName === "takode-orchestration");
+
+    expect(orchestration?.content).toContain("Write the answer once using its user references");
+    expect(orchestration?.content).toContain(
+      "Answers may cover nonconsecutive IDs and messages with different owning threads",
+    );
+    expect(orchestration?.content).toContain("union of Main and quest tabs associated with any referenced prompt");
+    expect(orchestration?.content).toContain("The exact prose and message identity are retained");
+    expect(orchestration?.content).toContain(
+      "Do not discover numeric history indices, attach the answer, or duplicate its prose",
+    );
+    expect(orchestration?.content).toContain("Each thread receives coverage only for its own referenced user requests");
+    expect(orchestration?.content).toContain("visibility alone never completes unrelated work");
+    expect(orchestration?.content).toContain("One answer shared across tabs needs only one marker");
+    expect(orchestration?.content).not.toContain("retrieve or reread every listed user message");
+    expect(orchestration?.content).not.toContain("single authoritative owner shared by every covered ID");
+    expect(orchestration?.content).not.toContain("all covered IDs share one proven owner");
+    expect(orchestration?.content).not.toContain("ownerless or mixed-owner sets");
   });
 
   it("preloads the worker-context authority rule from the real leader-dispatch skill", async () => {

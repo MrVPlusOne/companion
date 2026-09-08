@@ -1,3 +1,5 @@
+import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
+
 export interface LeaderResponseThreadRouteFields {
   threadKey?: string;
   questId?: string;
@@ -113,6 +115,43 @@ export function leaderResponseExactAnswerThreadKey(fields: LeaderResponseThreadR
     return null;
   }
   return leaderResponseOwnerThreadKey(fields) === threadKey ? threadKey : null;
+}
+
+/** Decode exact per-prompt owner proof; older answers retain their single source owner. */
+export function leaderResponseAnswerOwnerThreadKeys(
+  answer: { answerUserMessageIds: readonly string[]; ownerGroups?: unknown },
+  sourceThreadKey: string,
+): Map<string, string> | null {
+  const ids = answer.answerUserMessageIds;
+  if (ids.length === 0 || ids.some((id) => !isCanonicalLeaderUserMessageId(id)) || new Set(ids).size !== ids.length) {
+    return null;
+  }
+  const source = validThreadKey(sourceThreadKey);
+  if (!source) return null;
+  if (answer.ownerGroups === undefined) return new Map(ids.map((id) => [id, source]));
+  if (!Array.isArray(answer.ownerGroups) || answer.ownerGroups.length === 0) return null;
+
+  const owners = new Map<string, string>();
+  const seenThreads = new Set<string>();
+  const referenced = new Set(ids);
+  for (const group of answer.ownerGroups) {
+    if (!group || typeof group !== "object") return null;
+    const threadKey = typeof group.threadKey === "string" ? validThreadKey(group.threadKey) : null;
+    if (
+      !threadKey ||
+      seenThreads.has(threadKey) ||
+      !Array.isArray(group.userMessageIds) ||
+      group.userMessageIds.length === 0
+    ) {
+      return null;
+    }
+    seenThreads.add(threadKey);
+    for (const id of group.userMessageIds) {
+      if (!isCanonicalLeaderUserMessageId(id) || !referenced.has(id) || owners.has(id)) return null;
+      owners.set(id, threadKey);
+    }
+  }
+  return owners.size === ids.length ? owners : null;
 }
 
 /**

@@ -282,7 +282,18 @@ describe("Playground", () => {
     expect(expandedMessageRow).not.toHaveClass("gap-2", "sm:gap-3");
     expect(expandedMessageRow.children).toHaveLength(1);
 
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(5);
+    const sharedAnswer = within(routedFinalStates.getByTestId("playground-multi-owner-answer"));
+    const sharedCoverage = sharedAnswer.getByTestId("thread-response-answer-count");
+    expect(sharedCoverage).toHaveTextContent("Answers 2 messages");
+    fireEvent.click(sharedCoverage);
+    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
+      "Please handle my Main request.",
+    );
+    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
+      "Please include this quest's request in the same answer.",
+    );
+    fireEvent.click(sharedCoverage);
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(6);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

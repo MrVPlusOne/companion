@@ -411,6 +411,8 @@ describe("explicit answer presentation", () => {
             id: mainAnswer.id,
             answerIds: ["u25"],
             referencedIds: [attachedMainUser.id],
+            coveredIds: [],
+            coveredAnswerIds: [],
             historyIndex: 11,
           }),
           threadKey: "main",
@@ -544,8 +546,8 @@ describe("explicit answer presentation", () => {
           questId: ownerThreadKey,
           answerUserMessageIds: ["u37", "u38"],
           referencedUserMessageIds: ["raw-u37", "raw-u38"],
-          coveredAnswerUserMessageIds: ["u37", "u38"],
-          coveredUserMessageIds: ["raw-u37", "raw-u38"],
+          coveredAnswerUserMessageIds: [],
+          coveredUserMessageIds: [],
           currentMessageId: canonicalAnswer.id,
           currentHistoryIndex: 16,
           createdAt: 16,
@@ -573,7 +575,7 @@ describe("explicit answer presentation", () => {
     expect(result?.currentResponses.every((item) => item.anchorUserMessageId === "raw-u38")).toBe(true);
   });
 
-  it("requires every original prompt association before projecting grouped Main prose", () => {
+  it("requires complete original-prompt proof before projecting grouped Main prose", () => {
     const attachedMainUser: ChatMessage = {
       id: "raw-u25",
       role: "user",
@@ -607,8 +609,8 @@ describe("explicit answer presentation", () => {
             id: groupedMainAnswer.id,
             answerIds: ["u25", "u26"],
             referencedIds: [attachedMainUser.id, "raw-u26"],
-            coveredAnswerIds: ["u25"],
-            coveredIds: [attachedMainUser.id],
+            coveredAnswerIds: [],
+            coveredIds: [],
             historyIndex: 12,
           }),
           threadKey: "main",
@@ -641,8 +643,8 @@ describe("explicit answer presentation", () => {
     expect(result?.currentResponses[0]?.response).toMatchObject({
       answerUserMessageIds: ["u25", "u26"],
       referencedUserMessageIds: ["raw-u25", "raw-u26"],
-      coveredAnswerUserMessageIds: ["u25"],
-      coveredUserMessageIds: ["raw-u25"],
+      coveredAnswerUserMessageIds: [],
+      coveredUserMessageIds: [],
     });
   });
 

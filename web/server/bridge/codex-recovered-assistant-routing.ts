@@ -11,10 +11,7 @@ import {
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { hasFinalCodexOutcomeEvidence } from "./codex-interrupted-turn-recovery.js";
 import { leaderRouteFromRecoveredAssistant } from "./codex-leader-recovery-diagnostic.js";
-import {
-  displayOnlyCanonicalizedLeaderAnswerThreads,
-  type CanonicalizedLeaderAnswerRoute,
-} from "./leader-answer-ready-authority.js";
+import { displayOnlyLeaderAnswerThreads } from "./leader-answer-ready-authority.js";
 import {
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtThreadRouteBoundaries,
@@ -102,9 +99,13 @@ export function codexRecoveredAssistantModel(session: CodexRecoveredAssistantRou
 }
 
 function canonicalRouteKeyForRecoveredAssistant(
-  entry: Pick<AssistantHistoryEntry, "threadKey" | "questId" | "threadRefs" | "threadRoutingError">,
+  entry: Pick<AssistantHistoryEntry, "threadKey" | "questId" | "threadRefs" | "threadRoutingError" | "threadAnswer">,
   routed: CodexRecoveredAssistantRouteFields,
 ): string {
+  // Settlement may choose a different display anchor. Provider replay still
+  // carries the originally authored route, which belongs to the same row.
+  const authored = entry.threadAnswer?.authoredThreadKey;
+  if (authored === "main" || (typeof authored === "string" && /^q-\d+$/.test(authored))) return authored;
   const routedKey = routed.threadKey || routed.questId;
   if (routedKey) return routedKey.trim().toLowerCase() || "main";
   if (entry.threadKey) return entry.threadKey.trim().toLowerCase() || "main";
@@ -521,7 +522,6 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
   let conversationChanged = false;
   let projectionChanged = false;
   const answerCanAnchorReady = new Map<AssistantHistoryEntry, boolean>();
-  const canonicalizedRoutes: CanonicalizedLeaderAnswerRoute[] = [];
 
   // Finalize every recovered answer before applying any Ready marker from a
   // sibling segment in the same completed provider turn.
@@ -535,7 +535,6 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
       if (finalized.finalized) {
         controlCandidates.set(candidate, true);
         projectionChanged = true;
-        if (finalized.canonicalizedRoute) canonicalizedRoutes.push(finalized.canonicalizedRoute);
       }
       answerCanAnchorReady.set(
         candidate,
@@ -549,11 +548,9 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
   }
 
   const displayOnlyReadyThreadKeys = session.id
-    ? displayOnlyCanonicalizedLeaderAnswerThreads(
-        { id: session.id, messageHistory: session.messageHistory },
-        [...controlCandidates.keys()],
-        canonicalizedRoutes,
-      )
+    ? displayOnlyLeaderAnswerThreads({ id: session.id, messageHistory: session.messageHistory }, [
+        ...controlCandidates.keys(),
+      ])
     : new Set<string>();
 
   for (const [candidate, metadataChanged] of controlCandidates) {

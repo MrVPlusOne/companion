@@ -11,6 +11,8 @@ describe("buildThreadRoutingReminderContent", () => {
     expect(content).toContain("`[thread:main:C]` / `[thread:q-N:C]`");
     expect(content).toContain("`[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]`");
     expect(content).toContain("standalone `---` line immediately before the next role-bearing marker");
+    expect(content).toContain("One answer shared across tabs needs only one marker");
+    expect(content).toContain("For distinct content or roles");
     expect(content).toContain("`# thread:main` or `# thread:q-N`");
     expect(content).not.toContain("previous leader response");
   });
@@ -49,7 +51,7 @@ describe("buildThreadRoutingReminderContent", () => {
     expect(content).toContain("Invalid marker: [thread:side] on visible leader text");
   });
 
-  it("gives one exact owner-thread correction without asking for the long answer again", () => {
+  it("retains a historical missing-association diagnostic without teaching an obsolete correction", () => {
     const content = buildThreadRoutingReminderContent({
       reason: "invalid_answer_route",
       source: "answer_marker",
@@ -63,14 +65,17 @@ describe("buildThreadRoutingReminderContent", () => {
     });
 
     expect(content).toContain("Invalid answer route from q-2044");
-    expect(content).toContain("q-2044 is not visibility-associated with every referenced prompt; missing: u38");
-    expect(content).toContain("Authoritative owner: q-2042 (u37,u38)");
-    expect(content).toContain("[thread:q-2042:A:u37,u38]");
-    expect(content).toContain("Do not regenerate the long explanation");
+    expect(content).toContain("Historical routing rejection: q-2044 lacked associations for u38");
+    expect(content).toContain("Current answers automatically follow the union");
+    expect(content).toContain(
+      "Do not discover history indices, attach the answer, split the answer, or repeat its prose",
+    );
+    expect(content).not.toContain("send only a brief correction");
+    expect(content).not.toContain("[thread:q-2042:A:u37,u38]");
     expect(content).toContain("Do not mark q-2044 Ready");
   });
 
-  it("gives one exact quest-owner correction for a disallowed Main visibility route", () => {
+  it("retains a historical Main restriction while teaching automatic routing in either direction", () => {
     const content = buildThreadRoutingReminderContent({
       reason: "invalid_answer_route",
       source: "answer_marker",
@@ -82,9 +87,10 @@ describe("buildThreadRoutingReminderContent", () => {
       },
     });
 
-    expect(content).toContain("Main cannot be used as a visibility-only destination");
-    expect(content).toContain("Authoritative owner: q-2042 (u37,u38)");
-    expect(content).toContain("[thread:q-2042:A:u37,u38]");
+    expect(content).toContain("Historical routing rejection: Main was selected for quest-owned prompts: u37,u38");
+    expect(content).toContain("automatic routing between Main and quests in either direction");
+    expect(content).not.toContain("Main cannot be used");
+    expect(content).not.toContain("[thread:q-2042:A:u37,u38]");
   });
 
   it("explains otherwise parsed but ineligible answer rows", () => {
@@ -100,7 +106,7 @@ describe("buildThreadRoutingReminderContent", () => {
     });
 
     expect(content).toContain("answer metadata or message shape is invalid: u7");
-    expect(content).toContain("No single corrected answer marker is safe");
+    expect(content).toContain("Use the supplied earlier user-message IDs");
     expect(content).toContain("did not gain coverage");
   });
 
@@ -121,12 +127,14 @@ describe("buildThreadRoutingReminderContent", () => {
       },
     });
 
-    expect(content).toContain("No single corrected answer marker is safe from this evidence");
+    expect(content).toContain("Current answers may cover nonconsecutive IDs and different owning threads");
+    expect(content).toContain("Each thread receives coverage only for its own referenced requests");
+    expect(content).not.toContain("inspect current ownership and pending IDs before writing");
     expect(content).not.toContain("Authoritative owner:");
     expect(content).not.toContain("[thread:q-2042:A:u37,u38]");
   });
 
-  it("fails closed without suggesting one marker for a mixed-owner answer", () => {
+  it("keeps a historical mixed-owner rejection readable without requiring separate answers", () => {
     const content = buildThreadRoutingReminderContent({
       reason: "invalid_answer_route",
       source: "answer_marker",
@@ -142,9 +150,34 @@ describe("buildThreadRoutingReminderContent", () => {
     });
 
     expect(content).toContain("q-2042 (u37); Main (u38)");
-    expect(content).toContain("No single corrected answer marker is safe");
+    expect(content).toContain("Historical routing rejection");
+    expect(content).toContain("Current answers support different owning threads");
+    expect(content).toContain("Takode routes one stored answer automatically");
     expect(content).not.toContain("[thread:q-2042:A:u37,u38]");
     expect(content).not.toContain("[thread:main:A:u37,u38]");
+  });
+
+  it("identifies invalid IDs and unproven owners without treating a group as one owner", () => {
+    // Current failures still identify the exact IDs; removed authoring rules
+    // must not reappear in either the precise or incomplete-evidence fallback.
+    for (const reason of ["invalid_ids", "unproven_owner"] as const) {
+      const content = buildThreadRoutingReminderContent({
+        reason: "invalid_answer_route",
+        answerRouteDiagnostic: {
+          reason,
+          selectedThreadKey: "main",
+          answerUserMessageIds: ["u7", "u9"],
+          ownerGroups: [],
+        },
+      });
+      expect(content).toContain("u7,u9");
+      expect(content).toContain("did not gain coverage");
+      expect(content).not.toContain("one current owner for the listed IDs");
+      expect(content).not.toContain("Historical routing rejection");
+    }
+    const fallback = buildThreadRoutingReminderContent({ reason: "invalid_answer_route" });
+    expect(fallback).toContain("do not guess a correction from incomplete evidence");
+    expect(fallback).not.toContain("one corrected owner-thread marker");
   });
 
   it("rejects malformed persisted semantic diagnostics", () => {

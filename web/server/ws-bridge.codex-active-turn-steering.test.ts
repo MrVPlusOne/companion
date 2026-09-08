@@ -757,7 +757,13 @@ describe("Codex active-turn steering", () => {
     const answer = session.messageHistory.find(
       (entry: any) => entry.type === "assistant" && entry.message?.id === "answer-steered-u1",
     ) as any;
-    expect(answer.threadAnswer).toEqual({ version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 2 });
+    expect(answer.threadAnswer).toEqual({
+      version: 2,
+      answerUserMessageIds: ["u1"],
+      observedHistoryLength: 2,
+      authoredThreadKey: "main",
+      ownerGroups: [{ threadKey: "main", userMessageIds: ["u1"] }],
+    });
     expect(session.state.leaderThreadStatuses?.main).toMatchObject({ kind: "ready", messageId: "answer-steered-u1" });
     expect(
       session.messageHistory.some(

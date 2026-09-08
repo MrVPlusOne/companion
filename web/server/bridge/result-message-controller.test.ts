@@ -268,7 +268,13 @@ describe("result-message-controller", () => {
 
     handleResultMessage(session, makeResult({ uuid: "final-ready-result" }), deps);
 
-    expect(response.threadAnswer).toEqual({ version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 1 });
+    expect(response.threadAnswer).toEqual({
+      version: 2,
+      answerUserMessageIds: ["u1"],
+      observedHistoryLength: 1,
+      authoredThreadKey: "main",
+      ownerGroups: [{ threadKey: "main", userMessageIds: ["u1"] }],
+    });
     expect(session.state.leaderThreadStatuses?.main).toMatchObject({ kind: "ready", messageId: "final-ready" });
     expect(buildLeaderThreadResponseState(session, "main").projection).toMatchObject({
       ready: true,
@@ -348,8 +354,12 @@ describe("result-message-controller", () => {
 
     handleResultMessage(rejected, makeResult({ uuid: "display-ready-result" }), rejectedDeps);
 
-    expect(displayReady.threadAnswer).toBeUndefined();
-    expect(displayReady.threadRoutingError?.answerRouteDiagnostic?.reason).toBe("route_control_conflict");
+    expect(displayReady.threadAnswer).toMatchObject({
+      answerUserMessageIds: ["u1"],
+      authoredThreadKey: "q-2",
+      ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }],
+    });
+    expect(displayReady.threadRoutingError).toBeUndefined();
     expect(rejected.state.leaderThreadStatuses?.["q-1"]).toBeUndefined();
     expect(rejected.state.leaderThreadStatuses?.["q-2"]).toBeUndefined();
     expect(rejectedDeps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(rejected, "user", ["q-2"]);
@@ -422,6 +432,124 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
   });
 
+  it("rejects display-only Main Ready after a same-turn answer is fully superseded", () => {
+    // The first answer remains visible in Main after the later quest answer
+    // takes current coverage. Losing current coverage must not grant Main Ready.
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1", "Quest request", { threadKey: "q-42" }));
+    const ready = routedFinal("main-ready-commentary", 1, {
+      role: "commentary",
+      threadKey: "main",
+      ready: true,
+    });
+    const first = routedFinal("main-authored-answer", 1, {
+      threadKey: "main",
+      answerIds: ["u1"],
+      text: "The requested change is implemented.",
+    });
+    const later = routedFinal("quest-complementary-answer", 1, {
+      threadKey: "q-42",
+      answerIds: ["u1"],
+      text: "The requested change is now synchronized too.",
+    });
+    session.messageHistory.push(ready, first, later);
+    session.userMessageIdsThisTurn = [0];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "superseded-main-ready-result" }), deps);
+
+    expect(first.threadAnswer).toMatchObject({ authoredThreadKey: "main" });
+    expect(later.threadAnswer).toMatchObject({ authoredThreadKey: "q-42" });
+    expect(buildLeaderThreadResponseState(session, "main").projection.currentAnswers).toMatchObject([
+      { currentMessageId: first.message.id, coveredAnswerUserMessageIds: [] },
+    ]);
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.currentAnswers).toMatchObject([
+      { currentMessageId: first.message.id, coveredAnswerUserMessageIds: [] },
+      { currentMessageId: later.message.id, coveredAnswerUserMessageIds: ["u1"] },
+    ]);
+    expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
+  });
+
+  it.each([
+    { extraOwner: "q-9", questReady: true },
+    { extraOwner: "q-1", questReady: false },
+  ])("settles one mixed-owner answer while preserving pending work in $extraOwner", ({ extraOwner, questReady }) => {
+    // Producer-shaped root rows cover nonconsecutive IDs from Main and a quest.
+    // Ready appears before the answer, including a display-only sibling marker.
+    const session = makeSession();
+    session.messageHistory.push(
+      directUser("u1", "Main request", { associatedThreadKeys: ["q-8"] }),
+      directUser("u2", "Unanswered request", { threadKey: extraOwner }),
+      directUser("u3", "Quest request", { threadKey: "q-1" }),
+    );
+    for (const threadKey of ["main", "q-1", "q-8"]) {
+      session.messageHistory.push(
+        routedFinal(`ready-${threadKey}`, 3, {
+          role: "commentary",
+          threadKey,
+          ready: true,
+          text: "The answered requests are complete.",
+        }),
+      );
+    }
+    const response = routedFinal("shared-mixed-answer", 3, {
+      threadKey: "q-8",
+      answerIds: ["u1", "u3"],
+      text: "Both requested changes are implemented.",
+    });
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [0, 1, 2];
+    session.messageCountAtTurnStart = 3;
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "shared-mixed-result" }), deps);
+
+    expect(response).toMatchObject({
+      message: {
+        id: "shared-mixed-answer",
+        content: [{ type: "text", text: "Both requested changes are implemented." }],
+      },
+      threadKey: "main",
+      threadAnswer: {
+        answerUserMessageIds: ["u1", "u3"],
+        authoredThreadKey: "q-8",
+        ownerGroups: [
+          { threadKey: "main", userMessageIds: ["u1"] },
+          { threadKey: "q-1", userMessageIds: ["u3"] },
+        ],
+      },
+    });
+    expect(response.threadRoutingError).toBeUndefined();
+    for (const [threadKey, coveredIds] of [
+      ["main", ["u1"]],
+      ["q-1", ["u3"]],
+      ["q-8", []],
+    ] as const) {
+      expect(buildLeaderThreadResponseState(session, threadKey).projection.currentAnswers).toMatchObject([
+        { currentMessageId: response.message.id, coveredAnswerUserMessageIds: coveredIds },
+      ]);
+    }
+    expect(buildLeaderThreadResponseState(session, extraOwner).projection.pendingMessages).toMatchObject([
+      { userMessageId: "u2" },
+    ]);
+    expect(session.state.leaderThreadStatuses?.main).toMatchObject({ kind: "ready" });
+    if (questReady) {
+      expect(session.state.leaderThreadStatuses?.["q-1"]).toMatchObject({ kind: "ready" });
+    } else {
+      expect(session.state.leaderThreadStatuses?.["q-1"]).toBeUndefined();
+    }
+    expect(session.state.leaderThreadStatuses?.["q-8"]).toBeUndefined();
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(
+      session,
+      "user",
+      expect.arrayContaining(questReady ? ["q-8"] : ["q-1", "q-8"]),
+    );
+    expect(session.messageHistory.filter((entry) => entry.type === "assistant" && entry.threadAnswer)).toEqual([
+      response,
+    ]);
+  });
+
   it("finalizes all sibling answer segments before applying an earlier Ready commentary marker", () => {
     const session = makeSession();
     session.messageHistory.push(directUser("u1"), directUser("u2"));
@@ -442,6 +570,8 @@ describe("result-message-controller", () => {
       version: 2,
       answerUserMessageIds: ["u1", "u2"],
       observedHistoryLength: 2,
+      authoredThreadKey: "main",
+      ownerGroups: [{ threadKey: "main", userMessageIds: ["u1", "u2"] }],
     });
     expect(buildLeaderThreadResponseState(session, "main").projection.ready).toBe(true);
     expect(session.state.leaderThreadStatuses?.main).toMatchObject({

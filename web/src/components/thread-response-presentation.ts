@@ -1,7 +1,8 @@
 import {
+  leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseMessageIsAssociatedWithThread,
-  leaderResponseOwnerThreadKey,
+  leaderResponseProvenCurrentOwnerThreadKey,
 } from "../../shared/leader-thread-response-routing.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import type { ChatMessage, LeaderThreadResponseProjection, LeaderThreadResponseState } from "../types.js";
@@ -204,6 +205,7 @@ export function resolveThreadResponses(
   state: LeaderThreadResponseProjection | null | undefined,
   threadKey: string,
   enabled = true,
+  proofMessages: readonly ChatMessage[] = [],
 ): ThreadResponsePresentation | null {
   const normalizedThreadKey = normalizeThreadKey(threadKey);
   if (!enabled || normalizedThreadKey === "all") return null;
@@ -251,14 +253,17 @@ export function resolveThreadResponses(
   const seenVisibleDirectUserIds = new Set<string>();
   let duplicateVisibleDirectUser = false;
   let invalidVisibleDirectUser = false;
-  const responseEntries = new Map<string, { turnId: string; entry: Extract<FeedEntry, { kind: "message" }> }>();
+  const responseEntries = new Map<
+    string,
+    { turnId: string; order: number; entry: Extract<FeedEntry, { kind: "message" }> }
+  >();
   const duplicateResponseEntryIds = new Set<string>();
   let order = 0;
   for (const section of sections) {
     for (const turn of section.turns) {
       if (isUserBoundaryEntry(turn.userEntry) && turn.userEntry?.kind === "message") {
         const userMessage = turn.userEntry.msg;
-        const ownerThreadKey = leaderResponseOwnerThreadKey(userMessage.metadata ?? {});
+        const ownerThreadKey = leaderResponseProvenCurrentOwnerThreadKey(userMessage.metadata ?? {});
         const projectedUserMessageId = projectedUserMessageIds.get(userMessage.id);
         const persistedUserMessageId = userMessage.metadata?.leaderUserMessageId;
         if (userMessage.metadata?.leaderResponseCoverageVersion === 1 && ownerThreadKey) {
@@ -286,13 +291,53 @@ export function resolveThreadResponses(
       for (const entry of presentationEntries(turn)) {
         if (entry.kind !== "message") continue;
         if (responseEntries.has(entry.msg.id)) duplicateResponseEntryIds.add(entry.msg.id);
-        responseEntries.set(entry.msg.id, { turnId: turn.id, entry });
+        responseEntries.set(entry.msg.id, { turnId: turn.id, order, entry });
       }
       order += 1;
     }
   }
 
   if (duplicateVisibleDirectUser || invalidVisibleDirectUser) return null;
+
+  // The server may include every original prompt as bounded proof, while only
+  // prompts associated with this tab belong in its visible conversation.
+  const referencedUsers = new Map<
+    string,
+    { historyIndex: number; userMessageId: string; ownerThreadKey: string; message: ChatMessage }
+  >(directUsers);
+  const seenProofIds = new Set<string>();
+  for (const message of proofMessages) {
+    if (!projectedUserMessageIds.has(message.id)) continue;
+    if (seenProofIds.has(message.id)) return null;
+    seenProofIds.add(message.id);
+    const ownerThreadKey = leaderResponseProvenCurrentOwnerThreadKey(message.metadata ?? {});
+    const projectedId = projectedUserMessageIds.get(message.id)!;
+    if (
+      message.role !== "user" ||
+      message.agentSource != null ||
+      message.metadata?.codexSubagent ||
+      message.parentToolUseId != null ||
+      message.metadata?.leaderResponseCoverageVersion !== 1 ||
+      !Number.isInteger(message.historyIndex) ||
+      !ownerThreadKey ||
+      (message.metadata.leaderUserMessageId && message.metadata.leaderUserMessageId !== projectedId)
+    )
+      return null;
+    const existing = referencedUsers.get(message.id);
+    if (
+      existing &&
+      (existing.historyIndex !== message.historyIndex ||
+        existing.ownerThreadKey !== ownerThreadKey ||
+        existing.userMessageId !== projectedId)
+    )
+      return null;
+    referencedUsers.set(message.id, {
+      historyIndex: message.historyIndex!,
+      userMessageId: projectedId,
+      ownerThreadKey,
+      message,
+    });
+  }
 
   const pendingIds = new Set<string>();
   const pendingAnswerIds = new Set<string>();
@@ -340,46 +385,63 @@ export function resolveThreadResponses(
     const located = responseEntries.get(response.currentMessageId);
     if (!located || !isAuthoritativeCurrentResponseMessage(located.entry.msg, response)) return null;
 
-    const referencedAnchors = response.referencedUserMessageIds.map((messageId) => directUsers.get(messageId));
+    const answerMetadata = located.entry.msg.metadata?.threadAnswer;
+    const ownerThreadKeys = leaderResponseAnswerOwnerThreadKeys(
+      answerMetadata ?? { answerUserMessageIds: response.answerUserMessageIds },
+      responseThreadKey,
+    );
+    if (!ownerThreadKeys) return null;
+    const referencedAnchors = response.referencedUserMessageIds.map((messageId) => referencedUsers.get(messageId));
     if (
       referencedAnchors.some(
         (anchor, index) =>
           !anchor ||
           anchor.historyIndex < state.cutoverHistoryIndex ||
-          anchor.ownerThreadKey !== responseThreadKey ||
+          anchor.ownerThreadKey !== ownerThreadKeys.get(response.answerUserMessageIds[index]!) ||
           anchor.userMessageId !== response.answerUserMessageIds[index],
       )
     ) {
       return null;
     }
-    for (let index = 1; index < referencedAnchors.length; index += 1) {
-      if (referencedAnchors[index - 1]!.order >= referencedAnchors[index]!.order) return null;
-    }
+    if (!answerMetadata?.ownerGroups)
+      for (let index = 1; index < referencedAnchors.length; index += 1) {
+        if (referencedAnchors[index - 1]!.historyIndex >= referencedAnchors[index]!.historyIndex) return null;
+      }
+    const visibleAnchors = response.referencedUserMessageIds.flatMap((messageId) => {
+      const anchor = directUsers.get(messageId);
+      return anchor ? [anchor] : [];
+    });
+    const authoredThreadKey = answerMetadata?.authoredThreadKey ?? responseThreadKey;
+    if (visibleAnchors.length === 0 && authoredThreadKey !== normalizedThreadKey) return null;
     const coverageAnchors = response.coveredUserMessageIds.map((messageId) => directUsers.get(messageId));
     if (
       coverageAnchors.some(
         (anchor, index) =>
           !anchor ||
           anchor.historyIndex < state.cutoverHistoryIndex ||
-          anchor.ownerThreadKey !== responseThreadKey ||
+          anchor.ownerThreadKey !== normalizedThreadKey ||
           anchor.userMessageId !== response.coveredAnswerUserMessageIds[index],
       )
     ) {
       return null;
     }
-    for (let index = 1; index < coverageAnchors.length; index += 1) {
-      if (coverageAnchors[index - 1]!.order >= coverageAnchors[index]!.order) return null;
-    }
+    if (!answerMetadata?.ownerGroups)
+      for (let index = 1; index < coverageAnchors.length; index += 1) {
+        if (coverageAnchors[index - 1]!.order >= coverageAnchors[index]!.order) return null;
+      }
     for (const messageId of response.coveredUserMessageIds) {
       if (coveredIds.has(messageId) || pendingIds.has(messageId)) return null;
       coveredIds.add(messageId);
     }
-    const lastAnchor = referencedAnchors.at(-1)!;
+    const lastAnchor = visibleAnchors.reduce<(typeof visibleAnchors)[number] | undefined>(
+      (latest, anchor) => (!latest || anchor.order > latest.order ? anchor : latest),
+      undefined,
+    );
     currentResponses.push({
       response,
-      anchorUserMessageId: response.referencedUserMessageIds.at(-1)!,
-      anchorTurnId: lastAnchor.turnId,
-      anchorOrder: lastAnchor.order,
+      anchorUserMessageId: lastAnchor?.message.id ?? located.turnId,
+      anchorTurnId: lastAnchor?.turnId ?? located.turnId,
+      anchorOrder: lastAnchor?.order ?? located.order,
       sourceTurnId: located.turnId,
       messageEntry: located.entry,
       collapsedMessageEntry: collapsedResponseEntry(located.entry),

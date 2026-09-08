@@ -28,13 +28,12 @@ function semanticRejectedAnswer(): Extract<BrowserIncomingMessage, { type: "assi
     threadRoutingError: {
       reason: "invalid_answer_route",
       source: "answer_marker",
-      expected: "Use the proven owner route.",
+      expected: "Use valid earlier user-message references with proven current owners.",
       answerRouteDiagnostic: {
-        reason: "missing_association",
+        reason: "unproven_owner",
         selectedThreadKey: "q-2044",
         answerUserMessageIds: ["u37"],
-        ownerGroups: [{ threadKey: "q-2042", userMessageIds: ["u37"] }],
-        missingAssociationUserMessageIds: ["u37"],
+        ownerGroups: [],
       },
     },
   };

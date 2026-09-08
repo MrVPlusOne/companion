@@ -489,13 +489,73 @@ describe("Codex recovered routed answers", () => {
     expect(buildLeaderThreadResponseState(session, "q-2").projection.pendingMessageCount).toBe(0);
   });
 
-  it("persists a recovered semantic rejection for the next normal diagnostic boundary", () => {
+  it("keeps superseded recovered answers visible without granting display-only Main Ready", () => {
+    // Recovery finalizes both answers before sibling statuses. The later quest
+    // answer owns coverage, while the first answer still proves Main visibility.
+    const request = pendingHuman();
+    request.threadKey = "q-42";
+    request.questId = "q-42";
+    request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "explicit", attachedAt: 20 }];
+    const session = {
+      id: "leader-recovered-superseded",
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [request] as BrowserIncomingMessage[],
+      pendingLeaderRejectedReadyThreadKeys: [] as string[],
+    };
+
+    recoverAgentMessagesFromResumedTurn(
+      session,
+      {
+        id: "turn-superseded",
+        status: "completed",
+        error: null,
+        items: [
+          {
+            type: "agentMessage",
+            id: "main-ready",
+            text: "[thread:main:C] Complete.\n{[(Thread Ready: main | complete)]}",
+          },
+          {
+            type: "agentMessage",
+            id: "quest-ready",
+            text: "[thread:q-42:C] Complete.\n{[(Thread Ready: q-42 | complete)]}",
+          },
+          { type: "agentMessage", id: "main-answer", text: "[thread:main:A:u1] The requested change is implemented." },
+          {
+            type: "agentMessage",
+            id: "quest-answer",
+            text: "[thread:q-42:A:u1] The requested change is now synchronized too.",
+          },
+        ],
+      },
+      { disconnectedAt: 30, historyIndex: 0, userMessageId: "current-user" },
+      { codexAssistantReplayScanLimit: 10, broadcastToBrowsers: vi.fn() },
+    );
+
+    expect(buildLeaderThreadResponseState(session, "main").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "codex-agent-main-answer", coveredAnswerUserMessageIds: [] },
+    ]);
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "codex-agent-main-answer", coveredAnswerUserMessageIds: [] },
+      { currentMessageId: "codex-agent-quest-answer", coveredAnswerUserMessageIds: ["u1"] },
+    ]);
+    expect(session.state.leaderThreadStatuses.main).toBeUndefined();
+    expect(session.state.leaderThreadStatuses["q-42"]).toMatchObject({ kind: "ready" });
+    expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual(["main"]);
+  });
+
+  it.each([
+    "main",
+    "q-2044",
+  ])("accepts a recovered answer authored from %s without a prior association", (authoredThreadKey) => {
+    // The authoring tab no longer needs a pre-existing association with every
+    // prompt. Recovery must retain one answer and prove the request's own owner.
     const request = pendingHuman();
     request.threadKey = "q-2042";
     request.questId = "q-2042";
     request.threadRefs = [{ threadKey: "q-2042", questId: "q-2042", source: "explicit", attachedAt: 20 }];
     const session = {
-      id: "leader-recovered-rejected",
+      id: "leader-recovered-associated",
       state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
       messageHistory: [request] as BrowserIncomingMessage[],
     };
@@ -503,27 +563,153 @@ describe("Codex recovered routed answers", () => {
     recoverAgentMessagesFromResumedTurn(
       session,
       {
-        id: "turn-rejected",
+        id: "turn-associated",
         status: "completed",
         error: null,
-        items: [{ type: "agentMessage", id: "rejected-item", text: "[thread:q-2044:A:u1] Completed answer." }],
+        items: [
+          { type: "agentMessage", id: "associated-item", text: `[thread:${authoredThreadKey}:A:u1] Completed answer.` },
+        ],
       },
       { disconnectedAt: 30, historyIndex: 0, userMessageId: "current-user" },
       { codexAssistantReplayScanLimit: 10, broadcastToBrowsers: vi.fn() },
     );
 
     const response = session.messageHistory[1] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
-    expect(response.threadAnswer).toBeUndefined();
+    expect(response.threadAnswer).toMatchObject({
+      version: 2,
+      answerUserMessageIds: ["u1"],
+      observedHistoryLength: 1,
+      authoredThreadKey,
+      ownerGroups: [{ threadKey: "q-2042", userMessageIds: ["u1"] }],
+    });
     expect(response.leaderAnswerUserMessageIds).toBeUndefined();
-    expect(response.threadRoutingError).toMatchObject({
-      reason: "invalid_answer_route",
-      source: "answer_marker",
-      answerRouteDiagnostic: {
-        reason: "missing_association",
-        selectedThreadKey: "q-2044",
-        ownerGroups: [{ threadKey: "q-2042", userMessageIds: ["u1"] }],
+    expect(response.threadRoutingError).toBeUndefined();
+    expect(buildLeaderThreadResponseState(session, "q-2042").projection.pendingMessageCount).toBe(0);
+    expect(buildLeaderThreadResponseState(session, authoredThreadKey).projection.currentAnswers).toMatchObject([
+      { currentMessageId: response.message.id, coveredAnswerUserMessageIds: [] },
+    ]);
+  });
+
+  it.each([
+    "main",
+    "q-8",
+  ])("recovers one mixed-owner answer authored from %s and replays its snapshot once", (authoredThreadKey) => {
+    // A completed provider snapshot contains earlier sibling status segments,
+    // one nonconsecutive mixed-owner answer, and an unrelated pending request.
+    const questRequest = pendingHuman();
+    questRequest.id = "quest-user";
+    questRequest.threadKey = "q-1";
+    questRequest.questId = "q-1";
+    questRequest.threadRefs = [
+      { threadKey: "q-1", questId: "q-1", source: "explicit", attachedAt: 20 },
+      { threadKey: "q-8", questId: "q-8", source: "backfill", attachedAt: 21 },
+    ];
+    const unrelated = pendingHuman();
+    unrelated.id = "unrelated-user";
+    unrelated.leaderUserMessageId = "u2";
+    unrelated.timestamp = 22;
+    unrelated.threadKey = "q-9";
+    unrelated.questId = "q-9";
+    unrelated.threadRefs = [{ threadKey: "q-9", questId: "q-9", source: "explicit", attachedAt: 22 }];
+    const mainRequest = pendingHuman();
+    mainRequest.id = "main-user";
+    mainRequest.leaderUserMessageId = "u3";
+    mainRequest.timestamp = 23;
+    const session = {
+      id: "leader-recovered-mixed",
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [questRequest, unrelated, mainRequest] as BrowserIncomingMessage[],
+      pendingLeaderRejectedReadyThreadKeys: [] as string[],
+    };
+    const turn = {
+      id: "turn-mixed",
+      status: "completed" as const,
+      error: null,
+      items: [
+        ...["q-1", "main", "q-8"].map((threadKey, index) => ({
+          type: "agentMessage" as const,
+          id: `item-${index + 1}`,
+          text: `[thread:${threadKey}:C] The answered requests are complete.\n{[(Thread Ready: ${threadKey} | requests complete)]}`,
+        })),
+        {
+          type: "agentMessage" as const,
+          id: "item-4",
+          text: `[thread:${authoredThreadKey}:A:u1,u3] Both requested changes are implemented.`,
+        },
+      ],
+    };
+    const pending = {
+      disconnectedAt: 30,
+      historyIndex: 0,
+      userMessageId: "quest-user",
+      pendingInputIds: ["quest-user", "unrelated-user", "main-user"],
+      historyIncorporation: {
+        inputIds: ["quest-user", "unrelated-user", "main-user"],
+        historyIndexes: [0, 1, 2],
+      } as any,
+    };
+    const deps = {
+      codexAssistantReplayScanLimit: 10,
+      broadcastToBrowsers: vi.fn(),
+      refreshBrowserConversationViews: vi.fn(),
+      invalidateLeaderThreadTabsForSession: vi.fn(),
+    };
+
+    recoverAgentMessagesFromResumedTurn(session, turn, pending, deps);
+
+    const answer = session.messageHistory.find(
+      (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> =>
+        entry.type === "assistant" && !!entry.threadAnswer,
+    )!;
+    expect(answer).toMatchObject({
+      message: {
+        id: "codex-agent-turn-mixed-item-4",
+        content: [{ type: "text", text: "Both requested changes are implemented." }],
+      },
+      threadKey: "main",
+      threadAnswer: {
+        answerUserMessageIds: ["u1", "u3"],
+        authoredThreadKey,
+        ownerGroups: [
+          { threadKey: "q-1", userMessageIds: ["u1"] },
+          { threadKey: "main", userMessageIds: ["u3"] },
+        ],
       },
     });
+    expect(answer.threadRoutingError).toBeUndefined();
+    expect(session.state.leaderThreadStatuses["q-1"]).toMatchObject({ kind: "ready" });
+    expect(session.state.leaderThreadStatuses.main).toMatchObject({ kind: "ready" });
+    expect(session.state.leaderThreadStatuses["q-8"]).toBeUndefined();
+    expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual(["q-8"]);
+    for (const [threadKey, coveredIds] of [
+      ["q-1", ["u1"]],
+      ["main", ["u3"]],
+      ["q-8", []],
+    ] as const) {
+      expect(buildLeaderThreadResponseState(session, threadKey).projection.currentAnswers).toMatchObject([
+        { currentMessageId: answer.message.id, coveredAnswerUserMessageIds: coveredIds },
+      ]);
+    }
+    expect(buildLeaderThreadResponseState(session, "q-9").projection.pendingMessages).toMatchObject([
+      { userMessageId: "u2" },
+    ]);
+
+    // Persisted authority and the authored route must identify the same row
+    // when the provider repeats the original snapshot after restart.
+    const restored = JSON.parse(JSON.stringify(session)) as typeof session;
+    const persistedHistory = JSON.parse(JSON.stringify(restored.messageHistory));
+    deps.broadcastToBrowsers.mockClear();
+    deps.refreshBrowserConversationViews.mockClear();
+    deps.invalidateLeaderThreadTabsForSession.mockClear();
+    recoverAgentMessagesFromResumedTurn(restored, turn, pending, deps);
+
+    expect(restored.messageHistory).toEqual(persistedHistory);
+    expect(restored.messageHistory.filter((entry) => entry.type === "assistant" && entry.threadAnswer)).toHaveLength(1);
+    expect(restored.pendingLeaderRejectedReadyThreadKeys).toEqual(["q-8"]);
+    // A rejected sibling status may be reconsidered, but it cannot rebroadcast
+    // the settled answer, alter coverage, or add a second source row.
+    expect(deps.broadcastToBrowsers.mock.calls.some(([, entry]) => entry.threadAnswer)).toBe(false);
+    expect(deps.invalidateLeaderThreadTabsForSession).not.toHaveBeenCalled();
   });
 
   it("restores completed replay-matched answer controls exactly once after retry cleanup", () => {

@@ -74,7 +74,7 @@ function appendAnswer(
 ) {
   const message = routedAssistant(id, text, answerUserMessageIds, observedHistoryLength, threadKey);
   target.messageHistory.push(message);
-  expect(finalizeRoutedLeaderResponseMessage(target, message)).toEqual({ finalized: true, answerId: id });
+  expect(finalizeRoutedLeaderResponseMessage(target, message)).toMatchObject({ finalized: true, answerId: id });
   return message;
 }
 
@@ -172,7 +172,13 @@ describe("explicit routed leader answers", () => {
     target.messageHistory.push(human("u1", 1), human("u2", 2));
     const answer = appendAnswer(target, "answer-both", ["u1", "u2"], "Combined answer.", 2);
 
-    expect(answer.threadAnswer).toEqual({ version: 2, answerUserMessageIds: ["u1", "u2"], observedHistoryLength: 2 });
+    expect(answer.threadAnswer).toEqual({
+      version: 2,
+      answerUserMessageIds: ["u1", "u2"],
+      observedHistoryLength: 2,
+      authoredThreadKey: "main",
+      ownerGroups: [{ threadKey: "main", userMessageIds: ["u1", "u2"] }],
+    });
     expect(buildLeaderThreadResponseState(target, "main").responses[0]).toMatchObject({
       answerUserMessageIds: ["u1", "u2"],
       referencedUserMessageIds: ["raw-u1", "raw-u2"],
@@ -233,14 +239,12 @@ describe("explicit routed leader answers", () => {
     expect(isCurrentValidRoutedLeaderResponseMessage(target, later)).toBe(true);
   });
 
-  it("rejects unknown, unseen, cross-thread, duplicate, and out-of-order IDs atomically", () => {
+  it("rejects unknown, unseen, and duplicate IDs atomically", () => {
+    // Relaxing answer grouping must not accept nonexistent or unobserved sources.
     const cases: Array<{ ids: string[]; observed: number; thread?: string }> = [
       { ids: ["u9"], observed: 2 },
       { ids: ["u2"], observed: 1 },
       { ids: ["u1", "u1"], observed: 2 },
-      { ids: ["u2", "u1"], observed: 2 },
-      { ids: ["u1", "u3"], observed: 3 },
-      { ids: ["u2"], observed: 3, thread: "q-42" },
     ];
     for (const [index, testCase] of cases.entries()) {
       const target = session();
@@ -261,6 +265,38 @@ describe("explicit routed leader answers", () => {
     }
   });
 
+  it.each([
+    { ids: ["u2", "u1"], observed: 2, thread: "main", pending: ["u3"] },
+    { ids: ["u1", "u3"], observed: 3, thread: "main", pending: ["u2"] },
+    { ids: ["u2"], observed: 3, thread: "q-42", pending: ["u1", "u3"] },
+  ])("accepts existing references $ids from $thread without changing unrelated coverage", (testCase) => {
+    // References identify exact requests; chronological adjacency and the
+    // authored tab do not limit a valid answer's coverage.
+    const target = session();
+    target.messageHistory.push(human("u1", 1), human("u2", 2), human("u3", 3));
+    const answer = appendAnswer(
+      target,
+      "referenced-answer",
+      testCase.ids,
+      "One answer for the referenced requests.",
+      testCase.observed,
+      testCase.thread,
+    );
+
+    expect(answer.threadAnswer?.answerUserMessageIds).toEqual(testCase.ids);
+    expect(answer.threadRoutingError).toBeUndefined();
+    const main = buildLeaderThreadResponseState(target, "main").projection;
+    expect(main.pendingMessages.map((message) => message.userMessageId)).toEqual(testCase.pending);
+    expect(main.currentAnswers).toMatchObject([
+      { currentMessageId: "referenced-answer", answerUserMessageIds: testCase.ids },
+    ]);
+    if (testCase.thread !== "main") {
+      expect(buildLeaderThreadResponseState(target, testCase.thread).projection.currentAnswers).toMatchObject([
+        { currentMessageId: "referenced-answer", coveredAnswerUserMessageIds: [], coveredUserMessageIds: [] },
+      ]);
+    }
+  });
+
   it("recomputes current ownership from the newest authoritative non-backfill reference", () => {
     const target = session();
     const moved = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
@@ -272,9 +308,12 @@ describe("explicit routed leader answers", () => {
       { userMessageId: "u1" },
     ]);
 
-    const wrongThread = routedAssistant("wrong", "Wrong-thread answer.", ["u1"], 1);
-    target.messageHistory.push(wrongThread);
-    expect(finalizeRoutedLeaderResponseMessage(target, wrongThread)).toMatchObject({ reason: "invalid_message" });
+    const mainAnswer = appendAnswer(target, "main-authored-answer", ["u1"], "Answer from Main.", 1);
+    expect(mainAnswer.threadAnswer?.ownerGroups).toEqual([{ threadKey: "q-42", userMessageIds: ["u1"] }]);
+    expect(buildLeaderThreadResponseState(target, "q-42").projection).toMatchObject({
+      ready: true,
+      currentAnswers: [{ currentMessageId: "main-authored-answer", coveredAnswerUserMessageIds: ["u1"] }],
+    });
 
     appendAnswer(target, "moved-answer", ["u1"], "Quest-thread answer.", 1, "q-42");
     expect(buildLeaderThreadResponseState(target, "q-42").projection.ready).toBe(true);
@@ -345,7 +384,6 @@ describe("explicit routed leader answers", () => {
     expect(finalizeRoutedLeaderResponseMessage(target, answer)).toEqual({
       finalized: true,
       answerId: "implemented-answer",
-      canonicalizedRoute: { selectedThreadKey: "q-2044", ownerThreadKey: "q-2042" },
     });
     expect(target.messageHistory[historyIndex]).toBe(answer);
     expect(answer.message.content).toBe(originalText);
@@ -383,7 +421,6 @@ describe("explicit routed leader answers", () => {
 
     expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({
       finalized: true,
-      canonicalizedRoute: { selectedThreadKey: "q-42", ownerThreadKey: "main" },
     });
     expect(answer.threadKey).toBe("main");
     expect(answer.questId).toBeUndefined();
@@ -427,30 +464,33 @@ describe("explicit routed leader answers", () => {
     });
   });
 
-  it("fails closed with structured diagnostics when owner correction is ambiguous or unproven", () => {
-    // Grouped prose cannot be split across owners, and a selected destination
-    // cannot manufacture visibility association or a Main backfill.
+  it("routes grouped and reassigned requests automatically from any authored destination", () => {
+    // One exact answer can cover multiple proven owners and gains the authored
+    // destination without a separate manual association operation.
     const mixed = session();
     mixed.messageHistory.push(human("u1", 1, "q-1"), human("u2", 2, "q-2"));
     const mixedAnswer = routedAssistant("mixed", "Grouped answer.", ["u1", "u2"], 2, "q-3");
     mixed.messageHistory.push(mixedAnswer);
     expect(finalizeRoutedLeaderResponseMessage(mixed, mixedAnswer)).toMatchObject({
-      finalized: false,
-      reason: "invalid_message",
+      finalized: true,
     });
-    expect(mixedAnswer.threadRoutingError).toMatchObject({
-      reason: "invalid_answer_route",
-      source: "answer_marker",
-      answerRouteDiagnostic: {
-        reason: "multiple_owners",
-        selectedThreadKey: "q-3",
-        answerUserMessageIds: ["u1", "u2"],
-        ownerGroups: [
-          { threadKey: "q-1", userMessageIds: ["u1"] },
-          { threadKey: "q-2", userMessageIds: ["u2"] },
-        ],
-      },
+    expect(mixedAnswer.threadAnswer).toMatchObject({
+      answerUserMessageIds: ["u1", "u2"],
+      ownerGroups: [
+        { threadKey: "q-1", userMessageIds: ["u1"] },
+        { threadKey: "q-2", userMessageIds: ["u2"] },
+      ],
     });
+    expect(mixedAnswer.threadRoutingError).toBeUndefined();
+    for (const [threadKey, covered] of [
+      ["q-1", ["u1"]],
+      ["q-2", ["u2"]],
+      ["q-3", []],
+    ] as const) {
+      expect(buildLeaderThreadResponseState(mixed, threadKey).projection.currentAnswers).toMatchObject([
+        { currentMessageId: "mixed", answerUserMessageIds: ["u1", "u2"], coveredAnswerUserMessageIds: covered },
+      ]);
+    }
 
     const reassigned = session();
     const reassignedRequest = human("u1", 1, "q-1") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
@@ -462,41 +502,44 @@ describe("explicit routed leader answers", () => {
     reassigned.messageHistory.push(reassignedRequest);
     const reassignedAnswer = routedAssistant("reassigned", "Answer.", ["u1"], 1, "q-3");
     reassigned.messageHistory.push(reassignedAnswer);
-    expect(finalizeRoutedLeaderResponseMessage(reassigned, reassignedAnswer)).toMatchObject({ finalized: false });
-    expect(reassignedAnswer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
-      reason: "unproven_owner",
-      selectedThreadKey: "q-3",
+    expect(finalizeRoutedLeaderResponseMessage(reassigned, reassignedAnswer)).toMatchObject({ finalized: true });
+    expect(reassignedAnswer.threadAnswer).toMatchObject({
       ownerGroups: [{ threadKey: "q-2", userMessageIds: ["u1"] }],
     });
-    expect(reassignedAnswer).toMatchObject({ threadKey: "q-3", questId: "q-3" });
+    expect(reassignedAnswer).toMatchObject({ threadKey: "q-2", questId: "q-2" });
+    expect(buildLeaderThreadResponseState(reassigned, "q-2").projection.ready).toBe(true);
 
     const unassociated = session();
     unassociated.messageHistory.push(human("u1", 1, "q-1"));
     const unassociatedAnswer = routedAssistant("unassociated", "Answer.", ["u1"], 1, "q-2");
     unassociated.messageHistory.push(unassociatedAnswer);
     expect(finalizeRoutedLeaderResponseMessage(unassociated, unassociatedAnswer)).toMatchObject({
-      finalized: false,
+      finalized: true,
     });
-    expect(unassociatedAnswer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
-      reason: "missing_association",
-      selectedThreadKey: "q-2",
+    expect(unassociatedAnswer.threadAnswer).toMatchObject({
       ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }],
-      missingAssociationUserMessageIds: ["u1"],
     });
+    expect(buildLeaderThreadResponseState(unassociated, "q-2").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "unassociated", coveredAnswerUserMessageIds: [] },
+    ]);
 
     const mainBackfill = session();
     mainBackfill.messageHistory.push(human("u1", 1, "q-1"));
     const mainAnswer = routedAssistant("main-backfill", "Answer.", ["u1"], 1, "main");
     mainBackfill.messageHistory.push(mainAnswer);
-    expect(finalizeRoutedLeaderResponseMessage(mainBackfill, mainAnswer)).toMatchObject({ finalized: false });
-    expect(mainAnswer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
-      reason: "disallowed_main_backfill",
-      selectedThreadKey: "main",
+    expect(finalizeRoutedLeaderResponseMessage(mainBackfill, mainAnswer)).toMatchObject({ finalized: true });
+    expect(mainAnswer.threadKey).toBe("main");
+    expect(mainAnswer.threadAnswer).toMatchObject({
       ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }],
     });
+    expect(buildLeaderThreadResponseState(mainBackfill, "q-1").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "main-backfill", coveredAnswerUserMessageIds: ["u1"] },
+    ]);
   });
 
-  it("rolls back route metadata and diagnoses conflicting owner-thread controls", () => {
+  it("preserves a valid answer with a Ready marker aimed at a display-only thread", () => {
+    // Status authority is checked by the bridge independently; a misplaced
+    // Ready marker must not discard valid answer prose or its owner proof.
     const target = session();
     const request = human("u1", 1, "q-1") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
     request.threadRefs = [
@@ -517,14 +560,13 @@ describe("explicit routed leader answers", () => {
     ];
     target.messageHistory.push(answer);
 
-    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
-    expect(answer).toMatchObject({ threadKey: "q-2", questId: "q-2" });
-    expect(answer.threadAnswer).toBeUndefined();
-    expect(answer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
-      reason: "route_control_conflict",
-      selectedThreadKey: "q-2",
-      ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }],
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: true });
+    expect(answer).toMatchObject({
+      threadKey: "q-1",
+      questId: "q-1",
+      threadAnswer: { ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }] },
     });
+    expect(answer.threadRoutingError).toBeUndefined();
   });
 
   it("projects the exact Main-owned u25 answer identity into its q-2024 backfill association", () => {
@@ -564,8 +606,8 @@ describe("explicit routed leader answers", () => {
           threadKey: "main",
           answerUserMessageIds: ["u25"],
           referencedUserMessageIds: ["raw-u25"],
-          coveredAnswerUserMessageIds: ["u25"],
-          coveredUserMessageIds: ["raw-u25"],
+          coveredAnswerUserMessageIds: [],
+          coveredUserMessageIds: [],
           currentMessageId: "answer-u25",
           currentHistoryIndex: 1,
           source: "explicit",
@@ -624,7 +666,9 @@ describe("explicit routed leader answers", () => {
     expect(buildLeaderThreadResponseState(target, "q-43").projection).toEqual(q43Before);
   });
 
-  it("fails grouped cross-thread projection unless every original answer reference is associated", () => {
+  it("projects a grouped answer through the union of its referenced prompt associations", () => {
+    // A destination needs one related prompt to show the entire stored answer,
+    // while full original references stay distinct from local coverage.
     const target = session();
     const first = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
     const second = human("u2", 2) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
@@ -632,7 +676,15 @@ describe("explicit routed leader answers", () => {
     target.messageHistory.push(first, second);
     appendAnswer(target, "main-answer", ["u1", "u2"], "Indivisible grouped Main answer.", 2);
 
-    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toEqual([]);
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
+      {
+        currentMessageId: "main-answer",
+        answerUserMessageIds: ["u1", "u2"],
+        referencedUserMessageIds: ["raw-u1", "raw-u2"],
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
+      },
+    ]);
 
     second.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 4 }];
     expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
@@ -640,22 +692,22 @@ describe("explicit routed leader answers", () => {
         threadKey: "main",
         answerUserMessageIds: ["u1", "u2"],
         referencedUserMessageIds: ["raw-u1", "raw-u2"],
-        coveredAnswerUserMessageIds: ["u1", "u2"],
-        coveredUserMessageIds: ["raw-u1", "raw-u2"],
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
         currentMessageId: "main-answer",
       },
     ]);
 
     appendAnswer(target, "main-answer-u2", ["u2"], "Updated second answer.", 3);
     expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
-      { currentMessageId: "main-answer", coveredAnswerUserMessageIds: ["u1"] },
-      { currentMessageId: "main-answer-u2", coveredAnswerUserMessageIds: ["u2"] },
+      { currentMessageId: "main-answer", coveredAnswerUserMessageIds: [] },
+      { currentMessageId: "main-answer-u2", coveredAnswerUserMessageIds: [] },
     ]);
   });
 
-  it("projects each retained answer through its own complete association proof", () => {
-    // A later grouped answer must not erase an earlier answer that is safe for
-    // this quest, and it must not leak its unassociated second prompt here.
+  it("projects each retained answer through its own prompt association union", () => {
+    // A later grouped answer does not erase complementary prose; both complete
+    // source rows appear through their related prompt's current association.
     const target = session();
     const first = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
     const second = human("u2", 2) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
@@ -670,6 +722,11 @@ describe("explicit routed leader answers", () => {
         referencedUserMessageIds: ["raw-u1"],
         coveredUserMessageIds: [],
       },
+      {
+        currentMessageId: "main-answer-grouped",
+        referencedUserMessageIds: ["raw-u1", "raw-u2"],
+        coveredUserMessageIds: [],
+      },
     ]);
 
     first.threadRefs = [];
@@ -677,6 +734,8 @@ describe("explicit routed leader answers", () => {
   });
 
   it("does not treat a persisted Main backfill as association for a quest-owned answer", () => {
+    // Main backfills are not produced by prompt attachment. Reverse-direction
+    // answers use actual Main ownership or their authored Main destination.
     const target = session();
     const request = human("u1", 1, "q-42") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
     request.threadRefs = [...(request.threadRefs ?? []), { threadKey: "main", source: "backfill", attachedAt: 2 }];
@@ -684,7 +743,7 @@ describe("explicit routed leader answers", () => {
     appendAnswer(target, "quest-answer", ["u1"], "Quest-owned answer.", 1, "q-42");
 
     expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
-      { threadKey: "q-42", currentMessageId: "quest-answer" },
+      { threadKey: "q-42", currentMessageId: "quest-answer", coveredAnswerUserMessageIds: ["u1"] },
     ]);
     expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers).toEqual([]);
   });
@@ -705,8 +764,8 @@ describe("explicit routed leader answers", () => {
           threadKey: "main",
           answerUserMessageIds: ["u1"],
           referencedUserMessageIds: ["raw-u1"],
-          coveredAnswerUserMessageIds: ["u1"],
-          coveredUserMessageIds: ["raw-u1"],
+          coveredAnswerUserMessageIds: [],
+          coveredUserMessageIds: [],
           currentMessageId: "fallback-id-answer",
         },
       ],
@@ -730,6 +789,163 @@ describe("explicit routed leader answers", () => {
     });
   });
 
+  it("stores one mixed-owner answer and scopes coverage independently across every related destination", () => {
+    // This fixture combines gaps, reversed references, multiple owners, a
+    // display-only association, and an unrelated pending request in that tab.
+    const target = session();
+    const mainRequest = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    const questRequest = human("u3", 3, "q-1") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    const otherRequest = human("u5", 5, "q-2") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    mainRequest.threadRefs = [{ threadKey: "q-3", questId: "q-3", source: "backfill", attachedAt: 6 }];
+    questRequest.threadRefs?.push({ threadKey: "q-2", questId: "q-2", source: "backfill", attachedAt: 7 });
+    otherRequest.threadRefs?.push({ threadKey: "q-4", questId: "q-4", source: "backfill", attachedAt: 8 });
+    target.messageHistory.push(mainRequest, human("u2", 2), questRequest, human("u4", 4, "q-3"), otherRequest);
+    const answer = routedAssistant(
+      "combined-answer",
+      "The complete combined answer is written once.",
+      ["u5", "u1", "u3"],
+      5,
+      "q-6",
+    );
+    const originalContent = answer.message.content;
+    target.messageHistory.push(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: true });
+    expect(target.messageHistory).toHaveLength(6);
+    expect(target.messageHistory[5]).toBe(answer);
+    expect(answer.message.content).toBe(originalContent);
+    expect(answer).toMatchObject({
+      threadKey: "main",
+      threadAnswer: {
+        authoredThreadKey: "q-6",
+        answerUserMessageIds: ["u5", "u1", "u3"],
+        ownerGroups: [
+          { threadKey: "q-2", userMessageIds: ["u5"] },
+          { threadKey: "main", userMessageIds: ["u1"] },
+          { threadKey: "q-1", userMessageIds: ["u3"] },
+        ],
+      },
+    });
+    const expected = [
+      { threadKey: "main", covered: ["u1"], pending: ["u2"] },
+      { threadKey: "q-1", covered: ["u3"], pending: [] },
+      { threadKey: "q-2", covered: ["u5"], pending: [] },
+      { threadKey: "q-3", covered: [], pending: ["u4"] },
+      { threadKey: "q-4", covered: [], pending: [] },
+      { threadKey: "q-6", covered: [], pending: [] },
+    ];
+    for (const { threadKey, covered, pending } of expected) {
+      const projection = buildLeaderThreadResponseState(target, threadKey).projection;
+      expect(projection.currentAnswers).toMatchObject([
+        {
+          currentMessageId: "combined-answer",
+          currentHistoryIndex: 5,
+          threadKey: "main",
+          answerUserMessageIds: ["u5", "u1", "u3"],
+          referencedUserMessageIds: ["raw-u5", "raw-u1", "raw-u3"],
+          coveredAnswerUserMessageIds: covered,
+          coveredUserMessageIds: covered.map((id) => `raw-${id}`),
+        },
+      ]);
+      expect(projection.pendingMessages.map((message) => message.userMessageId)).toEqual(pending);
+      expect(projection.ready).toBe(pending.length === 0);
+    }
+    expect(buildLeaderThreadResponseState(target, "q-999").projection.currentAnswers).toEqual([]);
+  });
+
+  it("retains the authored destination after its prompt association is removed", () => {
+    // The authored tab is independent of automatically generated backfills.
+    const target = session();
+    const request = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 2 }];
+    target.messageHistory.push(request);
+    const answer = appendAnswer(target, "authored-destination", ["u1"], "Answer from the quest tab.", 1, "q-42");
+    request.threadRefs = [];
+
+    expect(answer.threadAnswer?.authoredThreadKey).toBe("q-42");
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "authored-destination", coveredAnswerUserMessageIds: [] },
+    ]);
+    expect(buildLeaderThreadResponseState(target, "main").projection.ready).toBe(true);
+  });
+
+  it("invalidates the entire recorded owner snapshot after one referenced request is reassigned", () => {
+    // A replay must not reinterpret an old answer as proof of completion for a
+    // newly assigned owner, or retain partial coverage for indivisible prose.
+    const target = session();
+    const reassigned = human("u2", 2, "q-1") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    target.messageHistory.push(human("u1", 1), reassigned);
+    const answer = appendAnswer(target, "before-reassignment", ["u1", "u2"], "Combined work is complete.", 2);
+    const originalProof = structuredClone(answer.threadAnswer);
+    reassigned.threadRefs?.push({ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 200 });
+
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, answer)).toBe(false);
+    expect(answer.threadAnswer).toEqual(originalProof);
+    const restored = JSON.parse(JSON.stringify(target)) as ReturnType<typeof session>;
+    for (const current of [target, restored]) {
+      expect(buildLeaderThreadResponseState(current, "main").projection).toMatchObject({
+        pendingMessages: [{ userMessageId: "u1" }],
+        currentAnswers: [],
+        ready: false,
+      });
+      expect(buildLeaderThreadResponseState(current, "q-2").projection).toMatchObject({
+        pendingMessages: [{ userMessageId: "u2" }],
+        currentAnswers: [],
+        ready: false,
+      });
+      expect(buildLeaderThreadResponseState(current, "q-1").projection.currentAnswers).toEqual([]);
+    }
+  });
+
+  it("replays grouped answers with stable identity and preserves complementary answer rows", () => {
+    // Restart reconstruction reuses recorded source rows and owner proof; a
+    // later same-request answer changes coverage without duplicating prose.
+    const target = session();
+    target.messageHistory.push(human("u1", 1), human("u2", 2, "q-42"));
+    appendAnswer(target, "combined-earlier", ["u1", "u2"], "Detailed completion answer.", 2);
+    appendAnswer(target, "combined-later", ["u2", "u1"], "Additional useful result.", 3, "q-42");
+    const restored = JSON.parse(JSON.stringify(target)) as ReturnType<typeof session>;
+    const restoredAnswer = restored.messageHistory[3] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+
+    expect(finalizeRoutedLeaderResponseMessage(restored, restoredAnswer)).toEqual({
+      finalized: false,
+      reason: "already_finalized",
+    });
+    expect(restored.messageHistory).toHaveLength(4);
+    for (const threadKey of ["main", "q-42"]) {
+      const before = buildLeaderThreadResponseState(target, threadKey).projection;
+      const after = buildLeaderThreadResponseState(restored, threadKey).projection;
+      expect(after).toEqual(before);
+      expect(after.currentAnswers).toMatchObject([
+        { currentMessageId: "combined-earlier", currentHistoryIndex: 2, coveredAnswerUserMessageIds: [] },
+        {
+          currentMessageId: "combined-later",
+          currentHistoryIndex: 3,
+          coveredAnswerUserMessageIds: [threadKey === "main" ? "u1" : "u2"],
+        },
+      ]);
+    }
+  });
+
+  it("keeps prior single-owner answer metadata valid without granting mixed-owner legacy proof", () => {
+    // Older explicit metadata has no owner snapshot. It remains valid only
+    // when all referenced requests still share the stored answer's owner.
+    const target = session();
+    target.messageHistory.push(human("u1", 1, "q-42"), human("u2", 2, "q-42"));
+    const answer = appendAnswer(target, "persisted-single-owner", ["u1", "u2"], "Previously stored answer.", 2, "q-42");
+    answer.threadAnswer = { version: 2, answerUserMessageIds: ["u1", "u2"], observedHistoryLength: 2 };
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.ready).toBe(true);
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, answer)).toBe(true);
+
+    const second = target.messageHistory[1] as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    second.threadRefs?.push({ threadKey: "q-43", questId: "q-43", source: "explicit", attachedAt: 200 });
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, answer)).toBe(false);
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toEqual([]);
+    expect(buildLeaderThreadResponseState(target, "q-43").projection.pendingMessages).toMatchObject([
+      { userMessageId: "u2" },
+    ]);
+  });
+
   it("rejects malformed Main and quest answer-source routes before they can project", () => {
     const mainTarget = session();
     mainTarget.messageHistory.push(human("u1", 1));
@@ -748,6 +964,91 @@ describe("explicit routed leader answers", () => {
       reason: "invalid_message",
     });
     expect(buildLeaderThreadResponseState(questTarget, "q-42").projection.currentAnswers).toEqual([]);
+  });
+
+  it("rejects conflicting authoritative answer references without rewriting the source route", () => {
+    // Display backfills may add destinations; a second authoritative route
+    // cannot be silently converted into valid answer ownership.
+    const target = session();
+    target.messageHistory.push(human("u1", 1, "q-42"));
+    const answer = routedAssistant("conflicting-authority", "Answer.", ["u1"], 1, "q-42");
+    answer.threadRefs?.push({ threadKey: "q-99", questId: "q-99", source: "explicit", attachedAt: 200 });
+    const sourceRoute = structuredClone({
+      threadKey: answer.threadKey,
+      questId: answer.questId,
+      threadRefs: answer.threadRefs,
+    });
+    target.messageHistory.push(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({
+      finalized: false,
+      reason: "invalid_message",
+    });
+    expect(answer).toMatchObject(sourceRoute);
+    expect(answer.threadAnswer).toBeUndefined();
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.pendingMessageCount).toBe(1);
+  });
+
+  it.each([
+    "child",
+    "agent",
+    "injected",
+    "ambiguous-id",
+    "malformed-owner",
+  ] as const)("rejects grouped coverage atomically when a referenced source is %s", (shape) => {
+    // Answer routing remains restricted to proven direct-human root sources.
+    const target = session();
+    const source = human("u2", 2, "q-42") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    if (shape === "child") source.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
+    if (shape === "agent") source.agentSource = { sessionId: "worker", sessionLabel: "Worker" };
+    if (shape === "injected") source.content = "[System] You are a leader session. Recover the active board.";
+    if (shape === "malformed-owner") {
+      source.threadRefs = [{ threadKey: "q-42", questId: "q-99", source: "explicit", attachedAt: 2 }];
+    }
+    target.messageHistory.push(human("u1", 1), source);
+    if (shape === "ambiguous-id") target.messageHistory.push({ ...source, id: "duplicate-source" });
+    const answer = routedAssistant("invalid-source", "Combined answer.", ["u1", "u2"], target.messageHistory.length);
+    target.messageHistory.push(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({
+      finalized: false,
+      reason: "invalid_message",
+    });
+    expect(answer.threadAnswer).toBeUndefined();
+    expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
+      pendingMessages: [{ userMessageId: "u1" }],
+      currentAnswers: [],
+      ready: false,
+    });
+  });
+
+  it.each([
+    { ownerGroups: [] },
+    { ownerGroups: [{ threadKey: "main", userMessageIds: ["u1", "u2"] }] },
+    {
+      ownerGroups: [
+        { threadKey: "main", userMessageIds: ["u1"] },
+        { threadKey: "q-42", userMessageIds: ["u1"] },
+      ],
+    },
+    {
+      ownerGroups: [
+        { threadKey: "main", userMessageIds: ["u1"] },
+        { threadKey: "q-42", userMessageIds: ["u2", "u2"] },
+      ],
+    },
+  ])("rejects a persisted owner snapshot that does not exactly prove its references: $ownerGroups", ({
+    ownerGroups,
+  }) => {
+    // Malformed or tampered snapshots cannot grant partial coverage on restart.
+    const target = session();
+    target.messageHistory.push(human("u1", 1), human("u2", 2, "q-42"));
+    const answer = appendAnswer(target, "invalid-snapshot", ["u1", "u2"], "Recorded answer.", 2);
+    answer.threadAnswer!.ownerGroups = ownerGroups;
+
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, answer)).toBe(false);
+    expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers).toEqual([]);
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toEqual([]);
   });
 
   it("fails closed on unproven, tool-bearing, conflicting-control, child, or detached answer rows", () => {

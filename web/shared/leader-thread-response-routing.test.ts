@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  leaderResponseAnswerOwnerThreadKeys,
   leaderResponseAssociatedThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseMessageIsAssociatedWithThread,
@@ -9,6 +10,60 @@ import {
 } from "./leader-thread-response-routing.js";
 
 describe("leader answer ownership routing", () => {
+  it("decodes an exact owner partition independently from authored order and source route", () => {
+    // One stored answer can cover nonadjacent prompts from several owners.
+    expect(
+      leaderResponseAnswerOwnerThreadKeys(
+        {
+          answerUserMessageIds: ["u7", "u1", "u4"],
+          ownerGroups: [
+            { threadKey: "main", userMessageIds: ["u1"] },
+            { threadKey: "q-2", userMessageIds: ["u4", "u7"] },
+          ],
+        },
+        "main",
+      ),
+    ).toEqual(
+      new Map([
+        ["u1", "main"],
+        ["u4", "q-2"],
+        ["u7", "q-2"],
+      ]),
+    );
+    expect(leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["u1", "u4"] }, "q-2")).toEqual(
+      new Map([
+        ["u1", "q-2"],
+        ["u4", "q-2"],
+      ]),
+    );
+  });
+
+  it("does not downgrade malformed or incomplete owner partitions to legacy single-owner proof", () => {
+    // Missing, repeated, extra, or malformed entries cannot manufacture coverage.
+    for (const ownerGroups of [
+      null,
+      [],
+      "main",
+      [{}],
+      [{ threadKey: "main", userMessageIds: ["u1"] }],
+      [{ threadKey: "main", userMessageIds: ["u1", "u2", "u3"] }],
+      [{ threadKey: "all", userMessageIds: ["u1", "u2"] }],
+      [
+        { threadKey: "main", userMessageIds: ["u1"] },
+        { threadKey: "q-2", userMessageIds: ["u1", "u2"] },
+      ],
+      [
+        { threadKey: "main", userMessageIds: ["u1"] },
+        { threadKey: "main", userMessageIds: ["u2"] },
+      ],
+    ]) {
+      expect(
+        leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["u1", "u2"], ownerGroups }, "main"),
+      ).toBeNull();
+    }
+    expect(leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["u1", "u1"] }, "main")).toBeNull();
+  });
+
   it("uses the newest non-backfill assignment instead of the original route", () => {
     expect(
       leaderResponseOwnerThreadKey({

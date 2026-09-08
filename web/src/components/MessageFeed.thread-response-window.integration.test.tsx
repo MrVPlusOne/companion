@@ -351,8 +351,8 @@ function associatedMainAnswerState(
         threadKey: "main",
         answerUserMessageIds: ["u25"],
         referencedUserMessageIds: [ASSOCIATED_MAIN_USER_ID],
-        coveredAnswerUserMessageIds: ["u25"],
-        coveredUserMessageIds: [ASSOCIATED_MAIN_USER_ID],
+        coveredAnswerUserMessageIds: projectionThreadKey === "main" ? ["u25"] : [],
+        coveredUserMessageIds: projectionThreadKey === "main" ? [ASSOCIATED_MAIN_USER_ID] : [],
         currentMessageId: ASSOCIATED_MAIN_ANSWER_ID,
         currentHistoryIndex: 43,
         createdAt: 1_700_000_024_000,
@@ -1368,11 +1368,13 @@ describe("MessageFeed explicit answer selected-window integration", () => {
       `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`,
     )!;
     expect(within(expandedAnswerRow).getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
+    // This quest only displays the Main-owned answer; current-answer chrome
+    // follows the selected thread's own request coverage.
     expect(
       screen
         .getByText(ASSOCIATED_MAIN_ANSWER_TEXT)
         .closest<HTMLElement>("[data-testid='thread-response-current-expanded']"),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(within(questTurn).getByRole("button", { name: "Collapse turn" })).toBeVisible();
     expect(within(questTurn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 

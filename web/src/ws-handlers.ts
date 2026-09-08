@@ -113,9 +113,9 @@ function mergeLiveAssistantMetadata(
   const merged = { ...existing, ...incoming };
   if (!authoritativeAnswerRoute) return merged;
 
-  // A completed answer rebroadcast may canonicalize a visibility-only quest
-  // route to its coverage owner. Treat that proof-bearing route as a
-  // replacement so omitted Main fields do not retain the provisional quest.
+  // A completed answer rebroadcast may add automatic visibility or use Main
+  // as its source route. Replace proof-bearing route fields so omitted Main
+  // fields do not retain the provisional quest.
   for (const key of ["threadKey", "questId", "threadRefs"] as const) {
     if (!incoming || !Object.prototype.hasOwnProperty.call(incoming, key)) delete merged[key];
   }

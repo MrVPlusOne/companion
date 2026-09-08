@@ -167,7 +167,13 @@ describe("assistant-message-controller", () => {
       { type: "text", text: "Second half." },
     ]);
     expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
-    expect(response.threadAnswer).toEqual({ version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 1 });
+    expect(response.threadAnswer).toEqual({
+      version: 2,
+      answerUserMessageIds: ["u1"],
+      observedHistoryLength: 1,
+      authoredThreadKey: "main",
+      ownerGroups: [{ threadKey: "main", userMessageIds: ["u1"] }],
+    });
   });
 
   // Covers the two supported task-preview sources so push-notification context

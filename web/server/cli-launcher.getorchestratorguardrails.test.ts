@@ -405,8 +405,15 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("That brief owns the complete recovery rule");
     expect(guardrails).toContain("Report accepted Work before Memory closure");
     expect(guardrails).toContain("accepted-Work response normally carries the substantive user-facing answer");
-    expect(guardrails).toContain("Before emitting `:A:<ids>`, retrieve or reread every listed user message");
-    expect(guardrails).toContain("inspect every earlier visible valid answer");
+    // Both backend launch paths must teach the supplied-reference workflow,
+    // without restoring a mandatory lookup or split answer for routing alone.
+    expect(guardrails).toContain("Use the supplied user-message IDs and available conversation context");
+    expect(guardrails).toContain("inspect source messages or earlier answers only when needed");
+    expect(guardrails).toContain("Answers may cover nonconsecutive IDs and messages with different owning threads");
+    expect(guardrails).toContain("Do not discover numeric history indices, attach the answer, or duplicate its prose");
+    expect(guardrails).toContain("Each thread receives coverage only for its own referenced user requests");
+    expect(guardrails).not.toContain("retrieve or reread every listed user message");
+    expect(guardrails).not.toContain("single authoritative owner shared by every covered ID");
     expect(guardrails).toContain("Apply `explain-clearly` for substantial answers");
     expect(guardrails).toContain("every valid answer remains visible in source chronology");
     expect(guardrails).toContain("Routine Memory completion is routed commentary/status");

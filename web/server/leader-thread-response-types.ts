@@ -57,6 +57,10 @@ export interface LeaderThreadAnswerMetadata {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
   answerUserMessageIds: string[];
   observedHistoryLength: number;
+  /** Original selected tab, retained independently of automatically derived visibility. */
+  authoredThreadKey?: string;
+  /** Per-request owners at settlement; later reassignment must not silently transfer answer authority. */
+  ownerGroups?: Array<{ threadKey: string; userMessageIds: string[] }>;
 }
 
 export interface LeaderThreadOutcomeReminderGuardTarget {
@@ -84,14 +88,14 @@ export interface LeaderThreadOutcomeReminderGuard {
 /** Compact answer-row pointer used by selected-thread presentation and coverage authority. */
 export interface LeaderThreadResponseState {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
-  /** Authoritative source/owner route of the stored answer row. */
+  /** Source route of the stored answer row; request ownership is independent. */
   threadKey: string;
   questId?: string;
   /** Complete concise ID list written in the answer marker. */
   answerUserMessageIds: string[];
   /** Complete raw history IDs originally referenced by this answer. */
   referencedUserMessageIds: string[];
-  /** Concise IDs for which this answer remains current after per-ID supersession. Empty only for retained explicit rows. */
+  /** Current concise coverage owned by the projection's target thread. Explicit visibility-only rows may be empty. */
   coveredAnswerUserMessageIds: string[];
   /** Raw history IDs matching the answer's current per-ID coverage. Empty only for retained explicit rows. */
   coveredUserMessageIds: string[];

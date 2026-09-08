@@ -158,19 +158,19 @@ function formatAnswerRouteFailure(diagnostic: LeaderAnswerRouteDiagnostic): stri
     case "invalid_ids":
       return `The listed IDs are unknown, unavailable at the observed history boundary, or otherwise invalid: ${ids}.`;
     case "unproven_owner":
-      return `Takode could not prove one current owner for the listed IDs: ${ids}.`;
+      return `Takode could not prove a current owner for each listed ID: ${ids}.`;
     case "multiple_owners":
-      return `The listed IDs span multiple owner threads: ${diagnostic.ownerGroups
+      return `Historical routing rejection: the listed IDs span multiple owner threads: ${diagnostic.ownerGroups
         .map((group) => `${formatThreadLabel(group.threadKey)} (${group.userMessageIds.join(",")})`)
-        .join("; ")}.`;
+        .join("; ")}. Current answers support different owning threads.`;
     case "nonconsecutive_ids":
-      return `The listed IDs are not one consecutive owner-thread sequence: ${ids}.`;
+      return `Historical routing rejection: the listed IDs were nonconsecutive: ${ids}. Current answers support nonconsecutive IDs.`;
     case "missing_association":
-      return `${formatThreadLabel(diagnostic.selectedThreadKey)} is not visibility-associated with every referenced prompt; missing: ${diagnostic.missingAssociationUserMessageIds!.join(",")}.`;
+      return `Historical routing rejection: ${formatThreadLabel(diagnostic.selectedThreadKey)} lacked associations for ${diagnostic.missingAssociationUserMessageIds!.join(",")}. Current answers automatically follow the union of their referenced prompts' associated tabs.`;
     case "disallowed_main_backfill":
-      return `Main cannot be used as a visibility-only destination for quest-owned prompts: ${ids}.`;
+      return `Historical routing rejection: Main was selected for quest-owned prompts: ${ids}. Current answers support automatic routing between Main and quests in either direction.`;
     case "route_control_conflict":
-      return `Route-specific status or control metadata conflicts with automatic owner correction for: ${ids}.`;
+      return `Route-specific status or control metadata conflicts with automatic answer routing for: ${ids}.`;
     case "stale":
       return `Current ownership or association evidence is stale or changed for: ${ids}.`;
   }
@@ -181,30 +181,17 @@ function buildInvalidAnswerRouteReminderContent(value: unknown): string {
     return [
       THREAD_ROUTING_REMINDER_HEADER,
       "Invalid answer route. The retained leader prose did not establish answer coverage.",
-      "Takode could not safely infer one corrected owner-thread marker. Inspect the exact pending user-message IDs and route a later answer only with current server-proven ownership.",
+      "Takode could not validate the answer references or their current owners. Use only valid earlier user-message IDs supplied in this session; do not guess a correction from incomplete evidence.",
       "Do not mark the selected thread Ready on the strength of this rejected answer.",
     ].join("\n");
   }
 
-  const owner = value.ownerGroups.length === 1 ? value.ownerGroups[0]! : null;
-  const canSuggestExactCorrection =
-    owner !== null &&
-    (value.reason === "missing_association" || value.reason === "disallowed_main_backfill") &&
-    owner.userMessageIds.length === value.answerUserMessageIds.length &&
-    owner.userMessageIds.every((id, index) => id === value.answerUserMessageIds[index]);
-  const correctionLines = canSuggestExactCorrection
-    ? [
-        `Authoritative owner: ${formatThreadLabel(owner.threadKey)} (${owner.userMessageIds.join(",")}).`,
-        `Do not regenerate the long explanation. If those IDs remain pending, send only a brief correction using [thread:${owner.threadKey}:A:${owner.userMessageIds.join(",")}].`,
-      ]
-    : [
-        "No single corrected answer marker is safe from this evidence. Do not split or reroute the retained grouped prose automatically; inspect current ownership and pending IDs before writing any later answer.",
-      ];
   return [
     THREAD_ROUTING_REMINDER_HEADER,
     `Invalid answer route from ${formatThreadLabel(value.selectedThreadKey)}. The original answer prose remains in append-only history, but it did not gain coverage.`,
     formatAnswerRouteFailure(value),
-    ...correctionLines,
+    "Use the supplied earlier user-message IDs. Current answers may cover nonconsecutive IDs and different owning threads; Takode routes one stored answer automatically from Main or a quest to every associated tab.",
+    "Do not discover history indices, attach the answer, split the answer, or repeat its prose merely for routing. Each thread receives coverage only for its own referenced requests.",
     `Do not mark ${formatThreadLabel(value.selectedThreadKey)} Ready on the strength of this rejected answer.`,
   ].join("\n");
 }
@@ -220,7 +207,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
         THREAD_ROUTING_REMINDER_HEADER,
         `${reason} on visible leader text. The text may remain routed for audit, but it cannot satisfy a pending user-answer requirement.`,
         "Use `[thread:main:C]` or `[thread:q-N:C]` for commentary and `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]` for an answer to explicit user-message IDs.",
-        "When one leader output intentionally needs multiple thread tabs, keep the first compact marker for the first segment, then put a standalone `---` line immediately before each later role-bearing marker.",
+        "One answer shared across tabs needs only one marker. For distinct content or roles, keep the first compact marker, then put a standalone `---` line immediately before each later role-bearing marker.",
         "Leader shell commands remain commentary and use `# thread:main` or `# thread:q-N` as the first non-empty command line.",
       ].join("\n");
     }
@@ -228,7 +215,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
       THREAD_ROUTING_REMINDER_HEADER,
       `${reason} on visible leader text. The previous visible leader message was not assigned to a thread.`,
       "Resend visible leader text with `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer.",
-      "When one leader output intentionally needs multiple thread tabs, keep the first role-bearing marker for the first tab, then put a standalone `---` line immediately before the next role-bearing marker.",
+      "One answer shared across tabs needs only one marker. For distinct content or roles, keep the first role-bearing marker, then put a standalone `---` line immediately before the next role-bearing marker.",
       "For leader shell commands, use `# thread:main` or `# thread:q-N` as the first non-empty command line.",
     ].join("\n");
   }
@@ -239,7 +226,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
       `${reason} on leader shell command. The previous leader shell command was not assigned to a thread.`,
       "Rerun leader shell commands with `# thread:main` or `# thread:q-N` as the first non-empty command line.",
       "For visible leader text, use `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer.",
-      "If one visible leader output intentionally covers multiple thread tabs, put a standalone `---` line immediately before each later role-bearing marker.",
+      "One answer shared across tabs needs only one marker. For distinct content or roles, put a standalone `---` line immediately before each later role-bearing marker.",
     ].join("\n");
   }
 
@@ -247,7 +234,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
     THREAD_ROUTING_REMINDER_HEADER,
     `${reason}. The previous leader output was not assigned to a thread, but the output type is unavailable.`,
     "If it was visible leader text, resend it with `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer.",
-    "If one visible leader output intentionally covers multiple thread tabs, use a standalone `---` line immediately before each later role-bearing marker.",
+    "One answer shared across tabs needs only one marker. For distinct content or roles, use a standalone `---` line immediately before each later role-bearing marker.",
     "If it was a leader shell command, rerun it with `# thread:main` or `# thread:q-N` as the first non-empty command line.",
   ].join("\n");
 }

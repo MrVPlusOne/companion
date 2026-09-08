@@ -7,9 +7,11 @@ import type {
   LeaderThreadResponseProjection,
 } from "../server/session-types.js";
 import {
+  leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseMessageIsAssociatedWithThread,
   leaderResponseOwnerThreadKey,
+  leaderResponseProvenCurrentOwnerThreadKey,
 } from "./leader-thread-response-routing.js";
 import { assignSessionScopedLeaderUserMessageIds } from "./leader-user-message-id.js";
 import { deriveWindowAvailability } from "./window-availability.js";
@@ -204,19 +206,40 @@ function buildThreadWindowEntries(input: {
     input.threadKey === MAIN_THREAD_KEY
       ? expandMainAttachmentSourceItems(input.messageHistory, input.items, responseSupport.items, input.includeMessage)
       : responseSupport.items;
+  const expandedItems = expandToolClosureItems(
+    input.messageHistory,
+    sourceExpandedItems,
+    { orphanPreviewFallback: selectedItems.length === 0 },
+    input.includeMessage,
+  );
   return {
     entries: dedupeEntries(
-      expandToolClosureItems(
-        input.messageHistory,
-        sourceExpandedItems,
-        {
-          orphanPreviewFallback: selectedItems.length === 0,
-        },
-        input.includeMessage,
+      filterThreadAnswerVisibility(
+        expandedItems,
+        input.threadKey,
+        input.currentThreadResponseProjection,
+        responseSupport.complete,
       ),
     ),
     threadResponseSupportComplete: responseSupport.complete,
   };
+}
+
+function filterThreadAnswerVisibility(
+  items: FeedItem[],
+  threadKey: string,
+  projection: LeaderThreadResponseProjection | undefined,
+  supportComplete: boolean,
+): FeedItem[] {
+  if (!projection || projection.threadKey !== threadKey || threadKey === ALL_THREADS_KEY) return items;
+  const answerIds = new Set(supportComplete ? projection.currentAnswers.map((answer) => answer.currentMessageId) : []);
+  return items.filter(({ entry: { message } }) => {
+    if (message.type !== "assistant" || !message.threadAnswer || answerIds.has(message.message.id)) return true;
+    // Derived visibility needs the complete bounded proof. In fallback history,
+    // retain only the authored source; persisted refs cannot bypass this gate.
+    const authoredThreadKey = message.threadAnswer.authoredThreadKey ?? leaderResponseExactAnswerThreadKey(message);
+    return authoredThreadKey === threadKey;
+  });
 }
 
 function addCurrentThreadResponseSupport(
@@ -246,8 +269,11 @@ function addCurrentThreadResponseSupport(
   if (referencedIds.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
 
   const usersById = new Map<string, { message: BrowserIncomingMessage; historyIndex: number }>();
+  const duplicateUserIds = new Set<string>();
   messages.forEach((message, historyIndex) => {
-    if (message.type === "user_message" && message.id) usersById.set(message.id, { message, historyIndex });
+    if (message.type !== "user_message" || !message.id) return;
+    if (usersById.has(message.id)) duplicateUserIds.add(message.id);
+    usersById.set(message.id, { message, historyIndex });
   });
   const userMessageIdsByHistoryId = projectedLeaderUserMessageIdsByHistoryId(messages);
   const required = new Map<string, FeedItem>();
@@ -333,20 +359,36 @@ function addCurrentThreadResponseSupport(
     }
     seenAnswerMessageIds.add(messageId);
     seenAnswerHistoryIndexes.add(historyIndex);
+    const ownerThreadKeys = leaderResponseAnswerOwnerThreadKeys(
+      message.type === "assistant" && message.threadAnswer
+        ? message.threadAnswer
+        : { answerUserMessageIds: answer.answerUserMessageIds },
+      answerThreadKey,
+    );
+    if (!ownerThreadKeys) return { items: selectedItems, complete: false };
+    const authoredThreadKey =
+      message.type === "assistant" ? (message.threadAnswer?.authoredThreadKey ?? answerThreadKey) : answerThreadKey;
+    let visibleInThread = authoredThreadKey === threadKey;
 
     for (let index = 0; index < answer.referencedUserMessageIds.length; index += 1) {
       const referencedId = answer.referencedUserMessageIds[index]!;
       const referenced = usersById.get(referencedId);
       if (
         !referenced ||
-        leaderResponseOwnerThreadKey(referenced.message) !== answerThreadKey ||
+        duplicateUserIds.has(referencedId) ||
+        referenced.message.type !== "user_message" ||
+        referenced.message.agentSource != null ||
+        referenced.message.codexSubagent != null ||
+        leaderResponseProvenCurrentOwnerThreadKey(referenced.message) !==
+          ownerThreadKeys.get(answer.answerUserMessageIds[index]!) ||
         userMessageIdsByHistoryId.get(referencedId) !== answer.answerUserMessageIds[index] ||
-        (associationProjection && !leaderResponseMessageIsAssociatedWithThread(referenced.message, threadKey)) ||
         !addRequired(referenced.message, referenced.historyIndex)
       ) {
         return { items: selectedItems, complete: false };
       }
+      visibleInThread ||= leaderResponseMessageIsAssociatedWithThread(referenced.message, threadKey);
     }
+    if (!visibleInThread) return { items: selectedItems, complete: false };
 
     for (let index = 0; index < answer.coveredUserMessageIds.length; index += 1) {
       const coveredId = answer.coveredUserMessageIds[index]!;
@@ -355,7 +397,8 @@ function addCurrentThreadResponseSupport(
       if (
         referencedIndex < 0 ||
         answer.answerUserMessageIds[referencedIndex] !== answer.coveredAnswerUserMessageIds[index] ||
-        !covered
+        !covered ||
+        leaderResponseProvenCurrentOwnerThreadKey(covered.message) !== threadKey
       ) {
         return { items: selectedItems, complete: false };
       }

@@ -97,6 +97,11 @@ Specific examples:
   defensive path.
 - Backfilled Main/source rows should be hydrated from raw marker facts in the
   shared/server window builder, then projected into the browser-visible window.
+- Mixed-owner answer fixtures should finalize one source answer against actual
+  direct-user rows before building the window. Include prompts with different
+  tab associations and an unrelated pending request: visibility follows the
+  union of referenced prompts' tabs, while each owner receives coverage only
+  for its own referenced prompts.
 - Attention and notification ledger rows are synthetic frontend rows. Tests that
   exercise selected-window bounds should include the real selected window state,
   not only an arbitrary array of visible messages.
@@ -210,7 +215,10 @@ Preserve these invariants unless a product decision explicitly changes them:
 - Destination quest threads receive the attached context.
 - Source-side `thread_attachment_marker` rows remain hidden in normal Main feed
   projection.
-- Future messages explicitly routed to a quest thread stay out of Main.
+- Future messages explicitly routed to a quest thread stay out of Main, except
+  valid answers referencing Main-associated user requests. Those answers share
+  one stored identity and exact prose across their referenced prompts' tab
+  associations; unrelated quest content remains excluded.
 - Notification chips render once in chronological context when their source row
   is visible.
 - Active notification or attention rows should not duplicate as fallback ledger

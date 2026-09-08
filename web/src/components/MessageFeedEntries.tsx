@@ -48,7 +48,6 @@ import {
   isCrossThreadActivityMarkerMessage,
   isThreadAttachmentMarkerMessage,
   isThreadTransitionMarkerMessage,
-  normalizeThreadKey,
 } from "../utils/thread-projection.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
@@ -1757,11 +1756,7 @@ export const TurnEntries = memo(function TurnEntries({
   const latestThreadResponseUpdatedAt = Math.max(
     0,
     ...(threadResponsePresentation?.currentResponses
-      .filter(
-        (item) =>
-          item.response.coveredUserMessageIds.length > 0 &&
-          normalizeThreadKey(item.response.threadKey) === normalizeThreadKey(currentThreadKey),
-      )
+      .filter((item) => item.response.coveredUserMessageIds.length > 0)
       .map((item) => item.response.updatedAt) ?? []),
   );
   const readyThreadResponsePresentation =

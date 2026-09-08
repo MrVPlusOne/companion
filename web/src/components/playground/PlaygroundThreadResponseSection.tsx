@@ -251,8 +251,8 @@ const ASSOCIATED_MAIN_PRESENTATION: ThreadResponsePresentation = {
         threadKey: "main",
         answerUserMessageIds: ["u25"],
         referencedUserMessageIds: [ASSOCIATED_MAIN_TURN.id],
-        coveredAnswerUserMessageIds: ["u25"],
-        coveredUserMessageIds: [ASSOCIATED_MAIN_TURN.id],
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
         currentMessageId: ASSOCIATED_MAIN_RESPONSE.msg.id,
         currentHistoryIndex: 25,
         createdAt: 25,
@@ -277,6 +277,68 @@ const ASSOCIATED_MAIN_PRESENTATION: ThreadResponsePresentation = {
   currentResponseMessageIds: new Set([ASSOCIATED_MAIN_RESPONSE.msg.id]),
   quizGroups: [],
   layoutSignature: "playground-associated-main-answer",
+};
+
+const MULTI_OWNER_RESPONSE: Extract<FeedEntry, { kind: "message" }> = {
+  ...ASSOCIATED_MAIN_RESPONSE,
+  msg: {
+    ...ASSOCIATED_MAIN_RESPONSE.msg,
+    id: "playground-shared-answer",
+    content:
+      "The shared answer covers both the Main request and this quest's request. Each tab keeps its own remaining questions.",
+    metadata: {
+      ...ASSOCIATED_MAIN_RESPONSE.msg.metadata,
+      threadAnswer: {
+        version: 2,
+        answerUserMessageIds: ["u25", "u26"],
+        observedHistoryLength: 26,
+        authoredThreadKey: "q-2042",
+        ownerGroups: [
+          { threadKey: "main", userMessageIds: ["u25"] },
+          { threadKey: "q-2042", userMessageIds: ["u26"] },
+        ],
+      },
+    },
+  },
+};
+const MULTI_OWNER_TURN: Turn = {
+  ...ASSOCIATED_MAIN_TURN,
+  id: "playground-shared-quest-user",
+  allEntries: [MULTI_OWNER_RESPONSE],
+  presentationEntries: [MULTI_OWNER_RESPONSE],
+  notificationEntries: [MULTI_OWNER_RESPONSE],
+  responseEntry: MULTI_OWNER_RESPONSE,
+};
+const MULTI_OWNER_PRESENTATION: ThreadResponsePresentation = {
+  ...ASSOCIATED_MAIN_PRESENTATION,
+  currentResponses: [
+    {
+      ...ASSOCIATED_MAIN_PRESENTATION.currentResponses[0]!,
+      response: {
+        ...ASSOCIATED_MAIN_PRESENTATION.currentResponses[0]!.response,
+        answerUserMessageIds: ["u25", "u26"],
+        referencedUserMessageIds: [ASSOCIATED_MAIN_TURN.id, MULTI_OWNER_TURN.id],
+        coveredAnswerUserMessageIds: ["u26"],
+        coveredUserMessageIds: [MULTI_OWNER_TURN.id],
+        currentMessageId: MULTI_OWNER_RESPONSE.msg.id,
+      },
+      anchorUserMessageId: MULTI_OWNER_TURN.id,
+      anchorTurnId: MULTI_OWNER_TURN.id,
+      sourceTurnId: MULTI_OWNER_TURN.id,
+      messageEntry: MULTI_OWNER_RESPONSE,
+      collapsedMessageEntry: MULTI_OWNER_RESPONSE,
+      referencedUserMessages: [
+        { historyMessageId: ASSOCIATED_MAIN_TURN.id, userMessageId: "u25", content: "Please handle my Main request." },
+        {
+          historyMessageId: MULTI_OWNER_TURN.id,
+          userMessageId: "u26",
+          content: "Please include this quest's request in the same answer.",
+        },
+      ],
+    },
+  ],
+  currentResponseMessageIds: new Set([MULTI_OWNER_RESPONSE.msg.id]),
+  layoutSignature: "playground-shared-answer",
 };
 
 const NOOP = () => {};
@@ -368,6 +430,21 @@ export function PlaygroundThreadResponseSection() {
                 threadResponsePresentation={ACTIVE_PRESENTATION}
               />
               <TurnToggleFooter expanded onToggle={NOOP} />
+            </div>
+          </Card>
+          <Card label="One answer · Main and quest requests">
+            <div
+              className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-multi-owner-answer"
+            >
+              <ReadyThreadResponseRows
+                turn={MULTI_OWNER_TURN}
+                presentation={MULTI_OWNER_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                questLinkSurface="chat-feed"
+              />
+              <TurnToggleFooter expanded={false} onToggle={NOOP} />
             </div>
           </Card>
         </div>

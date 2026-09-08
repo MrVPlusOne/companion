@@ -588,7 +588,7 @@ describe("explicit answer reminders", () => {
     expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
     expect(deps.injectUserMessage).toHaveBeenCalledWith(
       "leader",
-      expect.stringContaining("[thread:q-2042:A:u37,u38]"),
+      expect.stringContaining("Historical routing rejection: q-2044 lacked associations for u38"),
       {
         sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
         sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL,
@@ -598,6 +598,8 @@ describe("explicit answer reminders", () => {
     const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
     expect(reminder).toContain("[Thread routing reminder]");
     expect(reminder).toContain("original answer prose remains in append-only history");
+    expect(reminder).toContain("Takode routes one stored answer automatically");
+    expect(reminder).not.toContain("send only a brief correction");
     expect(reminder).not.toContain("Answer reminder: direct user messages");
     expect(reminder).not.toContain("retained the prior answer prose");
 
@@ -643,8 +645,8 @@ describe("explicit answer reminders", () => {
     });
     expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
     const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
-    expect(reminder).toContain("Takode could not prove one current owner for the listed IDs: u1,u2");
-    expect(reminder).toContain("No single corrected answer marker is safe from this evidence");
+    expect(reminder).toContain("Takode could not prove a current owner for each listed ID: u1,u2");
+    expect(reminder).toContain("Each thread receives coverage only for its own referenced requests");
     expect(reminder).not.toMatch(/\[thread:(?:main|q-\d+):A:/);
     expect(reminder).not.toContain("Pending answer IDs:");
     expect(reminder).not.toContain("Authoritative owner: Main");

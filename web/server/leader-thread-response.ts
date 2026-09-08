@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import {
   leaderResponseAssociatedThreadKeys,
+  leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseOwnerThreadKey,
   leaderResponseProvenCurrentOwnerThreadKey,
-  leaderResponseStableOwnerThreadKeyForRepair,
 } from "../shared/leader-thread-response-routing.js";
 import { normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
 import type {
@@ -88,7 +88,7 @@ type AnswerRouteResolution =
   | {
       ok: true;
       referenced: DirectHumanMessage[];
-      ownerThreadKey: string;
+      ownerGroups: LeaderAnswerRouteOwnerGroup[];
     }
   | {
       ok: false;
@@ -478,6 +478,10 @@ function validAnswerMetadata(value: unknown): value is LeaderThreadAnswerMetadat
     candidate.answerUserMessageIds.length > 0 &&
     candidate.answerUserMessageIds.every(isCanonicalLeaderUserMessageId) &&
     new Set(candidate.answerUserMessageIds).size === candidate.answerUserMessageIds.length &&
+    (candidate.authoredThreadKey === undefined ||
+      candidate.authoredThreadKey === "main" ||
+      /^q-\d+$/.test(candidate.authoredThreadKey)) &&
+    leaderResponseAnswerOwnerThreadKeys(candidate as LeaderThreadAnswerMetadata, "main") !== null &&
     Number.isInteger(candidate.observedHistoryLength) &&
     (candidate.observedHistoryLength ?? -1) >= 0
   );
@@ -528,47 +532,19 @@ function resolveExplicitAnswerMessagesForOwner(
     // the proven subset for a separately correctable answer.
     return { ok: false, reason: "unproven_owner", ownerGroups: [] };
   }
-  if (ownerGroups.length !== 1) {
-    return { ok: false, reason: "multiple_owners", ownerGroups };
-  }
-
-  const ownerThreadKey = ownerGroups[0]!.threadKey;
-  const threadMessages = directMessages.filter(
-    (message) => message.historyIndex < observedHistoryLength && message.threadKey === ownerThreadKey,
-  );
-  const positions = referenced.map((message) =>
-    threadMessages.findIndex((candidate) => candidate.historyMessageId === message.historyMessageId),
-  );
-  if (positions.some((position) => position < 0)) {
-    return { ok: false, reason: "invalid_ids", ownerGroups };
-  }
-  for (let index = 1; index < positions.length; index += 1) {
-    if (positions[index] !== positions[index - 1]! + 1) {
-      return { ok: false, reason: "nonconsecutive_ids", ownerGroups };
-    }
-  }
-  return { ok: true, referenced, ownerThreadKey };
+  return { ok: true, referenced, ownerGroups };
 }
 
-function resolveExplicitAnswerMessages(
-  directMessages: readonly DirectHumanMessage[],
-  answerUserMessageIds: readonly string[],
-  observedHistoryLength: number,
-  threadKey: string,
-): DirectHumanMessage[] | null {
-  const resolution = resolveExplicitAnswerMessagesForOwner(directMessages, answerUserMessageIds, observedHistoryLength);
-  return resolution.ok && resolution.ownerThreadKey === threadKey ? resolution.referenced : null;
-}
-
-function answerRouteControlConflict(
-  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
-  ownerThreadKey: string,
+function answerOwnerProofMatches(
+  metadata: LeaderThreadAnswerMetadata,
+  ownerGroups: readonly LeaderAnswerRouteOwnerGroup[],
+  sourceThreadKey: string,
 ): boolean {
-  const deferredConflict = message.deferredThreadStatusMarkers?.some(
-    (marker) => marker.target.threadKey !== ownerThreadKey,
+  const owners = leaderResponseAnswerOwnerThreadKeys(metadata, sourceThreadKey);
+  return (
+    owners !== null &&
+    ownerGroups.every((group) => group.userMessageIds.every((id) => owners.get(id) === group.threadKey))
   );
-  const appliedConflict = message.threadStatusMarkers?.some((marker) => marker.threadKey !== ownerThreadKey);
-  return deferredConflict === true || appliedConflict === true;
 }
 
 function threadRefRouteKey(ref: ThreadRef): string | null {
@@ -610,52 +586,27 @@ function restoreAnswerRoute(
 
 function canonicalizeAnswerRoute(
   message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
-  ownerThreadKey: string,
-  selectedThreadKey: string,
+  anchorThreadKey: string,
+  visibleThreadKeys: readonly string[],
 ): void {
   const timestamp = typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? message.timestamp : 0;
-  const refs = new Map<string, ThreadRef>();
-
-  if (ownerThreadKey !== "main") {
-    refs.set(ownerThreadKey, {
-      threadKey: ownerThreadKey,
-      questId: ownerThreadKey,
-      source: "explicit",
-      attachedAt: timestamp,
-    });
+  message.threadKey = anchorThreadKey;
+  if (anchorThreadKey === "main") delete message.questId;
+  else message.questId = anchorThreadKey;
+  const refs: ThreadRef[] = [];
+  if (anchorThreadKey !== "main") {
+    refs.push({ threadKey: anchorThreadKey, questId: anchorThreadKey, source: "explicit", attachedAt: timestamp });
   }
-
-  for (const ref of message.threadRefs ?? []) {
-    if (ref.source !== "backfill") continue;
-    const route = threadRefRouteKey(ref);
-    if (!route || route === "main" || route === ownerThreadKey) continue;
-    refs.set(route, ref);
+  for (const threadKey of visibleThreadKeys) {
+    if (threadKey === "main" || threadKey === anchorThreadKey) continue;
+    refs.push({ threadKey, questId: threadKey, source: "backfill", attachedAt: timestamp });
   }
-
-  if (selectedThreadKey !== ownerThreadKey && selectedThreadKey !== "main") {
-    const selectedRef = (message.threadRefs ?? []).find((ref) => threadRefRouteKey(ref) === selectedThreadKey);
-    refs.set(selectedThreadKey, {
-      ...(selectedRef ?? {}),
-      threadKey: selectedThreadKey,
-      questId: selectedThreadKey,
-      source: "backfill",
-      attachedAt:
-        typeof selectedRef?.attachedAt === "number" && Number.isFinite(selectedRef.attachedAt)
-          ? selectedRef.attachedAt
-          : timestamp,
-    });
-  }
-
-  message.threadKey = ownerThreadKey;
-  if (ownerThreadKey === "main") delete message.questId;
-  else message.questId = ownerThreadKey;
-  const nextRefs = [...refs.values()];
-  if (nextRefs.length === 0) delete message.threadRefs;
-  else message.threadRefs = nextRefs;
+  if (refs.length === 0) delete message.threadRefs;
+  else message.threadRefs = refs;
 }
 
 const ANSWER_ROUTE_EXPECTED =
-  "Answer IDs must resolve to one proven owner; a different selected q-thread must already be visibility-associated with every referenced prompt.";
+  "Use the supplied IDs of earlier direct user requests. Their proven owners determine coverage, and their associated tabs receive the same answer automatically.";
 
 function selectedThreadKeyForDiagnostic(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): string {
   const value = message.threadKey?.trim().toLowerCase();
@@ -747,13 +698,13 @@ function parsedExplicitCandidate(
   ) {
     return null;
   }
-  const referenced = resolveExplicitAnswerMessages(
+  const resolution = resolveExplicitAnswerMessagesForOwner(
     directMessages,
     metadata.answerUserMessageIds,
     metadata.observedHistoryLength,
-    threadKey,
   );
-  if (!referenced) return null;
+  if (!resolution.ok || !answerOwnerProofMatches(metadata, resolution.ownerGroups, threadKey)) return null;
+  const referenced = resolution.referenced;
   return {
     threadKey,
     answerUserMessageIds: [...metadata.answerUserMessageIds],
@@ -845,6 +796,7 @@ function projectCurrentAnswerForThread(
   answer: LeaderThreadResponseState,
   directMessagesById: ReadonlyMap<string, DirectHumanMessage>,
   threadKey: string,
+  source: BrowserIncomingMessage | undefined,
 ): LeaderThreadResponseState | null {
   if (
     answer.coveredUserMessageIds.length !== answer.coveredAnswerUserMessageIds.length ||
@@ -852,25 +804,26 @@ function projectCurrentAnswerForThread(
   ) {
     return null;
   }
-  if (answer.threadKey === threadKey) return answer;
-  if (answer.source !== "explicit") return null;
+  if (answer.source !== "explicit") return answer.threadKey === threadKey ? answer : null;
 
   const referencedMessages = answer.referencedUserMessageIds.map((messageId) => directMessagesById.get(messageId));
+  if (referencedMessages.some((message) => !message)) return null;
+  const authoredThreadKey =
+    source?.type === "assistant" ? (source.threadAnswer?.authoredThreadKey ?? answer.threadKey) : answer.threadKey;
   if (
-    referencedMessages.some(
-      (message) =>
-        !message || message.threadKey !== answer.threadKey || !message.associatedThreadKeys.includes(threadKey),
-    )
+    authoredThreadKey !== threadKey &&
+    !referencedMessages.some((message) => message!.associatedThreadKeys.includes(threadKey))
   ) {
     return null;
   }
-
-  // One answer is an indivisible prose row. Cross-projecting only a subset of
-  // its original references could expose content for an unrelated prompt even
-  // if the coverage chip were narrowed, so every original reference must be
-  // associated with the selected thread. Per-ID supersession still controls
-  // the unchanged effective covered subset.
-  return answer;
+  const coveredUserMessageIds = answer.coveredUserMessageIds.filter(
+    (id) => directMessagesById.get(id)?.threadKey === threadKey,
+  );
+  return {
+    ...answer,
+    coveredUserMessageIds,
+    coveredAnswerUserMessageIds: coveredUserMessageIds.map((id) => directMessagesById.get(id)!.userMessageId),
+  };
 }
 
 function buildLeaderThreadResponseStateAt(
@@ -885,7 +838,12 @@ function buildLeaderThreadResponseStateAt(
     evaluation.directMessages.map((message) => [message.historyMessageId, message] as const),
   );
   const currentAnswers = evaluation.currentAnswers.flatMap((answer) => {
-    const projected = projectCurrentAnswerForThread(answer, directMessagesById, threadKey);
+    const projected = projectCurrentAnswerForThread(
+      answer,
+      directMessagesById,
+      threadKey,
+      session.messageHistory[answer.currentHistoryIndex],
+    );
     return projected ? [projected] : [];
   });
   const ownedMessages = evaluation.directMessages.filter((message) => message.threadKey === threadKey);
@@ -924,7 +882,6 @@ export type FinalizeRoutedLeaderResponseResult =
   | {
       finalized: true;
       answerId: string;
-      canonicalizedRoute?: { selectedThreadKey: string; ownerThreadKey: string };
     }
   | {
       finalized: false;
@@ -943,20 +900,45 @@ function otherStoredAnswerUsesMessageId(
   });
 }
 
+/** Separate retained answer visibility from current per-request completion authority. */
+export function leaderAnswerThreadAuthority(
+  session: LeaderThreadResponseSession,
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+): { ownerThreadKeys: string[]; visibleThreadKeys: string[] } {
+  const empty = { ownerThreadKeys: [], visibleThreadKeys: [] };
+  const historyIndex = session.messageHistory.indexOf(message);
+  if (historyIndex < 0 || !validAnswerMetadata(message.threadAnswer)) return empty;
+  const evaluation = evaluateResponses(session);
+  const answer = evaluation.currentAnswers.find(
+    (answer) => answer.currentHistoryIndex === historyIndex && answer.currentMessageId === message.message.id,
+  );
+  if (!answer) return empty;
+  const covered = new Set(answer.coveredUserMessageIds);
+  const referenced = new Set(answer.referencedUserMessageIds);
+  return {
+    ownerThreadKeys: [
+      ...new Set(
+        evaluation.directMessages
+          .filter((entry) => covered.has(entry.historyMessageId))
+          .map((entry) => entry.threadKey),
+      ),
+    ],
+    visibleThreadKeys: [
+      ...new Set([
+        message.threadAnswer.authoredThreadKey ?? answer.threadKey,
+        ...evaluation.directMessages
+          .filter((entry) => referenced.has(entry.historyMessageId))
+          .flatMap((entry) => entry.associatedThreadKeys),
+      ]),
+    ],
+  };
+}
+
 export function isCurrentValidRoutedLeaderResponseMessage(
   session: LeaderThreadResponseSession,
   message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
 ): boolean {
-  const historyIndex = session.messageHistory.indexOf(message);
-  if (historyIndex < 0 || !validAnswerMetadata(message.threadAnswer)) return false;
-  const threadKey = exactResponseThreadKey(message);
-  if (!threadKey) return false;
-  return buildLeaderThreadResponseState(session, threadKey).responses.some(
-    (answer) =>
-      answer.coveredUserMessageIds.length > 0 &&
-      answer.currentHistoryIndex === historyIndex &&
-      answer.currentMessageId === message.message.id,
-  );
+  return leaderAnswerThreadAuthority(session, message).ownerThreadKeys.length > 0;
 }
 
 export function finalizeRoutedLeaderResponseMessage(
@@ -1021,61 +1003,35 @@ export function finalizeRoutedLeaderResponseMessage(
     });
   }
 
-  const ownerThreadKey = resolution.ownerThreadKey;
-  const ownerGroups = [{ threadKey: ownerThreadKey, userMessageIds: [...answerUserMessageIds] }];
-  const routeSnapshot = answerRouteSnapshot(message);
-  const routeMismatch = selectedThreadKey !== ownerThreadKey;
-  if (routeMismatch) {
-    if (
-      resolution.referenced.some(
-        (entry) => leaderResponseStableOwnerThreadKeyForRepair(entry.message) !== ownerThreadKey,
-      )
-    ) {
-      return rejectAnswerRoute(message, "unproven_owner", {
-        selectedThreadKey,
-        answerUserMessageIds,
-        ownerGroups,
-      });
-    }
-    if (selectedThreadKey === "main") {
-      return rejectAnswerRoute(message, "disallowed_main_backfill", {
-        selectedThreadKey,
-        answerUserMessageIds,
-        ownerGroups,
-      });
-    }
-    if (
-      hasConflictingAuthoritativeAnswerRefs(message, selectedThreadKey) ||
-      answerRouteControlConflict(message, ownerThreadKey)
-    ) {
-      return rejectAnswerRoute(message, "route_control_conflict", {
-        selectedThreadKey,
-        answerUserMessageIds,
-        ownerGroups,
-      });
-    }
-    const missingAssociationUserMessageIds = resolution.referenced
-      .filter((entry) => !entry.associatedThreadKeys.includes(selectedThreadKey))
-      .map((entry) => entry.userMessageId);
-    if (missingAssociationUserMessageIds.length > 0) {
-      return rejectAnswerRoute(message, "missing_association", {
-        selectedThreadKey,
-        answerUserMessageIds,
-        ownerGroups,
-        missingAssociationUserMessageIds,
-      });
-    }
-    canonicalizeAnswerRoute(message, ownerThreadKey, selectedThreadKey);
+  const ownerGroups = resolution.ownerGroups;
+  if (hasConflictingAuthoritativeAnswerRefs(message, selectedThreadKey)) {
+    return rejectAnswerRoute(message, "route_control_conflict", {
+      selectedThreadKey,
+      answerUserMessageIds,
+      ownerGroups,
+    });
   }
+  const visibleThreadKeys = [
+    ...new Set([selectedThreadKey, ...resolution.referenced.flatMap((entry) => entry.associatedThreadKeys)]),
+  ];
+  // Main visibility uses the normal source route; all additional quest views
+  // share this exact row through visibility-only refs.
+  const anchorThreadKey = visibleThreadKeys.includes("main")
+    ? "main"
+    : (ownerGroups.find((group) => group.threadKey === selectedThreadKey)?.threadKey ?? ownerGroups[0]!.threadKey);
+  const routeSnapshot = answerRouteSnapshot(message);
+  canonicalizeAnswerRoute(message, anchorThreadKey, visibleThreadKeys);
 
   message.threadAnswer = {
     version: LEADER_THREAD_RESPONSE_VERSION,
     answerUserMessageIds: [...answerUserMessageIds],
     observedHistoryLength: observedHistoryLength!,
+    authoredThreadKey: selectedThreadKey,
+    ownerGroups,
   };
   if (!isCurrentValidRoutedLeaderResponseMessage(session, message)) {
     delete message.threadAnswer;
-    if (routeMismatch) restoreAnswerRoute(message, routeSnapshot);
+    restoreAnswerRoute(message, routeSnapshot);
     return rejectAnswerRoute(message, "stale", {
       selectedThreadKey,
       answerUserMessageIds,
@@ -1087,6 +1043,5 @@ export function finalizeRoutedLeaderResponseMessage(
   return {
     finalized: true,
     answerId: messageId,
-    ...(routeMismatch ? { canonicalizedRoute: { selectedThreadKey, ownerThreadKey } } : {}),
   };
 }

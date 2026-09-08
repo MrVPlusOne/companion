@@ -186,7 +186,7 @@ describe("explicit answer selected-window authority", () => {
       pendingMessageCount: 0,
       ready: true,
     });
-    expect(questAnswer).toEqual(mainAnswer);
+    expect(questAnswer).toEqual({ ...mainAnswer, coveredAnswerUserMessageIds: [], coveredUserMessageIds: [] });
     expect(deliveredIds(quest).filter((id) => id === response.message.id)).toHaveLength(1);
     expect(deliveredIds(quest).filter((id) => id === "raw-u25")).toHaveLength(1);
     expect(deliveredIds(quest)).not.toContain("unrelated-main");
@@ -194,7 +194,10 @@ describe("explicit answer selected-window authority", () => {
       (entry) => entry.message.type === "assistant" && entry.message.message.id === response.message.id,
     )?.message;
     expect(deliveredAnswer).toMatchObject({ type: "assistant", threadKey: "main" });
-    expect(deliveredAnswer).not.toHaveProperty("threadRefs");
+    // One stored source row carries visibility-only refs; the quest's empty
+    // coverage subset cannot grant it Main's pending or Ready authority.
+    expect(deliveredAnswer).toEqual(response);
+    expect(response.threadRefs).toMatchObject([{ threadKey: "q-2024", questId: "q-2024", source: "backfill" }]);
     expect(unrelated.response_state?.currentAnswers).toEqual([]);
     expect(deliveredIds(unrelated)).not.toContain(response.message.id);
   });
@@ -214,8 +217,8 @@ describe("explicit answer selected-window authority", () => {
         threadKey: "main",
         answerUserMessageIds: ["u1"],
         referencedUserMessageIds: ["raw-without-persisted-id"],
-        coveredAnswerUserMessageIds: ["u1"],
-        coveredUserMessageIds: ["raw-without-persisted-id"],
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
         currentMessageId: response.message.id,
       },
     ]);

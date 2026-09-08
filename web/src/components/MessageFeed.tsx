@@ -212,6 +212,7 @@ export function MessageFeed({
         selectedFeedWindow,
         selectedFeedWindowEnabled,
         selectedFeedWindowMessages,
+        threadResponseState,
         sessionNotifications,
         sessionAttentionRecords,
         additionalAttentionRecords,
@@ -226,6 +227,7 @@ export function MessageFeed({
       selectedFeedWindow,
       selectedFeedWindowEnabled,
       selectedFeedWindowMessages,
+      threadResponseState,
       sessionAttentionRecords,
       sessionBoard,
       sessionCompletedBoard,
@@ -575,15 +577,12 @@ export function MessageFeed({
     threadResponseState,
     normalizedThreadKey,
     isLeaderSession,
+    feedMessageModel.messagesAvailableForDerivation,
   );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
     ...(threadResponsePresentation?.currentResponses
-      .filter(
-        (item) =>
-          item.response.coveredUserMessageIds.length > 0 &&
-          normalizeThreadKey(item.response.threadKey) === normalizedThreadKey,
-      )
+      .filter((item) => item.response.coveredUserMessageIds.length > 0)
       .map((item) => item.response.updatedAt) ?? []),
   );
   const responseStateHasTrackedWork =

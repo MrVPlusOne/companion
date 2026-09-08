@@ -1,37 +1,20 @@
-import { leaderResponseExactAnswerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { isCurrentValidRoutedLeaderResponseMessage } from "../leader-thread-response.js";
+import { leaderAnswerThreadAuthority } from "../leader-thread-response.js";
 
 type AssistantHistoryEntry = Extract<BrowserIncomingMessage, { type: "assistant" }>;
 
-export interface CanonicalizedLeaderAnswerRoute {
-  selectedThreadKey: string;
-  ownerThreadKey: string;
-}
-
-/**
- * A selected route repaired onto another owner remains display-only unless a
- * separate current answer in the same turn carries real owner coverage there.
- * Ready markers must not promote a visibility-only destination into answer
- * authority merely because its pending-owned-message count is zero.
- */
-export function displayOnlyCanonicalizedLeaderAnswerThreads(
+/** Visibility never grants Ready authority, including sibling status segments and replay. */
+export function displayOnlyLeaderAnswerThreads(
   session: { id: string; messageHistory: BrowserIncomingMessage[] },
   turnEntries: readonly AssistantHistoryEntry[],
-  canonicalizedRoutes: readonly CanonicalizedLeaderAnswerRoute[],
 ): Set<string> {
-  if (canonicalizedRoutes.length === 0) return new Set();
-
-  const currentOwnerAnswerThreads = new Set<string>();
+  const ownerThreads = new Set<string>();
+  const visibleThreads = new Set<string>();
   for (const entry of turnEntries) {
-    if (!isCurrentValidRoutedLeaderResponseMessage(session, entry)) continue;
-    const ownerThreadKey = leaderResponseExactAnswerThreadKey(entry);
-    if (ownerThreadKey) currentOwnerAnswerThreads.add(ownerThreadKey);
+    if (!entry.threadAnswer) continue;
+    const authority = leaderAnswerThreadAuthority(session, entry);
+    authority.ownerThreadKeys.forEach((threadKey) => ownerThreads.add(threadKey));
+    authority.visibleThreadKeys.forEach((threadKey) => visibleThreads.add(threadKey));
   }
-
-  return new Set(
-    canonicalizedRoutes
-      .map((route) => route.selectedThreadKey)
-      .filter((selectedThreadKey) => !currentOwnerAnswerThreads.has(selectedThreadKey)),
-  );
+  return new Set([...visibleThreads].filter((threadKey) => !ownerThreads.has(threadKey)));
 }

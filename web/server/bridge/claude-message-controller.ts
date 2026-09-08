@@ -61,10 +61,7 @@ import {
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
-import {
-  displayOnlyCanonicalizedLeaderAnswerThreads,
-  type CanonicalizedLeaderAnswerRoute,
-} from "./leader-answer-ready-authority.js";
+import { displayOnlyLeaderAnswerThreads } from "./leader-answer-ready-authority.js";
 import {
   consumeQuestThreadRemindersForCompletedTurn,
   extractQuestThreadRemindersFromContent,
@@ -811,7 +808,6 @@ function finalizeLeaderTurnResponseControls(
   const rejectedReadyThreadKeys = new Set<string>();
   const entries = currentTurnAssistantEntries(session);
   const answerCanAnchorReady = new Map<Extract<BrowserIncomingMessage, { type: "assistant" }>, boolean>();
-  const canonicalizedRoutes: CanonicalizedLeaderAnswerRoute[] = [];
 
   // Finalize every answer before applying any Ready marker. A multi-section
   // leader output may put the status segment before the answer segment.
@@ -825,15 +821,13 @@ function finalizeLeaderTurnResponseControls(
       answerCanAnchorReady.set(entry, authoritative);
       if (finalized.finalized) {
         changed = true;
-        if (finalized.canonicalizedRoute) canonicalizedRoutes.push(finalized.canonicalizedRoute);
       }
     }
   }
 
-  const displayOnlyReadyThreadKeys = displayOnlyCanonicalizedLeaderAnswerThreads(
+  const displayOnlyReadyThreadKeys = displayOnlyLeaderAnswerThreads(
     { id: session.id, messageHistory: session.messageHistory },
     entries,
-    canonicalizedRoutes,
   );
 
   for (const entry of entries) {

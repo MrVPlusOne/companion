@@ -1,4 +1,14 @@
-import type { HistoryWindowState, SessionAttentionRecord, SessionNotification, ThreadWindowState } from "../types.js";
+import type {
+  HistoryWindowState,
+  LeaderThreadResponseProjection,
+  SessionAttentionRecord,
+  SessionNotification,
+  ThreadWindowState,
+} from "../types.js";
+import {
+  leaderResponseExactAnswerThreadKey,
+  leaderResponseMessageIsAssociatedWithThread,
+} from "../../shared/leader-thread-response-routing.js";
 import type { ChatMessage } from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import type { FeedSection } from "../components/message-feed-sections.js";
@@ -47,6 +57,7 @@ export interface BuildFeedMessageModelInput {
   selectedFeedWindowEnabled: boolean;
   selectedFeedWindow: ThreadWindowState | null;
   selectedFeedWindowMessages: ChatMessage[];
+  threadResponseState?: LeaderThreadResponseProjection | null;
   sessionNotifications?: ReadonlyArray<SessionNotification>;
   sessionAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
   additionalAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
@@ -103,9 +114,12 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
       : filterRootAgentFeedMessages(messagesAvailableForProjection);
   const hasFilteredNativeChildMessages =
     rootMessagesAvailableForDerivation.length !== messagesAvailableForDerivation.length;
-  const baseMessages = input.projectThreadRoutes
+  const routedBaseMessages = input.projectThreadRoutes
     ? filterProjectedMessagesForThread(rootMessagesAvailableForProjection, input.threadKey, activeSelectedFeedWindow)
     : rootMessagesAvailableForDerivation;
+  const baseMessages = input.projectThreadRoutes
+    ? filterThreadResponseProofMessages(routedBaseMessages, input.threadResponseState, normalizedThreadKey)
+    : routedBaseMessages;
   const records =
     input.additionalAttentionRecords && input.additionalAttentionRecords.length > 0
       ? [...(input.sessionAttentionRecords ?? []), ...input.additionalAttentionRecords]
@@ -169,6 +183,27 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     visibleToolUseIds,
     activeNeedsInputAnchorMessageIds,
   };
+}
+
+function filterThreadResponseProofMessages(
+  messages: ChatMessage[],
+  state: LeaderThreadResponseProjection | null | undefined,
+  threadKey: string,
+): ChatMessage[] {
+  if (!state || normalizeThreadKey(state.threadKey) !== threadKey || isAllThreadsKey(threadKey)) return messages;
+  const referencedIds = new Set(state.currentAnswers.flatMap((answer) => answer.referencedUserMessageIds));
+  const answerIds = new Set(state.currentAnswers.map((answer) => answer.currentMessageId));
+  return messages.filter((message) => {
+    if (message.role === "user" && referencedIds.has(message.id)) {
+      return leaderResponseMessageIsAssociatedWithThread(message.metadata ?? {}, threadKey);
+    }
+    const proof = message.metadata?.threadAnswer;
+    if (!proof || answerIds.has(message.id)) return true;
+    // Generated answer refs are projection hints. After an association is
+    // removed, they cannot keep the answer in an unrelated destination.
+    const authoredThreadKey = proof.authoredThreadKey ?? leaderResponseExactAnswerThreadKey(message.metadata ?? {});
+    return authoredThreadKey === threadKey;
+  });
 }
 
 function messageTimestampRange(messages: ReadonlyArray<ChatMessage>): { from: number; to: number } | null {

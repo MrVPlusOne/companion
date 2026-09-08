@@ -360,8 +360,8 @@ describe("index startup skill registration", () => {
       readFile(CLI_LAUNCHER_INSTRUCTIONS_PATH, "utf-8"),
     ]);
 
-    expect(orchestration).toContain("retrieve or reread every listed user message");
-    expect(orchestration).toContain("inspect every earlier visible valid answer");
+    expect(orchestration).toContain("Use the supplied user-message IDs and available conversation context");
+    expect(orchestration).toContain("inspect source messages or earlier answers only when needed");
     expect(orchestration).toContain("Prefer one self-contained explicit answer per user request");
     expect(orchestration).toContain("apply `explain-clearly`");
     expect(orchestration).toContain("complementary addition, correction, or material completion");
@@ -374,10 +374,17 @@ describe("index startup skill registration", () => {
     expect(memoryLeader).toContain("Report routine Memory completion as routed commentary/status");
     expect(memoryLeader).toContain("materially completes, corrects, or changes the prior response");
 
-    expect(launcher).toContain("Before emitting \\`:A:<ids>\\`, retrieve or reread every listed user message");
+    expect(launcher).toContain("Use the supplied user-message IDs and available conversation context");
     expect(launcher).toContain("Prefer one self-contained explicit answer per user request");
     expect(launcher).toContain("publish routine Memory closure with \\`[thread:q-N:C]\\`");
     for (const source of [orchestration, launcher]) {
+      // Canonical and generated guidance must agree on the automatic workflow;
+      // lifecycle briefs keep their existing pointer to the answer-quality rule.
+      expect(source).toContain("Answers may cover nonconsecutive IDs and messages with different owning threads");
+      expect(source).toContain("union of Main and quest tabs associated with any referenced prompt");
+      expect(source).toContain("Each thread receives coverage only for its own referenced user requests");
+      expect(source).not.toContain("retrieve or reread every listed user message");
+      expect(source).not.toContain("single authoritative owner shared by every covered ID");
       expect(source).not.toContain("Quest completion responses are answers");
       expect(source).not.toContain("publish the polished completion answer");
     }
