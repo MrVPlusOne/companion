@@ -9,6 +9,28 @@ import {
 } from "./thread-routing.js";
 
 describe("thread-routing", () => {
+  it("round-trips individual timer firings and mixed human/firing answer references", () => {
+    // Timer schedule IDs are intentionally different from answerable delivery IDs.
+    for (const ids of [["f1"], ["u1", "f2"], ["f1", "f2"]]) {
+      const marker = formatThreadMarker("q-941", "answer", ids);
+      for (const parse of [parseThreadTextPrefix, parseThreadTextLineStartMarker]) {
+        expect(parse(`${marker}\nTimer result`)).toMatchObject({
+          ok: true,
+          role: "answer",
+          answerUserMessageIds: ids,
+          body: "Timer result",
+        });
+      }
+    }
+    for (const ids of [["t1"], ["f0"], ["f01"], ["f1", "f1"]]) {
+      expect(() => formatThreadMarker("main", "answer", ids)).toThrow();
+      expect(parseThreadTextPrefix(`[thread:main:A:${ids.join(",")}] Result`)).toMatchObject({
+        ok: false,
+        reason: "invalid_role",
+      });
+    }
+  });
+
   it("round-trips compact commentary and explicit answer roles", () => {
     expect(formatThreadMarker("main", "answer", ["u1", "u2"])).toBe("[thread:main:A:u1,u2]");
     expect(formatThreadMarker("q-941", "commentary")).toBe("[thread:q-941:C]");

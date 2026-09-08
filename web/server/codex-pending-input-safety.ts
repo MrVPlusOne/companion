@@ -48,6 +48,7 @@ export function projectCancelledCodexInputForBrowser(input: PendingCodexInput): 
   const {
     deliveryContent: _deliveryContent,
     historyFollowUps: _historyFollowUps,
+    timerFiring: _timerFiring,
     autoPauseRecoveries: _autoPauseRecoveries,
     leaderThreadOutcomeReminderGuard: _leaderThreadOutcomeReminderGuard,
     queueBeforeOwnerId: _queueBeforeOwnerId,
@@ -78,6 +79,7 @@ export function compactRejectedCodexInputForBrowser(input: PendingCodexInput): P
 function compactPendingCodexInputForBrowser(input: PendingCodexInput, maxPreviewBytes: number): PendingCodexInput {
   const {
     historyFollowUps: _historyFollowUps,
+    timerFiring: _timerFiring,
     autoPauseRecoveries: _autoPauseRecoveries,
     leaderThreadOutcomeReminderGuard: _leaderThreadOutcomeReminderGuard,
     draftImages: _draftImages,

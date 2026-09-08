@@ -81,6 +81,26 @@ describe("TimerManager", () => {
       expect(timer.intervalMs).toBe(600_000);
     });
 
+    it("persists an explicit normalized timer destination", async () => {
+      // The stored destination must survive later activity in another thread.
+      const timer = await manager.createTimer("session-1", {
+        title: "check build",
+        in: "5m",
+        threadKey: " Q-42 ",
+      });
+
+      expect(timer.threadKey).toBe("q-42");
+      expect(mockFiles.get("session-1")?.timers[0].threadKey).toBe("q-42");
+    });
+
+    it.each(["", "all", "q-nope", 42, null])("rejects an invalid explicit destination: %s", async (threadKey) => {
+      // REST input is untrusted even though the TypeScript input is a string.
+      await expect(
+        manager.createTimer("session-1", { title: "check build", in: "5m", threadKey: threadKey as string }),
+      ).rejects.toThrow("Timer thread must be main or q-N");
+      expect(mockFiles.size).toBe(0);
+    });
+
     it("increments timer IDs", async () => {
       const t1 = await manager.createTimer("session-1", { title: "a", in: "5m" });
       const t2 = await manager.createTimer("session-1", { title: "b", in: "10m" });
@@ -152,10 +172,28 @@ describe("TimerManager", () => {
 
       await manager.cancelTimer("session-1", "t1");
 
-      expect(bridge.injectUserMessage).toHaveBeenCalledWith("session-1", "[⏰ Timer t1 cancelled] check the build", {
-        sessionId: "timer:t1",
-        sessionLabel: "Timer t1",
+      expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+        "session-1",
+        "[⏰ Timer t1 cancelled] check the build",
+        { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+        undefined,
+        undefined,
+      );
+    });
+
+    it("routes cancellation to the recorded destination without firing authority", async () => {
+      // A cancellation shares the timer source label but is not an occurrence
+      // that an explicit answer may cover.
+      await manager.createTimer("session-1", { title: "check build", in: "5m", threadKey: "q-42" });
+      await manager.cancelTimer("session-1", "t1");
+
+      const call = bridge.injectUserMessage.mock.calls[0];
+      expect(call[4]).toEqual({
+        threadKey: "q-42",
+        questId: "q-42",
+        threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
       });
+      expect(call[5]).toBeUndefined();
     });
   });
 
@@ -220,6 +258,9 @@ describe("TimerManager", () => {
           sessionId: "timer:t1",
           sessionLabel: "Timer t1",
         },
+        undefined,
+        undefined,
+        { timerFiring: { timerId: "t1", scheduledFireAt: new Date("2026-04-08T12:05:00Z").getTime() } },
       );
       // One-shot should be removed after firing
       expect(manager.listTimers("session-1")).toHaveLength(0);
@@ -243,6 +284,9 @@ describe("TimerManager", () => {
           sessionId: "timer:t1",
           sessionLabel: "Timer t1",
         },
+        undefined,
+        undefined,
+        { timerFiring: { timerId: "t1", scheduledFireAt: new Date("2026-04-08T12:10:00Z").getTime() } },
       );
       // Recurring timer should still exist
       const timers = manager.listTimers("session-1");
@@ -257,6 +301,9 @@ describe("TimerManager", () => {
 
       expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
       expect(manager.listTimers("session-1")[0].fireCount).toBe(2);
+      expect(bridge.injectUserMessage.mock.calls[0][5]).toEqual({
+        timerFiring: { timerId: "t1", scheduledFireAt: new Date("2026-04-08T12:20:00Z").getTime() },
+      });
     });
 
     it("preserves the on-time connected-session timer message", async () => {
@@ -324,6 +371,11 @@ describe("TimerManager", () => {
       expect(content).toContain("2 earlier due occurrences were skipped while the session was unavailable.");
       expect(content).toContain("This timer was initially scheduled to fire at 2026-04-08T12:30:00.000Z.");
       expect(content).toContain("Earlier note:\nLook at only the active incident lane.");
+      // Catch-up identifies the newest delivered occurrence, never the skipped
+      // intervals or actual late wall-clock delivery time.
+      expect(bridge.injectUserMessage.mock.calls[0][5]).toEqual({
+        timerFiring: { timerId: "t1", scheduledFireAt: new Date("2026-04-08T12:30:00Z").getTime() },
+      });
 
       const [timer] = manager.listTimers("session-1");
       expect(timer.fireCount).toBe(1);
@@ -446,6 +498,22 @@ describe("TimerManager", () => {
   });
 
   describe("startAll (server restart recovery)", () => {
+    it.each(["main", "q-42"])("restores and fires the recorded %s destination", async (threadKey) => {
+      // Restart and later leader thread selection cannot retarget a timer.
+      await manager.createTimer("session-1", { title: "restored destination", in: "5m", threadKey });
+      manager.destroy();
+      manager = new TimerManager(bridge);
+      await manager.startAll();
+      vi.setSystemTime(new Date("2026-04-08T12:05:00Z"));
+
+      await manager.sweepDueTimersNow();
+
+      expect(bridge.injectUserMessage.mock.calls[0][4]).toMatchObject({ threadKey });
+      expect(bridge.injectUserMessage.mock.calls[0][5]).toEqual({
+        timerFiring: { timerId: "t1", scheduledFireAt: Date.now() },
+      });
+    });
+
     it("loads timers from disk on startup", async () => {
       // Pre-populate the mock store with saved timer data
       mockFiles.set("session-saved", {
@@ -472,6 +540,13 @@ describe("TimerManager", () => {
       const timers = manager.listTimers("session-saved");
       expect(timers).toHaveLength(1);
       expect(timers[0].title).toBe("restored timer");
+      // Old persisted timers stay unassociated; loading does not migrate them
+      // using whatever thread happens to be active at restart.
+      expect(timers[0]).not.toHaveProperty("threadKey");
+      vi.setSystemTime(new Date("2026-04-08T12:10:00Z"));
+      await manager.sweepDueTimersNow();
+      expect(bridge.injectUserMessage.mock.calls[0][4]).toBeUndefined();
+      expect(mockFiles.get("session-saved")?.timers[0]).not.toHaveProperty("threadKey");
     });
   });
 });

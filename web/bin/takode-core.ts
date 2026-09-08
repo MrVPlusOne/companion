@@ -861,6 +861,7 @@ export function formatDurationSeconds(seconds: number): string {
 
 export type SessionTimerDetail = {
   id: string;
+  threadKey?: string;
   type: string;
   title: string;
   description: string;
@@ -874,7 +875,8 @@ export type SessionTimerDetail = {
 
 export const TIMER_CREATE_GUIDANCE =
   "Guidance: keep the timer title short and scannable. Use the description only for extra detail. " +
-  "For recurring timers, keep the description general so it does not go stale across repeated firings.";
+  "For recurring timers, keep the description general so it does not go stale across repeated firings. " +
+  "Leader timers use the current active thread; pass --thread main|q-N when no active thread is known or to choose another destination.";
 
 export function formatTimerScheduleLabel(timer: Pick<SessionTimerDetail, "type" | "originalSpec">): string {
   return timer.type === "recurring"
@@ -892,6 +894,7 @@ export function printTimerRows(timers: SessionTimerDetail[]): void {
       `fires=${timer.fireCount}`,
       `next=${formatTimestampCompact(timer.nextFireAt)}`,
     ];
+    if (timer.threadKey) parts.push(`thread=${timer.threadKey}`);
     if (timer.lastFiredAt) parts.push(`last=${formatTimestampCompact(timer.lastFiredAt)}`);
     console.log(`${parts.join("  ")}  "${formatInlineText(timer.title)}"`);
     if (timer.description) {

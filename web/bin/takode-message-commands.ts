@@ -6,6 +6,7 @@ import {
   type ServerLogEntry,
 } from "../shared/logging.ts";
 import { TAKODE_PEEK_CONTENT_LIMIT, formatCompactAgentLabel, formatQuotedContent } from "../shared/takode-constants.ts";
+import { isCanonicalLeaderAnswerMessageId } from "../shared/leader-answer-message-id.js";
 import {
   apiGet,
   dateKey,
@@ -983,7 +984,7 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   const msgIdx = args[1];
   if (!sessionRef || !msgIdx)
-    err("Usage: takode read <session> <history-index|user-id> [--offset N] [--limit N] [--thread main|q-N] [--json]");
+    err("Usage: takode read <session> <history-index|uN|fN> [--offset N] [--limit N] [--thread main|q-N] [--json]");
 
   const flags = parseFlags(args.slice(2));
   const offset = Number(flags.offset) || 0;
@@ -1044,9 +1045,9 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
   console.log("\u2500".repeat(60));
 
   // Print with line numbers (like the Read tool)
-  const isSessionScopedLeaderUserRead = /^u[1-9]\d*$/i.test(msgIdx);
+  const isSessionScopedLeaderMessageRead = isCanonicalLeaderAnswerMessageId(msgIdx.trim().toLowerCase());
   const visibleContent =
-    userMessageSource && !isSessionScopedLeaderUserRead
+    userMessageSource && !isSessionScopedLeaderMessageRead
       ? truncateTakodeUserContent(d.content, userMessageSource, "read")
       : null;
   const lines = (visibleContent?.content ?? d.content).split("\n");

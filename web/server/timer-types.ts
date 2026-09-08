@@ -6,6 +6,8 @@ export interface SessionTimer {
   id: string;
   /** Session that owns this timer. */
   sessionId: string;
+  /** Recorded leader destination ("main" or "q-N"); absent on unassociated timers. */
+  threadKey?: string;
   /** Concise one-line summary for humans scanning timer lists. */
   title: string;
   /** Additional detail for the model when the timer fires. */
@@ -38,10 +40,20 @@ export interface SessionTimerFile {
 export interface TimerCreateInput {
   title: string;
   description?: string;
+  /** Explicit leader destination; otherwise creation may use the current active thread. */
+  threadKey?: string;
   /** Relative delay: "30m", "2h", "45s" */
   in?: string;
   /** Wall-clock time: "3pm", "15:00", "3:30pm" */
   at?: string;
   /** Recurring interval: "10m", "1h", "30s" */
   every?: string;
+}
+
+/** Server-owned provenance for one timer occurrence, retained through delivery holds. */
+export interface TimerFiring {
+  timerId: string;
+  scheduledFireAt: number;
+  /** Assigned firing reference when an admitted input is held and delivered again. */
+  messageId?: string;
 }

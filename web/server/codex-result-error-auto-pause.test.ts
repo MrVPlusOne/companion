@@ -361,6 +361,56 @@ describe("Codex result-error auto-pause", () => {
     ]);
   });
 
+  it("keeps assigned firings distinct while preserving unassigned timer coalescing", () => {
+    // Different admitted fN identities cannot share a held representative.
+    // Timers held before admission retain the existing content-based policy.
+    const target = session();
+    noteCodexResultForAutoPause(target, copilotAuthRefreshResult(), turn("automatic"), 100);
+    const message = {
+      type: "user_message" as const,
+      content: "[⏰ Timer t1 reminder] Report",
+      agentSource: { sessionId: "timer:t1" },
+      threadKey: "q-42",
+      timerFiring: { timerId: "t1", scheduledFireAt: 1 },
+    };
+    for (const messageId of ["f1", "f2"]) {
+      queueCodexAutoPausedInput(
+        target,
+        "programmatic",
+        {
+          ...message,
+          timerFiring: { ...message.timerFiring, messageId },
+        },
+        200,
+      );
+    }
+    queueCodexAutoPausedInput(target, "programmatic", message, 210);
+    queueCodexAutoPausedInput(
+      target,
+      "programmatic",
+      {
+        ...message,
+        timerFiring: { ...message.timerFiring, scheduledFireAt: 2 },
+      },
+      220,
+    );
+
+    const held = target.state.codex_result_error_auto_pause!.heldInputs;
+    expect(held.map((item) => [item.count, item.message.timerFiring?.messageId])).toEqual([
+      [1, "f1"],
+      [1, "f2"],
+      [2, undefined],
+    ]);
+    const drained = materializeCodexAutoPausedInputsForDrain(held);
+    expect(drained[0].content).toBe(message.content);
+    expect(drained[1].content).toBe(message.content);
+    expect(drained[2].content).toBe(
+      "[Takode auto-pause resumed: 2 similar automatic inputs were coalesced while delivery was paused.]\n\n" +
+        message.content,
+    );
+    expect(drained[2].timerFiring).toEqual({ timerId: "t1", scheduledFireAt: 2 });
+  });
+
   it("treats only composer and explicit manual overrides as manual while background sources are automatic", () => {
     expect(determineUserMessageSourceKind({ type: "user_message", content: "hi", inputSource: "composer" })).toBe(
       "manual",

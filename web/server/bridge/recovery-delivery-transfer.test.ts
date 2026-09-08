@@ -5,6 +5,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "../session-store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, CodexAutoPauseRecoveryLink } from "../session-types.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
+import { buildProgrammaticUserMessage } from "../session-pause.js";
+import { leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
+import { getTrustedRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-routing-context.js";
+import { routeAdapterBrowserMessage } from "./adapter-browser-routing-controller.js";
+import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
+import {
+  materializeCodexAutoPausedInputsForDrain,
+  sweepCodexAutoPausedQueuedBacklog,
+} from "../codex-result-error-auto-pause.js";
+import { createCodexAutoPauseRecoverySummary } from "./codex-auto-pause-recovery-summary.js";
 import {
   beginRecoveryDeliveryTransferHandoff,
   deliverRecoveryDeliveryTransfer,
@@ -244,6 +254,147 @@ function persisted(session: RecoveryDeliveryTransferSessionLike): PersistedSessi
 }
 
 describe("recovery delivery transfer ownership", () => {
+  it("keeps one firing reference through pending, hold, restart, transfer, and re-admission", async () => {
+    // Exercise the real adapter admission on both sides of a persisted hold.
+    // Frozen delivery prevents this isolated fixture from starting a backend.
+    const session = makeSession([]);
+    session.messageHistory = [];
+    const firing = buildProgrammaticUserMessage({
+      content: "[⏰ Timer t1 reminder] Report",
+      agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+      threadRoute: { threadKey: "q-42", questId: "q-42" },
+      options: { timerFiring: { timerId: "t1", scheduledFireAt: 1 } },
+    });
+    let nextId = 0;
+    const routingDeps = {
+      getLauncherSessionInfo: () => ({ isOrchestrator: true, state: "starting" }),
+      nextUserMessageId: () => `timer-input-${++nextId}`,
+      addPendingCodexInput: (
+        target: AdapterBrowserRoutingSessionLike,
+        input: (typeof target.pendingCodexInputs)[number],
+      ) => {
+        target.pendingCodexInputs.push(input);
+      },
+      broadcastToBrowsers: vi.fn(),
+      promoteLeaderThreadTabForMessageAttention: vi.fn(),
+      emitTakodeEvent: vi.fn(),
+      persistSession: vi.fn(),
+      isHerdEventSource: () => false,
+      isCodexWorkerV2DeliveryFrozen: () => true,
+      rebuildQueuedCodexPendingStartBatch: vi.fn(),
+    } as unknown as AdapterBrowserRoutingDeps;
+    await routeAdapterBrowserMessage(
+      session as unknown as AdapterBrowserRoutingSessionLike,
+      firing,
+      undefined,
+      routingDeps,
+    );
+    const admitted = session.pendingCodexInputs[0]!;
+    expect(admitted).toMatchObject({ leaderTimerMessageId: "f1", timerFiring: firing.timerFiring });
+    expect(admitted.deliveryContent).toMatch(/\[Timer reminder .* id:f1\] \[thread:q-42\]/);
+
+    expect(sweepCodexAutoPausedQueuedBacklog(session, 30).heldInputIds).toEqual([admitted.id]);
+    expect(session.pendingCodexInputs).toEqual([]);
+    expect(session.state.codex_result_error_auto_pause!.heldInputs[0].message).toMatchObject({
+      timerFiring: { ...firing.timerFiring, messageId: "f1" },
+      deliveryContent: admitted.deliveryContent,
+    });
+    const dir = mkdtempSync(join(tmpdir(), "takode-timer-held-delivery-"));
+    tempDirs.push(dir);
+    const store = new SessionStore(dir);
+    await store.saveImmediate(persisted(session));
+    const saved = (await store.load(session.id))!;
+    const restored = makeSession([]);
+    restored.state = saved.state;
+    restored.messageHistory = saved.messageHistory;
+    restored.pendingCodexInputs = saved.pendingCodexInputs ?? [];
+    expect(leaderTimerMessageIdForDelivery(restored, firing)).toBe("f2");
+
+    const route = vi.fn(async (target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
+      await routeAdapterBrowserMessage(
+        target as unknown as AdapterBrowserRoutingSessionLike,
+        message,
+        undefined,
+        routingDeps,
+      );
+    });
+    const deps = makeDeps([], route);
+    const pause = restored.state.codex_result_error_auto_pause!;
+    const summary = createCodexAutoPauseRecoverySummary(restored, pause, pause.heldInputs, 40, deps);
+    const messages = materializeCodexAutoPausedInputsForDrain(pause.heldInputs, summary.id);
+    await beginRecoveryDeliveryTransferHandoff(
+      restored,
+      pause.heldInputs.map((item, index) => ({
+        sourceOwnerKind: "auto_pause",
+        sourceOwnerId: item.id,
+        sourceOwnerCount: item.count,
+        message: messages[index],
+      })),
+      {},
+      deps,
+    );
+    expect(leaderTimerMessageIdForDelivery(restored, firing)).toBe("f2");
+    await deliverRecoveryDeliveryTransfer(restored, restored.recoveryDeliveryTransfers[0].id, deps);
+
+    expect(restored.pendingCodexInputs).toHaveLength(1);
+    expect(restored.pendingCodexInputs[0]).toMatchObject({
+      leaderTimerMessageId: "f1",
+      timerFiring: { ...firing.timerFiring, messageId: "f1" },
+      deliveryContent: admitted.deliveryContent,
+      content: firing.content,
+      threadKey: "q-42",
+    });
+    expect(restored.pendingCodexInputs[0].deliveryContent?.match(/id:f1/g)).toHaveLength(1);
+    expect(restored.recoveryDeliveryTransfers).toEqual([]);
+  });
+
+  it("retains timer firing proof through persisted automatic-recovery transfer delivery", async () => {
+    // Recovery's exact-payload trust check and firing identity both depend on
+    // retaining the server-owned metadata through internal ingress.
+    const session = makeSession();
+    session.state.codex_result_error_auto_pause!.heldInputs[0]!.message = {
+      ...buildProgrammaticUserMessage({
+        content: "[⏰ Timer t1 reminder] Report",
+        agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+        threadRoute: { threadKey: "q-42", questId: "q-42" },
+        options: { timerFiring: { timerId: "t1", scheduledFireAt: 1 } },
+      }),
+      autoPauseRecoveries: [link()],
+    };
+    const route = vi.fn((target: BrowserTransportSessionLike, routed: BrowserOutgoingMessage) => {
+      if (routed.type !== "user_message") return;
+      expect(getTrustedRecoveryDeliveryTransferId(target, routed)).toBeTruthy();
+      target.pendingCodexInputs.push({
+        id: "timer-input",
+        content: routed.content,
+        timestamp: 120,
+        cancelable: true,
+        threadKey: routed.threadKey,
+        autoPauseRecoveries: routed.autoPauseRecoveries,
+        leaderTimerMessageId: leaderTimerMessageIdForDelivery(target, routed),
+      });
+    });
+    const deps = makeDeps([], route);
+    await beginRecoveryDeliveryTransferHandoff(session, candidates(session), {}, deps);
+    session.recoveryDeliveryTransfers = normalizePersistedRecoveryDeliveryTransfers(
+      JSON.parse(JSON.stringify(session.recoveryDeliveryTransfers)),
+    );
+
+    await deliverRecoveryDeliveryTransfer(session, session.recoveryDeliveryTransfers[0]!.id, deps);
+
+    expect(route).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        timerFiring: { timerId: "t1", scheduledFireAt: 1 },
+        threadKey: "q-42",
+      }),
+      undefined,
+    );
+    expect(session.pendingCodexInputs[0]).toMatchObject({ leaderTimerMessageId: "f1", threadKey: "q-42" });
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expectOwnedOrTerminal(session);
+  });
+
   it("persists transfer precedence before removing the old owner", async () => {
     const session = makeSession();
     const snapshots: RecoveryDeliveryTransferSessionLike[] = [];

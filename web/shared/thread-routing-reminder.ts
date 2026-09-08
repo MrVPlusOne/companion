@@ -1,3 +1,5 @@
+import { isCanonicalLeaderAnswerMessageId } from "./leader-answer-message-id.js";
+
 export const THREAD_ROUTING_REMINDER_SOURCE_ID = "system:thread-routing-reminder";
 export const THREAD_ROUTING_REMINDER_SOURCE_LABEL = "Thread Routing Reminder";
 export const THREAD_ROUTING_REMINDER_HEADER = "[Thread routing reminder]";
@@ -43,7 +45,6 @@ export interface ThreadRoutingReminderInput {
 }
 
 const THREAD_KEY_RE = /^(?:main|q-\d+)$/;
-const USER_MESSAGE_ID_RE = /^u[1-9]\d*$/;
 const ANSWER_ROUTE_DIAGNOSTIC_REASONS = new Set<LeaderAnswerRouteDiagnosticReason>([
   "invalid_answer",
   "invalid_ids",
@@ -60,7 +61,7 @@ function validUniqueUserMessageIds(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every((id) => typeof id === "string" && USER_MESSAGE_ID_RE.test(id)) &&
+    value.every((id) => isCanonicalLeaderAnswerMessageId(id)) &&
     new Set(value).size === value.length
   );
 }
@@ -181,7 +182,7 @@ function buildInvalidAnswerRouteReminderContent(value: unknown): string {
     return [
       THREAD_ROUTING_REMINDER_HEADER,
       "Invalid answer route. The retained leader prose did not establish answer coverage.",
-      "Takode could not validate the answer references or their current owners. Use only valid earlier user-message IDs supplied in this session; do not guess a correction from incomplete evidence.",
+      "Takode could not validate the answer references or their current owners. Use only valid earlier human `uN` or timer-firing `fN` IDs supplied in this session; do not guess a correction from incomplete evidence.",
       "Do not mark the selected thread Ready on the strength of this rejected answer.",
     ].join("\n");
   }
@@ -190,7 +191,7 @@ function buildInvalidAnswerRouteReminderContent(value: unknown): string {
     THREAD_ROUTING_REMINDER_HEADER,
     `Invalid answer route from ${formatThreadLabel(value.selectedThreadKey)}. The original answer prose remains in append-only history, but it did not gain coverage.`,
     formatAnswerRouteFailure(value),
-    "Use the supplied earlier user-message IDs. Current answers may cover nonconsecutive IDs and different owning threads; Takode routes one stored answer automatically from Main or a quest to every associated tab.",
+    "Use the supplied earlier human `uN` or timer-firing `fN` IDs. Never use recurring timer `tN` as an answer reference. Current answers may cover nonconsecutive IDs and different owning threads; Takode routes one stored answer automatically from Main or a quest to every associated tab.",
     "Do not discover history indices, attach the answer, split the answer, or repeat its prose merely for routing. Each thread receives coverage only for its own referenced requests.",
     `Do not mark ${formatThreadLabel(value.selectedThreadKey)} Ready on the strength of this rejected answer.`,
   ].join("\n");
@@ -206,7 +207,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
       return [
         THREAD_ROUTING_REMINDER_HEADER,
         `${reason} on visible leader text. The text may remain routed for audit, but it cannot satisfy a pending user-answer requirement.`,
-        "Use `[thread:main:C]` or `[thread:q-N:C]` for commentary and `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]` for an answer to explicit user-message IDs.",
+        "Use `[thread:main:C]` or `[thread:q-N:C]` for commentary and `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]` for an answer to explicit user-message IDs; a substantive timer report may use `[thread:main:A:f1]` or mixed `[thread:q-N:A:u1,f2]`. Timer progress remains commentary.",
         "One answer shared across tabs needs only one marker. For distinct content or roles, keep the first compact marker, then put a standalone `---` line immediately before each later role-bearing marker.",
         "Leader shell commands remain commentary and use `# thread:main` or `# thread:q-N` as the first non-empty command line.",
       ].join("\n");
@@ -214,7 +215,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
     return [
       THREAD_ROUTING_REMINDER_HEADER,
       `${reason} on visible leader text. The previous visible leader message was not assigned to a thread.`,
-      "Resend visible leader text with `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer.",
+      "Resend visible leader text with `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer; supplied timer-firing IDs also work, such as `[thread:main:A:f1]`. Timer progress remains commentary.",
       "One answer shared across tabs needs only one marker. For distinct content or roles, keep the first role-bearing marker, then put a standalone `---` line immediately before the next role-bearing marker.",
       "For leader shell commands, use `# thread:main` or `# thread:q-N` as the first non-empty command line.",
     ].join("\n");
@@ -225,7 +226,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
       THREAD_ROUTING_REMINDER_HEADER,
       `${reason} on leader shell command. The previous leader shell command was not assigned to a thread.`,
       "Rerun leader shell commands with `# thread:main` or `# thread:q-N` as the first non-empty command line.",
-      "For visible leader text, use `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer.",
+      "For visible leader text, use `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer; supplied timer-firing IDs also work, such as `[thread:main:A:f1]`. Timer progress remains commentary.",
       "One answer shared across tabs needs only one marker. For distinct content or roles, put a standalone `---` line immediately before each later role-bearing marker.",
     ].join("\n");
   }
@@ -233,7 +234,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
   return [
     THREAD_ROUTING_REMINDER_HEADER,
     `${reason}. The previous leader output was not assigned to a thread, but the output type is unavailable.`,
-    "If it was visible leader text, resend it with `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer.",
+    "If it was visible leader text, resend it with `[thread:main:C]` / `[thread:q-N:C]` for commentary or `[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for an explicit answer; supplied timer-firing IDs also work, such as `[thread:main:A:f1]`. Timer progress remains commentary.",
     "One answer shared across tabs needs only one marker. For distinct content or roles, use a standalone `---` line immediately before each later role-bearing marker.",
     "If it was a leader shell command, rerun it with `# thread:main` or `# thread:q-N` as the first non-empty command line.",
   ].join("\n");

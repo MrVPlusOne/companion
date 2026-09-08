@@ -11,6 +11,7 @@ import {
   TIMER_CREATE_GUIDANCE,
   type SessionTimerDetail,
 } from "./takode-core.js";
+import { normalizeThreadTarget } from "../shared/thread-routing.js";
 
 export async function handleRefreshBranch(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
@@ -128,7 +129,7 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
       //        takode timer create "Refresh context" --every 10m
       const title = args[1];
       if (!title) {
-        err("Usage: takode timer create <title> [--desc <description>] --in|--at|--every <spec>");
+        err("Usage: takode timer create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>");
       }
 
       const body: Record<string, string> = { title };
@@ -141,30 +142,28 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
           body.every = args[++i];
         } else if ((args[i] === "--desc" || args[i] === "--description") && args[i + 1]) {
           body.description = args[++i];
+        } else if (args[i] === "--thread") {
+          const target = args[++i] ? normalizeThreadTarget(args[i]) : null;
+          if (!target) err("--thread requires main or q-N");
+          body.threadKey = target.threadKey;
         }
       }
 
       if (!body.in && !body.at && !body.every) {
         err(
-          "Usage: takode timer create <title> [--desc <description>] --in|--at|--every <spec>\n" +
+          "Usage: takode timer create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>\n" +
             "  e.g. --in 30m, --at 3pm, --every 10m\n" +
             `  ${TIMER_CREATE_GUIDANCE}`,
         );
       }
 
       const result = (await apiPost(base, `/sessions/${sessionId}/timers`, body)) as {
-        timer: {
-          id: string;
-          type: string;
-          nextFireAt: number;
-          originalSpec: string;
-          title: string;
-          description: string;
-        };
+        timer: SessionTimerDetail;
       };
       const t = result.timer;
       const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
       console.log(`Created timer ${t.id} (${t.type}): "${formatInlineText(t.title)}" -- next fire at ${fireAt}`);
+      if (t.threadKey) console.log(`Thread: ${t.threadKey}`);
       if (t.description) console.log(`Description: ${formatInlineText(t.description)}`);
       break;
     }
@@ -192,7 +191,7 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
       err(
         "Usage: takode timer <subcommand>\n\n" +
           "Subcommands:\n" +
-          "  create <title> [--desc <description>] --in|--at|--every <spec>   Create a timer\n" +
+          "  create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>   Create a timer\n" +
           "  list                                       List active timers\n" +
           "  cancel <timer-id>                          Cancel a timer\n\n" +
           `${TIMER_CREATE_GUIDANCE}\n\n` +

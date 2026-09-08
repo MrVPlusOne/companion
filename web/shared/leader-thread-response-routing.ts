@@ -1,4 +1,4 @@
-import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
+import { isCanonicalLeaderAnswerMessageId } from "./leader-answer-message-id.js";
 
 export interface LeaderResponseThreadRouteFields {
   threadKey?: string;
@@ -123,7 +123,7 @@ export function leaderResponseAnswerOwnerThreadKeys(
   sourceThreadKey: string,
 ): Map<string, string> | null {
   const ids = answer.answerUserMessageIds;
-  if (ids.length === 0 || ids.some((id) => !isCanonicalLeaderUserMessageId(id)) || new Set(ids).size !== ids.length) {
+  if (ids.length === 0 || ids.some((id) => !isCanonicalLeaderAnswerMessageId(id)) || new Set(ids).size !== ids.length) {
     return null;
   }
   const source = validThreadKey(sourceThreadKey);
@@ -147,7 +147,7 @@ export function leaderResponseAnswerOwnerThreadKeys(
     }
     seenThreads.add(threadKey);
     for (const id of group.userMessageIds) {
-      if (!isCanonicalLeaderUserMessageId(id) || !referenced.has(id) || owners.has(id)) return null;
+      if (!isCanonicalLeaderAnswerMessageId(id) || !referenced.has(id) || owners.has(id)) return null;
       owners.set(id, threadKey);
     }
   }

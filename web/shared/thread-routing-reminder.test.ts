@@ -2,6 +2,33 @@ import { describe, expect, it } from "vitest";
 import { buildThreadRoutingReminderContent, isLeaderAnswerRouteDiagnostic } from "./thread-routing-reminder.js";
 
 describe("buildThreadRoutingReminderContent", () => {
+  it("accepts timer and mixed answer diagnostics while rejecting recurring timer IDs", () => {
+    // The same compact reference grammar is used by parsed answers and their
+    // persisted rejection diagnostics; timer IDs are not firing identities.
+    const diagnostic = {
+      reason: "invalid_ids",
+      selectedThreadKey: "main",
+      answerUserMessageIds: ["u1", "f2"],
+      ownerGroups: [],
+    };
+    expect(isLeaderAnswerRouteDiagnostic(diagnostic)).toBe(true);
+    expect(isLeaderAnswerRouteDiagnostic({ ...diagnostic, answerUserMessageIds: ["t2"] })).toBe(false);
+    const content = buildThreadRoutingReminderContent({
+      reason: "invalid_answer_route",
+      answerRouteDiagnostic: {
+        reason: "invalid_ids",
+        selectedThreadKey: "main",
+        answerUserMessageIds: ["f2"],
+        ownerGroups: [],
+      },
+    });
+    expect(content).toContain("timer-firing `fN` IDs");
+    expect(content).toContain("Never use recurring timer `tN`");
+    const routing = buildThreadRoutingReminderContent({ reason: "missing", source: "visible_text" });
+    expect(routing).toContain("[thread:main:A:f1]");
+    expect(routing).toContain("Timer progress remains commentary");
+  });
+
   // Leaders recovering from compaction need to know whether visible text or a shell command missed routing.
   it("identifies missing markers on visible leader text", () => {
     const content = buildThreadRoutingReminderContent({ reason: "missing", source: "visible_text" });
@@ -106,7 +133,7 @@ describe("buildThreadRoutingReminderContent", () => {
     });
 
     expect(content).toContain("answer metadata or message shape is invalid: u7");
-    expect(content).toContain("Use the supplied earlier user-message IDs");
+    expect(content).toContain("Use the supplied earlier human `uN` or timer-firing `fN` IDs");
     expect(content).toContain("did not gain coverage");
   });
 

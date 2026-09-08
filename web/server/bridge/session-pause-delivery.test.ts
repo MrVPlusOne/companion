@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "../session-store.js";
-import { queuePausedUserMessage } from "../session-pause.js";
+import { buildProgrammaticUserMessage, queuePausedUserMessage } from "../session-pause.js";
 import type { BrowserOutgoingMessage, CodexAutoPauseRecoveryLink } from "../session-types.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
 import { unpauseSessionForDelivery } from "./session-pause-delivery.js";
+import { leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
 
 const tempDirs: string[] = [];
 
@@ -173,6 +174,47 @@ function expectEveryReleasedLinkOwnedOnce(session: BrowserTransportSessionLike):
 }
 
 describe("manual pause recovery-link transfer", () => {
+  it("retains a server-created timer firing and destination through manual unpause", async () => {
+    // Queue serialization and the real internal ingress path must preserve
+    // provenance; treating resume as fresh browser JSON would erase it.
+    const message = JSON.parse(
+      JSON.stringify(
+        buildProgrammaticUserMessage({
+          content: "[⏰ Timer t1 reminder] Report",
+          agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+          threadRoute: { threadKey: "q-42", questId: "q-42" },
+          options: { timerFiring: { timerId: "t1", scheduledFireAt: 1 } },
+        }),
+      ),
+    );
+    const session = makeSession(message);
+    session.state.pause!.queuedMessages[0]!.source = "programmatic";
+    const route = vi.fn((target: BrowserTransportSessionLike, routed: BrowserOutgoingMessage) => {
+      if (routed.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: "timer-input",
+        content: routed.content,
+        timestamp: 120,
+        cancelable: true,
+        threadKey: routed.threadKey,
+        leaderTimerMessageId: leaderTimerMessageIdForDelivery(target, routed),
+      });
+    });
+
+    await unpauseSessionForDelivery(session as any, makeDeliveryDeps(() => makeIngressDeps({ route })) as any);
+
+    expect(session.state.pause).toBeNull();
+    expect(route).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        timerFiring: { timerId: "t1", scheduledFireAt: 1 },
+        threadKey: "q-42",
+      }),
+      undefined,
+    );
+    expect(session.pendingCodexInputs[0]).toMatchObject({ leaderTimerMessageId: "f1", threadKey: "q-42" });
+  });
+
   it("transfers a released link into normal pending delivery", async () => {
     const message = recoveryMessage();
     const session = makeSession(message);

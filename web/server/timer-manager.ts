@@ -3,6 +3,8 @@ import type { SessionTimer, SessionTimerFile, TimerCreateInput } from "./timer-t
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { resolveTimerSchedule } from "./timer-parse.js";
 import * as timerStore from "./timer-store.js";
+import { normalizeThreadTarget } from "../shared/thread-routing.js";
+import { normalizeThreadRoute } from "./thread-routing-metadata.js";
 
 const SWEEP_INTERVAL_MS = 5_000;
 const MAX_TIMERS_PER_SESSION = 50;
@@ -66,6 +68,10 @@ export class TimerManager {
   async createTimer(sessionId: string, input: TimerCreateInput): Promise<SessionTimer> {
     const title = input.title?.trim();
     if (!title) throw new Error("Timer title is required");
+    const threadTarget = typeof input.threadKey === "string" ? normalizeThreadTarget(input.threadKey) : null;
+    if (input.threadKey !== undefined && !threadTarget) {
+      throw new Error("Timer thread must be main or q-N");
+    }
 
     const schedule = resolveTimerSchedule(input);
     if (!Number.isFinite(schedule.nextFireAt)) throw new Error("Invalid timer schedule: non-finite fire time");
@@ -80,6 +86,7 @@ export class TimerManager {
     const timer: SessionTimer = {
       id,
       sessionId,
+      ...(threadTarget ? { threadKey: threadTarget.threadKey } : {}),
       title,
       description: input.description?.trim() ?? "",
       type: schedule.type,
@@ -118,10 +125,13 @@ export class TimerManager {
 
     // Notify the agent that the user manually cancelled this timer
     const content = `[⏰ Timer ${timerId} cancelled] ${timer.title}`;
-    this.wsBridge.injectUserMessage(sessionId, content, {
-      sessionId: `timer:${timerId}`,
-      sessionLabel: `Timer ${timerId}`,
-    });
+    this.wsBridge.injectUserMessage(
+      sessionId,
+      content,
+      { sessionId: `timer:${timerId}`, sessionLabel: `Timer ${timerId}` },
+      undefined,
+      normalizeThreadRoute(timer.threadKey) ?? undefined,
+    );
 
     console.log(`${LOG_TAG} Cancelled timer ${timerId} for session ${sessionId.slice(0, 8)}`);
     return true;
@@ -241,10 +251,14 @@ export class TimerManager {
       this.formatSkippedOccurrences(context.skippedCount) +
       this.formatLateDeliveryNote(context.scheduledFireAt, Date.now()) +
       (timer.description ? `\n\nEarlier note:\n${timer.description}` : "");
-    const result = this.wsBridge.injectUserMessage(sessionId, content, {
-      sessionId: `timer:${timer.id}`,
-      sessionLabel: `Timer ${timer.id}`,
-    });
+    const result = this.wsBridge.injectUserMessage(
+      sessionId,
+      content,
+      { sessionId: `timer:${timer.id}`, sessionLabel: `Timer ${timer.id}` },
+      undefined,
+      normalizeThreadRoute(timer.threadKey) ?? undefined,
+      { timerFiring: { timerId: timer.id, scheduledFireAt: context.scheduledFireAt } },
+    );
     console.log(`${LOG_TAG} Fired timer ${timer.id} for session ${sessionId.slice(0, 8)}: ${result}`);
     return result;
   }

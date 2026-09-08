@@ -3,6 +3,7 @@ import type { ReplyContext } from "../shared/reply-context.js";
 import type { CodexAutoPauseRecoveryLink } from "./codex-auto-pause-types.js";
 import type { CodexAutoPauseInputSourceKind } from "./codex-outbound-turn-types.js";
 import type { LeaderThreadOutcomeReminderGuard } from "./leader-thread-response-types.js";
+import type { TimerFiring } from "./timer-types.js";
 import type { TakodeHerdBatchSnapshot, ThreadRef, VsCodeSelectionMetadata } from "./session-types.js";
 
 export interface PendingCodexInputImageDraft {
@@ -53,6 +54,10 @@ export interface PendingCodexInput {
   recentAskBoundaryBefore?: "visible_response";
   leaderResponseCoverageVersion?: 1;
   leaderUserMessageId?: string;
+  /** Retains the same firing reference through queueing, receipt, and recovery. */
+  leaderTimerMessageId?: string;
+  /** Original server-only occurrence proof, including any retained firing reference. */
+  timerFiring?: TimerFiring;
   /** Server-only source classification used by Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
   /** Server-only correlation for a held input released into normal Codex delivery. */

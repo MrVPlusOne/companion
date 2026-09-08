@@ -713,6 +713,15 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(leader).toContain("they are answers only when setup or dispatch itself fully satisfies the request");
     expect(leader).toContain("cannot satisfy answer coverage");
     expect(leader).toContain("Every direct human message delivered to a leader has an `id:uN` source-envelope field");
+    // Timer work uses server-issued firing IDs and a saved destination; progress
+    // remains optional commentary rather than creating another human obligation.
+    expect(leader).toContain("[thread:main:A:f1]");
+    expect(leader).toContain("[thread:q-N:A:u1,f2]");
+    expect(leader).toContain("Timer firings are optional answer targets");
+    expect(leader).toContain("answering them leaves unrelated requests pending");
+    expect(leader).toContain("`--thread main` or `--thread q-N`");
+    expect(leader).toContain("inherits a valid active-turn route only while the leader is generating");
+    expect(leader).toContain("otherwise specify the destination explicitly");
     // Exercise the generated leader prompt: routing must use supplied references
     // without reintroducing a source-lookup step or a single-owner restriction.
     expect(leader).toContain("Use the supplied user-message IDs and available conversation context");

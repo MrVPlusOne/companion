@@ -1,3 +1,4 @@
+import { isCanonicalLeaderTimerMessageId, isLeaderTimerAnswerTarget } from "../../shared/leader-answer-message-id.js";
 import {
   leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
@@ -222,11 +223,17 @@ export function resolveThreadResponses(
 
   if (state.ready !== (state.pendingMessageCount === 0)) return null;
   const projectedUserMessageIds = new Map<string, string>();
+  const projectedHistoryIds = new Map<string, string>();
   let conflictingProjectedUserMessageId = false;
   const registerProjectedUserMessageId = (historyMessageId: string, userMessageId: string) => {
     const existing = projectedUserMessageIds.get(historyMessageId);
-    if (existing && existing !== userMessageId) conflictingProjectedUserMessageId = true;
-    else projectedUserMessageIds.set(historyMessageId, userMessageId);
+    const existingHistoryId = projectedHistoryIds.get(userMessageId);
+    if ((existing && existing !== userMessageId) || (existingHistoryId && existingHistoryId !== historyMessageId))
+      conflictingProjectedUserMessageId = true;
+    else {
+      projectedUserMessageIds.set(historyMessageId, userMessageId);
+      projectedHistoryIds.set(userMessageId, historyMessageId);
+    }
   };
   for (const pending of state.pendingMessages) {
     registerProjectedUserMessageId(pending.historyMessageId, pending.userMessageId);
@@ -239,7 +246,7 @@ export function resolveThreadResponses(
   }
   if (conflictingProjectedUserMessageId) return null;
 
-  const directUsers = new Map<
+  const visibleTargets = new Map<
     string,
     {
       turnId: string;
@@ -278,7 +285,7 @@ export function resolveThreadResponses(
           }
           const userMessageId = persistedUserMessageId ?? projectedUserMessageId;
           if (typeof userMessageId === "string" && typeof userMessage.historyIndex === "number") {
-            directUsers.set(userMessage.id, {
+            visibleTargets.set(userMessage.id, {
               turnId: turn.id,
               order,
               historyIndex: userMessage.historyIndex,
@@ -291,6 +298,34 @@ export function resolveThreadResponses(
       }
       for (const entry of presentationEntries(turn)) {
         if (entry.kind !== "message") continue;
+        const message = entry.msg;
+        const timerFields = { ...message.metadata, agentSource: message.agentSource, content: message.content };
+        if (
+          message.role === "user" &&
+          !message.metadata?.codexSubagent &&
+          message.parentToolUseId == null &&
+          isLeaderTimerAnswerTarget(timerFields)
+        ) {
+          const ownerThreadKey = leaderResponseProvenCurrentOwnerThreadKey(message.metadata ?? {});
+          const timerMessageId = message.metadata!.leaderTimerMessageId!;
+          const projectedId = projectedUserMessageIds.get(message.id);
+          if (projectedId && projectedId !== timerMessageId) invalidVisibleDirectUser = true;
+          if (
+            ownerThreadKey &&
+            leaderResponseMessageIsAssociatedWithThread(message.metadata ?? {}, normalizedThreadKey)
+          ) {
+            if (visibleTargets.has(message.id)) duplicateVisibleDirectUser = true;
+            if (Number.isInteger(message.historyIndex))
+              visibleTargets.set(message.id, {
+                turnId: turn.id,
+                order,
+                historyIndex: message.historyIndex!,
+                userMessageId: timerMessageId,
+                ownerThreadKey,
+                message,
+              });
+          }
+        }
         if (responseEntries.has(entry.msg.id)) duplicateResponseEntryIds.add(entry.msg.id);
         responseEntries.set(entry.msg.id, { turnId: turn.id, order, entry });
       }
@@ -305,7 +340,7 @@ export function resolveThreadResponses(
   const referencedUsers = new Map<
     string,
     { historyIndex: number; userMessageId: string; ownerThreadKey: string; message: ChatMessage }
-  >(directUsers);
+  >(visibleTargets);
   const seenProofIds = new Set<string>();
   for (const message of proofMessages) {
     if (!projectedUserMessageIds.has(message.id)) continue;
@@ -313,15 +348,22 @@ export function resolveThreadResponses(
     seenProofIds.add(message.id);
     const ownerThreadKey = leaderResponseProvenCurrentOwnerThreadKey(message.metadata ?? {});
     const projectedId = projectedUserMessageIds.get(message.id)!;
+    const timerTarget = isLeaderTimerAnswerTarget({
+      ...message.metadata,
+      agentSource: message.agentSource,
+      content: message.content,
+    });
+    const persistedId = timerTarget ? message.metadata?.leaderTimerMessageId : message.metadata?.leaderUserMessageId;
     if (
       message.role !== "user" ||
-      message.agentSource != null ||
+      (message.agentSource != null && !timerTarget) ||
       message.metadata?.codexSubagent ||
       message.parentToolUseId != null ||
-      message.metadata?.leaderResponseCoverageVersion !== 1 ||
+      (!timerTarget &&
+        (message.metadata?.leaderResponseCoverageVersion !== 1 || isCanonicalLeaderTimerMessageId(projectedId))) ||
       !Number.isInteger(message.historyIndex) ||
       !ownerThreadKey ||
-      (message.metadata.leaderUserMessageId && message.metadata.leaderUserMessageId !== projectedId)
+      (persistedId && persistedId !== projectedId)
     )
       return null;
     const existing = referencedUsers.get(message.id);
@@ -343,11 +385,13 @@ export function resolveThreadResponses(
   const pendingIds = new Set<string>();
   const pendingAnswerIds = new Set<string>();
   for (const pending of state.pendingMessages) {
-    const directUser = directUsers.get(pending.historyMessageId);
+    const directUser = visibleTargets.get(pending.historyMessageId);
     if (
       pendingIds.has(pending.historyMessageId) ||
       pendingAnswerIds.has(pending.userMessageId) ||
       !directUser ||
+      directUser.message.agentSource != null ||
+      directUser.message.metadata?.leaderResponseCoverageVersion !== 1 ||
       directUser.ownerThreadKey !== normalizedThreadKey ||
       directUser.userMessageId !== pending.userMessageId
     ) {
@@ -409,12 +453,12 @@ export function resolveThreadResponses(
         if (referencedAnchors[index - 1]!.historyIndex >= referencedAnchors[index]!.historyIndex) return null;
       }
     const visibleAnchors = response.referencedUserMessageIds.flatMap((messageId) => {
-      const anchor = directUsers.get(messageId);
+      const anchor = visibleTargets.get(messageId);
       return anchor ? [anchor] : [];
     });
     const authoredThreadKey = answerMetadata?.authoredThreadKey ?? responseThreadKey;
     if (visibleAnchors.length === 0 && authoredThreadKey !== normalizedThreadKey) return null;
-    const coverageAnchors = response.coveredUserMessageIds.map((messageId) => directUsers.get(messageId));
+    const coverageAnchors = response.coveredUserMessageIds.map((messageId) => visibleTargets.get(messageId));
     if (
       coverageAnchors.some(
         (anchor, index) =>

@@ -290,6 +290,7 @@ export function normalizeHistoryMessageToChatMessages(
         ? { leaderResponseCoverageVersion: histMsg.leaderResponseCoverageVersion }
         : {}),
       ...(histMsg.leaderUserMessageId ? { leaderUserMessageId: histMsg.leaderUserMessageId } : {}),
+      ...(histMsg.leaderTimerMessageId ? { leaderTimerMessageId: histMsg.leaderTimerMessageId } : {}),
     };
     const metadata: ChatMessage["metadata"] = {
       ...(histMsg.replyContext ? { replyContext: histMsg.replyContext } : {}),

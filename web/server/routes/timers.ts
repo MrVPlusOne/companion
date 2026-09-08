@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import * as sessionNames from "../session-names.js";
 import type { RouteContext } from "./context.js";
+import { normalizeThreadRoute } from "../thread-routing-metadata.js";
+import type { TimerCreateInput } from "../timer-types.js";
 
 export function createTimerRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -54,7 +56,24 @@ export function createTimerRoutes(ctx: RouteContext) {
     if (!ctx.timerManager) return c.json({ error: "Timer manager not available" }, 503);
 
     try {
-      const body = await c.req.json();
+      let body = await c.req.json<TimerCreateInput>();
+      const session = wsBridge.getSession(sessionId);
+      const isLeader =
+        session?.state.isOrchestrator === true || launcher.getSession(sessionId)?.isOrchestrator === true;
+      if (isLeader && body.threadKey === undefined) {
+        // Only a running turn supplies current context. History and an idle
+        // session's last route can belong to unrelated work.
+        const route = session?.isGenerating
+          ? normalizeThreadRoute(session.activeTurnRoute?.threadKey, session.activeTurnRoute?.questId)
+          : null;
+        if (!route) {
+          return c.json(
+            { error: "Leader timer requires --thread main or --thread q-N when no active thread is known" },
+            400,
+          );
+        }
+        body = { ...body, threadKey: route.threadKey };
+      }
       const timer = await ctx.timerManager.createTimer(sessionId, body);
       return c.json({ timer }, 201);
     } catch (err) {

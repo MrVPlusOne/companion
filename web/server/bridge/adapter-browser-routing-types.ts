@@ -15,6 +15,7 @@ import type { CodexReasoningPreviewsByThread } from "./codex-reasoning-preview-s
 import type { MemoryCatalogInjectionBundle } from "../memory-catalog-injection-utils.js";
 import type { ModelAuthorityDecision } from "../model-identity-contract.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
+import type { RecoveryDeliveryTransfer } from "./recovery-delivery-transfer.js";
 
 export type InterruptSource = "user" | "leader" | "system";
 
@@ -82,6 +83,7 @@ export interface AdapterBrowserRoutingSessionLike {
   pendingMessages: string[];
   pendingCodexTurns: CodexOutboundTurn[];
   pendingCodexInputs: PendingCodexInput[];
+  recoveryDeliveryTransfers?: RecoveryDeliveryTransfer[];
   forceCompactPending: boolean;
   pendingStartupMemoryCatalogInjection?: boolean;
   isGenerating: boolean;

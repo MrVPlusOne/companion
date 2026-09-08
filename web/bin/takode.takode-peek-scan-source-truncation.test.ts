@@ -800,6 +800,46 @@ describe("takode peek/scan source-aware truncation", () => {
     }
   });
 
+  it("reveals the full timer source through an explicit firing ID while keeping ordinary reads compact", async () => {
+    // Exact supplied source references are the explicit detail path; a large
+    // automatic note must not make ordinary numeric reads more verbose.
+    const content = `[⏰ Timer t1 reminder] Check progress\n${"x".repeat(20_000)} FIRING_DETAIL_END`;
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      requests.push(req.url ?? "");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          idx: 7,
+          type: "user_message",
+          ts: 1_700_000_000_000,
+          totalLines: 2,
+          offset: 0,
+          limit: 200,
+          content,
+          rawMessage: { type: "user_message", agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" } },
+        }),
+      );
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const env = { ...process.env, COMPANION_SESSION_ID: undefined, COMPANION_AUTH_TOKEN: undefined };
+    try {
+      const ordinary = await runTakode(["read", "153", "7", "--port", String(port)], env);
+      const exact = await runTakode(["read", "153", "f2", "--port", String(port)], env);
+      expect(ordinary.status).toBe(0);
+      expect(ordinary.stdout).toContain("more chars hidden");
+      expect(ordinary.stdout).not.toContain("FIRING_DETAIL_END");
+      expect(exact.status).toBe(0);
+      expect(exact.stdout).toContain("FIRING_DETAIL_END");
+      expect(exact.stdout).not.toContain("more chars hidden");
+      expect(requests).toEqual(["/api/sessions/153/messages/7", "/api/sessions/153/messages/f2"]);
+    } finally {
+      server.close();
+    }
+  });
+
   it("gives takode read a generous human user window while keeping herd reads shorter and labeled", async () => {
     const userContent = makeWindowedContent("read-user ", 1888, "READ_USER_KEEP", 220, "READ_USER_HIDE");
     const herdContent = makeWindowedContent("read-herd ", 120, "READ_HERD_KEEP", 120, "READ_HERD_HIDE");

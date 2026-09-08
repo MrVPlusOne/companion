@@ -11,6 +11,8 @@ export type LeaderAnswerTrackedUserMetadata = {
   leaderResponseCoverageVersion?: 1;
   /** Concise stable session-scoped ID exposed only in leader source envelopes. */
   leaderUserMessageId?: string;
+  /** Stable session-scoped reference to one server-delivered timer firing. */
+  leaderTimerMessageId?: string;
 };
 
 /** Control metadata retained on ordinary routed leader assistant rows until turn settlement. */
@@ -55,6 +57,7 @@ export interface LegacyLeaderThreadResponseRevisionMetadata {
 /** Immutable proof stored on one explicit routed leader answer. */
 export interface LeaderThreadAnswerMetadata {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
+  /** Explicit human (uN) or individual timer-firing (fN) references. */
   answerUserMessageIds: string[];
   observedHistoryLength: number;
   /** Original selected tab, retained independently of automatically derived visibility. */

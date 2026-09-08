@@ -65,6 +65,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { nextLeaderUserMessageId } from "../leader-user-message-id.js";
+import { leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
 import { clearLeaderThreadStatusForCoveredUserMessage } from "./thread-routing-reminder.js";
 import { consumeRecentAskVisibleResponseBoundary } from "../recent-ask-bundles.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
@@ -86,7 +87,7 @@ import type {
   PermissionResponseMessage,
 } from "./adapter-browser-routing-message-types.js";
 import { attachStartupMemoryCatalogPrelude } from "./startup-memory-catalog-prelude.js";
-import { buildAdapterUserMessageSourcePrefix } from "./adapter-browser-routing-source-prefix.js";
+import { buildUserMessageDeliveryPrefix } from "./adapter-browser-routing-source-prefix.js";
 import {
   refreshLeaderThreadOutcomeReminder,
   THREAD_RESPONSE_REMINDER_SOURCE_ID,
@@ -1238,6 +1239,9 @@ export function ingestUserMessage(
       if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {
         deps.invalidateLeaderThreadTabsForSession?.(session.id);
       }
+    } else if (isLeaderSession) {
+      const firingId = leaderTimerMessageIdForDelivery(session, msg);
+      if (firingId) userHistoryEntry.leaderTimerMessageId = firingId;
     }
     let userMsgHistoryIdx = -1;
     if (commit) {
@@ -1262,7 +1266,9 @@ export function ingestUserMessage(
       }
       deps.broadcastToBrowsers(session, userHistoryEntry);
       appendProgrammaticHistoryFollowUps(session, msg.historyFollowUps, userHistoryEntry, ts, deps);
-      if (userHistoryEntry.leaderResponseCoverageVersion === 1) deps.refreshBrowserConversationViews?.(session);
+      if (userHistoryEntry.leaderResponseCoverageVersion === 1 || userHistoryEntry.leaderTimerMessageId) {
+        deps.refreshBrowserConversationViews?.(session);
+      }
       emitStoredUserMessageTakodeEvent(deps, session.id, userHistoryEntry, {
         historyIndex: userMsgHistoryIdx,
         turnTarget: wasGenerating ? "queued" : "current",
@@ -1287,24 +1293,6 @@ export function ingestUserMessage(
     return finalize(msg.imageRefs);
   }
   return finalize();
-}
-
-function buildUserMessageDeliveryPrefix(
-  session: AdapterBrowserRoutingSessionLike,
-  ingested: IngestedUserMessage,
-  msg: BrowserUserMessage,
-  contentPreview: string | undefined,
-  deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo">,
-): string {
-  return buildAdapterUserMessageSourcePrefix(
-    session,
-    ingested.timestamp,
-    deps.getLauncherSessionInfo,
-    msg.agentSource,
-    contentPreview,
-    ingested.historyEntry.threadKey,
-    ingested.historyEntry.leaderUserMessageId,
-  );
 }
 
 function emitUserMessageTakodeEvent(
@@ -1780,6 +1768,7 @@ export function routeAdapterBrowserMessage(
           ...(userImageRefs?.length ? { imageRefs: userImageRefs } : {}),
           ...(deliveryContent ? { deliveryContent } : {}),
           ...(msg.historyFollowUps?.length ? { historyFollowUps: msg.historyFollowUps } : {}),
+          ...(msg.timerFiring ? { timerFiring: msg.timerFiring } : {}),
           ...(msg.replyContext ? { replyContext: msg.replyContext } : {}),
           ...(ingested.needsInputReminderText ? { needsInputReminderText: ingested.needsInputReminderText } : {}),
           ...(ingested.needsInputResolutionNoticeText
@@ -1803,6 +1792,9 @@ export function routeAdapterBrowserMessage(
             : {}),
           ...(ingested.historyEntry.leaderUserMessageId
             ? { leaderUserMessageId: ingested.historyEntry.leaderUserMessageId }
+            : {}),
+          ...(ingested.historyEntry.leaderTimerMessageId
+            ? { leaderTimerMessageId: ingested.historyEntry.leaderTimerMessageId }
             : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
           ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),
@@ -1924,29 +1916,17 @@ export function routeAdapterBrowserMessage(
     if (msg.type === "interrupt") {
       deps.markTurnInterrupted(session, msg.interruptSource ?? "user");
     }
-    if (msg.type === "user_message" && typeof (adapterMsg as { content?: unknown }).content === "string") {
-      const msgTs = ingested?.timestamp ?? Date.now();
+    if (msg.type === "user_message" && ingested && typeof (adapterMsg as { content?: unknown }).content === "string") {
       const typed = adapterMsg as { content: string };
       const contentWithReminder = prependNeedsInputNoticesToContent(
         typed.content,
-        ingested?.needsInputResolutionNoticeText,
-        ingested?.needsInputReminderText,
+        ingested.needsInputResolutionNoticeText,
+        ingested.needsInputReminderText,
       ) as string;
-      const sourceThreadKey =
-        ingested?.historyEntry.threadKey ??
-        (deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true ? "main" : undefined);
       adapterMsg = {
         ...adapterMsg,
         content:
-          buildAdapterUserMessageSourcePrefix(
-            session,
-            msgTs,
-            deps.getLauncherSessionInfo,
-            msg.agentSource,
-            contentWithReminder,
-            sourceThreadKey,
-            ingested?.historyEntry.leaderUserMessageId,
-          ) + contentWithReminder,
+          buildUserMessageDeliveryPrefix(session, ingested, msg, contentWithReminder, deps) + contentWithReminder,
       } as BrowserOutgoingMessage;
     }
     const adapter = session.codexAdapter || session.claudeSdkAdapter;

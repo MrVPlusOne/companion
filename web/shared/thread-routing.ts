@@ -1,3 +1,5 @@
+import { isCanonicalLeaderAnswerMessageId } from "./leader-answer-message-id.js";
+
 export type ThreadRouteTarget = {
   threadKey: string;
   questId?: string;
@@ -20,8 +22,8 @@ export type ThreadRouteParseResult =
       body: string;
     };
 
-const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:(u[1-9]\d*(?:,u[1-9]\d*)*))?\](?=$|[ \t]|\r?\n)/i;
-const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:(u[1-9]\d*(?:,u[1-9]\d*)*))?\]/i;
+const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:([uf][1-9]\d*(?:,[uf][1-9]\d*)*))?\](?=$|[ \t]|\r?\n)/i;
+const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:([uf][1-9]\d*(?:,[uf][1-9]\d*)*))?\]/i;
 const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
 const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
@@ -81,10 +83,10 @@ export function formatThreadMarker(
   if (role === "answer") {
     if (
       answerUserMessageIds.length === 0 ||
-      answerUserMessageIds.some((id) => !/^u[1-9]\d*$/.test(id)) ||
+      answerUserMessageIds.some((id) => !isCanonicalLeaderAnswerMessageId(id)) ||
       new Set(answerUserMessageIds).size !== answerUserMessageIds.length
     ) {
-      throw new Error("Answer thread markers require one or more canonical user-message IDs.");
+      throw new Error("Answer thread markers require one or more canonical user or timer-firing IDs.");
     }
     return `[thread:${threadKey}:A:${answerUserMessageIds.join(",")}]`;
   }

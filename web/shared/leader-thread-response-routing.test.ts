@@ -10,6 +10,25 @@ import {
 } from "./leader-thread-response-routing.js";
 
 describe("leader answer ownership routing", () => {
+  it("requires complete owner proof for mixed user requests and timer firings", () => {
+    // Owner partitions retain one answer identity across both target types.
+    const ownerGroups = [
+      { threadKey: "main", userMessageIds: ["u1"] },
+      { threadKey: "q-2", userMessageIds: ["f1", "f2"] },
+    ];
+    expect(
+      leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["f1", "u1", "f2"], ownerGroups }, "main"),
+    ).toEqual(
+      new Map([
+        ["u1", "main"],
+        ["f1", "q-2"],
+        ["f2", "q-2"],
+      ]),
+    );
+    expect(leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["f1", "u1"], ownerGroups }, "main")).toBeNull();
+    expect(leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["t1"] }, "main")).toBeNull();
+  });
+
   it("decodes an exact owner partition independently from authored order and source route", () => {
     // One stored answer can cover nonadjacent prompts from several owners.
     expect(

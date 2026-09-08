@@ -273,6 +273,8 @@ export interface ChatMessage {
     leaderResponseCoverageVersion?: 1;
     /** Concise stable session-scoped ID exposed in leader source envelopes. */
     leaderUserMessageId?: string;
+    /** Server-issued identity of one timer firing, separate from its recurring timer ID. */
+    leaderTimerMessageId?: string;
     /** Immutable proof for an explicit routed leader answer. */
     threadAnswer?: LeaderThreadAnswerMetadata;
     /** Read-only compatibility for persisted server-defined response batches. */

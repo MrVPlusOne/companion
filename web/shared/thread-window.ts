@@ -14,6 +14,7 @@ import {
   leaderResponseProvenCurrentOwnerThreadKey,
 } from "./leader-thread-response-routing.js";
 import { assignSessionScopedLeaderUserMessageIds } from "./leader-user-message-id.js";
+import { isCanonicalLeaderTimerMessageId, isLeaderTimerAnswerTarget } from "./leader-answer-message-id.js";
 import { deriveWindowAvailability } from "./window-availability.js";
 import { isCodexLeaderRecoveryDiagnosticSourceId, isLeaderKickoffPrompt } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
@@ -492,7 +493,7 @@ function addCurrentThreadResponseSupport(
         !referenced ||
         duplicateUserIds.has(referencedId) ||
         referenced.message.type !== "user_message" ||
-        referenced.message.agentSource != null ||
+        (referenced.message.agentSource != null && !isLeaderTimerAnswerTarget(referenced.message)) ||
         referenced.message.codexSubagent != null ||
         leaderResponseProvenCurrentOwnerThreadKey(referenced.message) !==
           ownerThreadKeys.get(answer.answerUserMessageIds[index]!) ||
@@ -549,6 +550,8 @@ function pendingProjectionMatchesMessage(
   return (
     message?.type === "user_message" &&
     message.id === pending.historyMessageId &&
+    message.agentSource == null &&
+    message.codexSubagent == null &&
     expectedUserMessageId === pending.userMessageId &&
     message.leaderResponseCoverageVersion === 1 &&
     leaderResponseOwnerThreadKey(message) === threadKey
@@ -559,10 +562,39 @@ function projectedLeaderUserMessageIdsByHistoryId(
   messages: ReadonlyArray<BrowserIncomingMessage>,
 ): Map<string, string> {
   const eligible = messages.flatMap((message) =>
-    message.type === "user_message" && message.id && message.leaderResponseCoverageVersion === 1 ? [message] : [],
+    message.type === "user_message" &&
+    message.id &&
+    message.agentSource == null &&
+    message.codexSubagent == null &&
+    message.leaderResponseCoverageVersion === 1
+      ? [message]
+      : [],
   );
   const assignedIds = assignSessionScopedLeaderUserMessageIds(eligible.map((message) => message.leaderUserMessageId));
-  return new Map(eligible.map((message, index) => [message.id!, assignedIds[index]!]));
+  const ids = new Map(eligible.map((message, index) => [message.id!, assignedIds[index]!]));
+  const timerIdCounts = new Map<string, number>();
+  for (const message of messages) {
+    if (
+      message.type !== "user_message" ||
+      message.codexSubagent ||
+      !isCanonicalLeaderTimerMessageId(message.leaderTimerMessageId)
+    )
+      continue;
+    timerIdCounts.set(message.leaderTimerMessageId, (timerIdCounts.get(message.leaderTimerMessageId) ?? 0) + 1);
+  }
+  // A firing reference is persisted server authority; never reconstruct one
+  // from the recurring timer ID or choose a winner for duplicate firing IDs.
+  for (const message of messages) {
+    if (
+      message.type === "user_message" &&
+      message.id &&
+      !message.codexSubagent &&
+      isLeaderTimerAnswerTarget(message) &&
+      timerIdCounts.get(message.leaderTimerMessageId!) === 1
+    )
+      ids.set(message.id, message.leaderTimerMessageId!);
+  }
+  return ids;
 }
 
 /**

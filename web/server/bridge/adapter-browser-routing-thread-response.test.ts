@@ -4,6 +4,195 @@ import { ingestUserMessage, routeBrowserMessage } from "./adapter-browser-routin
 import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import { THREAD_RESPONSE_REMINDER_SOURCE_ID } from "./leader-thread-outcome-validator.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
+import {
+  buildAdapterUserMessageSourcePrefix,
+  buildUserMessageDeliveryPrefix,
+} from "./adapter-browser-routing-source-prefix.js";
+
+describe("leader timer firing ingestion", () => {
+  const firing = {
+    type: "user_message" as const,
+    content: "[⏰ Timer t4 reminder] Daily report\n\nEarlier note:\nProduce the report.",
+    agentSource: { sessionId: "timer:t4", sessionLabel: "Timer t4" },
+    threadKey: "q-42",
+    timerFiring: { timerId: "t4", scheduledFireAt: 1_000 },
+  };
+
+  it("supplies one firing reference without turning the timer into a human request", async () => {
+    // The model receives an exact source reference; stored reminder prose is unchanged.
+    const target = session();
+    const runtime = deps();
+    const ingested = await ingestUserMessage(target, firing, runtime);
+    expect(ingested.historyEntry).toMatchObject({
+      content: firing.content,
+      leaderTimerMessageId: "f1",
+      threadKey: "q-42",
+      questId: "q-42",
+    });
+    expect(ingested.historyEntry).not.toHaveProperty("leaderUserMessageId");
+    expect(ingested.historyEntry).not.toHaveProperty("leaderResponseCoverageVersion");
+    expect(runtime.touchUserMessage).not.toHaveBeenCalled();
+    expect(runtime.refreshBrowserConversationViews).toHaveBeenCalledWith(target);
+    const prefix = buildAdapterUserMessageSourcePrefix(
+      target,
+      ingested.timestamp,
+      runtime.getLauncherSessionInfo,
+      firing.agentSource,
+      firing.content,
+      "q-42",
+      undefined,
+      ingested.historyEntry.leaderTimerMessageId,
+    );
+    expect(prefix).toMatch(/^\[Timer reminder .* id:f1\] \[thread:q-42\] $/);
+  });
+
+  it("reserves references for queued recurring firings before either commits", async () => {
+    // Concurrent queued occurrences must not both be assigned the next history ordinal.
+    const target = session();
+    const runtime = deps();
+    const first = await ingestUserMessage(target, firing, runtime, { commit: false });
+    target.pendingCodexInputs.push({
+      id: first.historyEntry.id!,
+      content: firing.content,
+      timestamp: first.timestamp,
+      cancelable: true,
+      leaderTimerMessageId: first.historyEntry.leaderTimerMessageId,
+    });
+    const second = await ingestUserMessage(target, firing, runtime, { commit: false });
+    expect(first.historyEntry.leaderTimerMessageId).toBe("f1");
+    expect(second.historyEntry.leaderTimerMessageId).toBe("f2");
+    expect(target.messageHistory).toEqual([]);
+  });
+
+  it.each([
+    "manual pause",
+    "auto-pause",
+    "recovery transfer",
+  ])("reserves assigned references retained in %s", async (owner) => {
+    // A removed pending input still owns its firing ID while another durable
+    // delivery state holds it, including after process restart.
+    const target = session();
+    const message = { ...firing, timerFiring: { ...firing.timerFiring, messageId: "f7" } };
+    if (owner === "manual pause") {
+      target.state.pause = {
+        pausedAt: 1,
+        queuedMessages: [{ id: "held", queuedAt: 2, source: "programmatic", message }],
+      };
+    } else if (owner === "auto-pause") {
+      target.state.codex_result_error_auto_pause = {
+        family: "model_not_supported",
+        fingerprint: "model_not_supported:selected_model",
+        streak: 1,
+        threshold: 1,
+        pausedAt: 1,
+        lastError: "unsupported model",
+        lastErrorAt: 1,
+        lastSourceKind: "automatic",
+        totalMatchingErrors: 1,
+        heldInputs: [{ id: "held", queuedAt: 2, lastQueuedAt: 2, source: "programmatic", count: 1, message }],
+      };
+    } else {
+      target.recoveryDeliveryTransfers = [
+        {
+          id: "recovery-transfer-held",
+          createdAt: 2,
+          sourceOwnerKind: "auto_pause",
+          sourceOwnerId: "held",
+          sourceOwnerCount: 1,
+          payloadBytes: 200,
+          message,
+        },
+      ];
+    }
+
+    const ingested = await ingestUserMessage(target, firing, deps(), { commit: false });
+
+    expect(ingested.historyEntry.leaderTimerMessageId).toBe("f8");
+    expect(target.messageHistory).toEqual([]);
+  });
+
+  it("reuses a held firing reference without duplicating its model source envelope", async () => {
+    const target = session();
+    const runtime = deps();
+    const deliveryContent = "[Timer reminder earlier id:f7] [thread:q-42] " + firing.content;
+    const message = { ...firing, deliveryContent, timerFiring: { ...firing.timerFiring, messageId: "f7" } };
+
+    const ingested = await ingestUserMessage(target, message, runtime, { commit: false });
+
+    expect(ingested.historyEntry.leaderTimerMessageId).toBe("f7");
+    expect(buildUserMessageDeliveryPrefix(target, ingested, message, deliveryContent, runtime)).toBe("");
+    expect(message.deliveryContent).toBe(deliveryContent);
+  });
+
+  it("keeps the firing reference in a wrapped timer's model envelope without rewriting raw content", async () => {
+    // Materialized auto-pause groups retain their existing wrapper and one
+    // representative; the wrapper must not downgrade a genuine firing to an event.
+    const target = session();
+    const runtime = deps();
+    const message = {
+      ...firing,
+      content:
+        "[Takode auto-pause resumed: 2 similar automatic inputs were coalesced while delivery was paused.]\n\n" +
+        firing.content,
+    };
+    const ingested = await ingestUserMessage(target, message, runtime);
+
+    expect(ingested.historyEntry.content).toBe(message.content);
+    expect(ingested.historyEntry.leaderTimerMessageId).toBe("f1");
+    expect(buildUserMessageDeliveryPrefix(target, ingested, message, message.content, runtime)).toMatch(/id:f1\]/);
+  });
+
+  it.each([
+    "committed",
+    "pending",
+    "malformed ID",
+    "malformed provenance",
+  ])("rejects retained identity with %s evidence before mutation", async (kind) => {
+    const target = session();
+    const runtime = deps();
+    if (kind === "committed") await ingestUserMessage(target, firing, runtime);
+    if (kind === "pending")
+      target.pendingCodexInputs.push({
+        id: "prior-input",
+        content: firing.content,
+        timestamp: 1,
+        cancelable: true,
+        leaderTimerMessageId: "f1",
+      });
+    const message = {
+      ...firing,
+      deliveryContent: "[Timer reminder earlier id:f1] " + firing.content,
+      timerFiring: {
+        ...firing.timerFiring,
+        messageId: kind === "malformed ID" ? "u1" : "f1",
+        ...(kind === "malformed provenance" ? { scheduledFireAt: -1 } : {}),
+      },
+    };
+    const historyBefore = structuredClone(target.messageHistory);
+    const pendingBefore = structuredClone(target.pendingCodexInputs);
+
+    expect(() => ingestUserMessage(target, message, runtime)).toThrow(/Retained timer firing/);
+    expect(target.messageHistory).toEqual(historyBefore);
+    expect(target.pendingCodexInputs).toEqual(pendingBefore);
+  });
+
+  it.each([
+    { name: "unproven injected reminder", message: { ...firing, timerFiring: undefined } },
+    { name: "cancellation", message: { ...firing, content: "[⏰ Timer t4 cancelled] Daily report" } },
+    { name: "different source", message: { ...firing, agentSource: { sessionId: "timer:t5" } } },
+    { name: "invalid schedule", message: { ...firing, timerFiring: { timerId: "t4", scheduledFireAt: NaN } } },
+  ])("does not assign answer authority to $name", async ({ message }) => {
+    const ingested = await ingestUserMessage(session(), message, deps());
+    expect(ingested.historyEntry).not.toHaveProperty("leaderTimerMessageId");
+  });
+
+  it("keeps worker timer delivery outside the leader answer contract", async () => {
+    const runtime = deps();
+    vi.mocked(runtime.getLauncherSessionInfo).mockReturnValue({ isOrchestrator: false } as any);
+    const ingested = await ingestUserMessage(session(), firing, runtime);
+    expect(ingested.historyEntry).not.toHaveProperty("leaderTimerMessageId");
+  });
+});
 
 function session(): AdapterBrowserRoutingSessionLike {
   return {

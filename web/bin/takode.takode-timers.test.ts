@@ -65,9 +65,15 @@ async function runTakode(
 }
 
 describe("takode timers", () => {
-  it("creates timers with separate title and description", async () => {
-    // Verifies timer creation sends the new title + description payload shape and
-    // keeps the success output centered on the concise title.
+  it.each([
+    { threadKey: undefined, valid: true },
+    { threadKey: "main", valid: true },
+    { threadKey: "q-42", valid: true },
+    { threadKey: "all", valid: false },
+    { threadKey: "", valid: false },
+  ])("creates timers with a validated destination and separate title/description: %j", async ({ threadKey, valid }) => {
+    // Verify the CLI forwards explicit destinations, rejects invalid/missing flag
+    // values before creation, and keeps unrelated server metadata out of output.
     let receivedBody: Record<string, unknown> | null = null;
     const server = createServer((req, res) => {
       const method = req.method || "";
@@ -99,6 +105,8 @@ describe("takode timers", () => {
                 nextFireAt: Date.now() + 30 * 60 * 1000,
                 createdAt: Date.now(),
                 fireCount: 0,
+                ...(threadKey ? { threadKey } : {}),
+                injectedSystemPrompt: "unrelated-private-metadata".repeat(1_000),
               },
             }),
           );
@@ -124,6 +132,7 @@ describe("takode timers", () => {
           "Inspect the latest failing shard if the build is red.",
           "--in",
           "30m",
+          ...(threadKey === undefined ? [] : ["--thread", threadKey]),
           "--port",
           String(port),
         ],
@@ -134,14 +143,25 @@ describe("takode timers", () => {
         },
       );
 
+      if (!valid) {
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("--thread requires main or q-N");
+        expect(receivedBody).toBeNull();
+        return;
+      }
+
       expect(result.status).toBe(0);
       expect(receivedBody).toEqual({
         title: "Check build health",
         description: "Inspect the latest failing shard if the build is red.",
         in: "30m",
+        ...(threadKey ? { threadKey } : {}),
       });
       expect(result.stdout).toContain('Created timer t1 (delay): "Check build health"');
       expect(result.stdout).toContain("Description: Inspect the latest failing shard if the build is red.");
+      if (threadKey) expect(result.stdout).toContain(`Thread: ${threadKey}`);
+      else expect(result.stdout).not.toContain("Thread:");
+      expect(result.stdout).not.toContain("unrelated-private-metadata");
     } finally {
       server.close();
     }
@@ -186,6 +206,7 @@ describe("takode timers", () => {
                 nextFireAt: Date.now() + 10 * 60 * 1000,
                 createdAt: Date.now(),
                 fireCount: 4,
+                threadKey: "q-42",
                 lastFiredAt: Date.now() - 60 * 1000,
               },
             ],
@@ -214,6 +235,7 @@ describe("takode timers", () => {
       expect(result.stdout).toContain("t1  in 30m");
       expect(result.stdout).toContain("t2  every 10m");
       expect(result.stdout).toContain("last=");
+      expect(result.stdout).toContain("thread=q-42");
       expect(result.stdout).toContain('"Refresh context"');
       expect(result.stdout).toContain("Summarize blockers added since the last run.");
     } finally {

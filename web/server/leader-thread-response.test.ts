@@ -64,6 +64,28 @@ function routedAssistant(
   };
 }
 
+function timerFiring(
+  firingId: string,
+  timestamp: number,
+  threadKey = "main",
+): Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  return {
+    type: "user_message",
+    id: `raw-${firingId}`,
+    leaderTimerMessageId: firingId,
+    content: "[⏰ Timer t1 reminder] Check progress",
+    agentSource: { sessionId: "timer:t1" },
+    timestamp,
+    threadKey,
+    ...(threadKey === "main"
+      ? {}
+      : {
+          questId: threadKey,
+          threadRefs: [{ threadKey, questId: threadKey, source: "explicit", attachedAt: timestamp }],
+        }),
+  };
+}
+
 function appendAnswer(
   target: ReturnType<typeof session>,
   id: string,
@@ -117,6 +139,112 @@ function legacyResponse(
 }
 
 describe("explicit routed leader answers", () => {
+  it("retains timer answers without making each firing a pending human obligation", () => {
+    // A recurring timer's deliveries are separate optional targets; adding a
+    // later firing neither supersedes an earlier result nor prevents Ready.
+    const target = session();
+    target.messageHistory.push(timerFiring("f1", 1));
+    expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+    });
+    const first = appendAnswer(target, "first-result", ["f1"], "First check completed.", 1);
+    target.messageHistory.push(timerFiring("f2", 2));
+    appendAnswer(target, "second-result", ["f2"], "Second check completed.", 3);
+    appendAnswer(target, "first-detail", ["f1"], "Additional first-check detail.", 4);
+    const { projection } = buildLeaderThreadResponseState(target, "main");
+    expect(projection).toMatchObject({ pendingMessageCount: 0, ready: true });
+    expect(
+      projection.currentAnswers.map((answer) => [answer.currentMessageId, answer.coveredAnswerUserMessageIds]),
+    ).toEqual([
+      ["first-result", []],
+      ["second-result", ["f2"]],
+      ["first-detail", ["f1"]],
+    ]);
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, first)).toBe(false);
+    expect(buildLeaderThreadResponseState(JSON.parse(JSON.stringify(target)), "main")).toEqual(
+      buildLeaderThreadResponseState(target, "main"),
+    );
+  });
+
+  it("routes a mixed human and firing answer while unrelated human work remains pending", () => {
+    // Coverage is per referenced prompt, not per generating turn or authored tab.
+    const target = session();
+    target.messageHistory.push(human("u1", 1, "q-1"), timerFiring("f1", 2, "q-2"), human("u2", 3));
+    appendAnswer(target, "mixed-result", ["u1", "f1"], "The requested work and timed check are complete.", 3, "q-3");
+    for (const threadKey of ["q-1", "q-2", "q-3"]) {
+      expect(buildLeaderThreadResponseState(target, threadKey).projection).toMatchObject({
+        pendingMessageCount: 0,
+        ready: true,
+        currentAnswers: [{ currentMessageId: "mixed-result", answerUserMessageIds: ["u1", "f1"] }],
+      });
+    }
+    expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
+      pendingMessageCount: 1,
+      pendingMessages: [{ userMessageId: "u2" }],
+      ready: false,
+      currentAnswers: [],
+    });
+  });
+
+  it("rejects unknown, future, cancelled, child, and ambiguous firing targets atomically", () => {
+    // Pair each invalid firing with a real request: rejection must not partially
+    // consume the user's unrelated pending obligation.
+    for (const invalidFiring of [
+      undefined,
+      { ...timerFiring("f1", 2), content: "[⏰ Timer t1 cancelled] Check progress" },
+      { ...timerFiring("f1", 2), agentSource: { sessionId: "system:reminder" } },
+      { ...timerFiring("f1", 2), codexSubagent: { childId: "child-1", rootTurnId: "root" } },
+      { ...timerFiring("f1", 2), leaderTimerMessageId: undefined },
+    ]) {
+      const target = session();
+      target.messageHistory.push(human("u1", 1));
+      if (invalidFiring) target.messageHistory.push(invalidFiring);
+      const answer = routedAssistant("invalid", "Attempted result.", ["u1", "f1"], target.messageHistory.length);
+      target.messageHistory.push(answer);
+      expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
+      expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessageCount).toBe(1);
+    }
+    for (const observedLength of [0, 1]) {
+      const target = session();
+      target.messageHistory.push(human("u1", 1), timerFiring("f1", 2));
+      const answer = routedAssistant("future", "Attempted unseen result.", ["f1"], observedLength);
+      target.messageHistory.push(answer);
+      expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
+    }
+    for (const duplicate of [
+      { ...timerFiring("f1", 2), id: "other-raw" },
+      { ...timerFiring("f2", 2), id: "raw-f1" },
+    ]) {
+      const target = session();
+      target.messageHistory.push(timerFiring("f1", 1), duplicate);
+      const answer = routedAssistant("duplicate", "Attempted ambiguous result.", ["f1"], 2);
+      target.messageHistory.push(answer);
+      expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
+    }
+  });
+
+  it("invalidates stored timer proof after owner reassignment and keeps legacy revisions human-only", () => {
+    // Replay reevaluates the same exact owner snapshot used for human answers.
+    const target = session();
+    const firing = timerFiring("f1", 1, "q-1");
+    target.messageHistory.push(firing);
+    const answer = appendAnswer(target, "result", ["f1"], "Timed check completed.", 1, "q-1");
+    firing.threadRefs!.push({ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 2 });
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, answer)).toBe(false);
+    expect(buildLeaderThreadResponseState(target, "q-1").projection.currentAnswers).toEqual([]);
+    expect(buildLeaderThreadResponseState(target, "q-2").projection).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [],
+    });
+
+    const legacyTarget = session();
+    legacyTarget.messageHistory.push(timerFiring("f1", 1));
+    legacyTarget.messageHistory.push(legacyResponse(legacyTarget, "legacy", "Old answer.", ["raw-f1"], 1));
+    expect(buildLeaderThreadResponseState(legacyTarget, "main").projection.currentAnswers).toEqual([]);
+  });
+
   it("ignores pre-cutover history and projects concise pending IDs", () => {
     const target = session();
     target.messageHistory.push(

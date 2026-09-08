@@ -694,6 +694,55 @@ describe("Takode server-authoritative auth", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("reads exact timer firings by leader-scoped ID and fails ambiguous or ineligible sources closed", async () => {
+    // Two firings of one schedule are individually addressable, while raw
+    // duplicate/cancellation/child rows cannot acquire source authority.
+    launcher.getSession.mockImplementation((id: string) => ({ sessionId: id, isOrchestrator: id !== "worker" }));
+    const firing = (id: string, leaderTimerMessageId: string, title: string) => ({
+      type: "user_message",
+      id,
+      leaderTimerMessageId,
+      content: `[⏰ Timer t1 reminder] ${title}`,
+      agentSource: { sessionId: "timer:t1" },
+      timestamp: 10,
+      threadKey: "q-2",
+      questId: "q-2",
+      threadRefs: [{ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 10 }],
+    });
+    const first = firing("first", "f1", "First firing");
+    const second = firing("second", "f2", "Second firing");
+    bridge._sessions["leader-a"] = { id: "leader-a", messageHistory: [first, second] };
+    bridge._sessions["leader-b"] = { id: "leader-b", messageHistory: [firing("other", "f1", "Other leader")] };
+    bridge._sessions.worker = { id: "worker", messageHistory: [first] };
+
+    for (const [leader, firingId, content] of [
+      ["leader-a", "f1", first.content],
+      ["leader-a", "f2", second.content],
+      ["leader-b", "f1", "[⏰ Timer t1 reminder] Other leader"],
+    ]) {
+      const response = await app.request(`/api/sessions/${leader}/messages/${firingId}?threadKey=q-2`);
+      expect(response.status).toBe(200);
+      expect((await response.json()).content).toBe(content);
+    }
+    expect((await app.request("/api/sessions/worker/messages/f1")).status).toBe(400);
+    expect((await app.request("/api/sessions/leader-a/messages/f3")).status).toBe(404);
+    expect((await app.request("/api/sessions/leader-a/messages/f1?threadKey=q-3")).status).toBe(404);
+    for (const invalid of ["t1", "f0", "f01"]) {
+      expect((await app.request(`/api/sessions/leader-a/messages/${invalid}`)).status).toBe(400);
+    }
+    for (const invalidHistory of [
+      [first, { ...second, leaderTimerMessageId: "f1" }],
+      [first, { ...second, id: "first" }],
+      [{ ...first, content: "[⏰ Timer t1 cancelled] First firing" }],
+      [{ ...first, leaderTimerMessageId: undefined }],
+      [{ ...first, agentSource: { sessionId: "system:other" } }],
+      [{ ...first, codexSubagent: { childId: "child-1", rootTurnId: "root" } }],
+    ]) {
+      bridge._sessions["leader-a"].messageHistory = invalidHistory;
+      expect((await app.request("/api/sessions/leader-a/messages/f1")).status).toBe(404);
+    }
+  });
+
   it("attaches existing Main history entries to a quest thread without moving history", async () => {
     // Backfill must only add projection metadata. Main remains the flat
     // authoritative transcript, while quest threads filter over threadRefs.

@@ -612,6 +612,8 @@ export type BrowserOutgoingMessage =
       deliveryContent?: string;
       /** Server-only visible/history entries committed after this model-bound input. */
       historyFollowUps?: ProgrammaticHistoryFollowUp[];
+      /** Server-only firing provenance; removed from untrusted browser ingress. */
+      timerFiring?: import("./timer-types.js").TimerFiring;
       replyContext?: ReplyContext;
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;

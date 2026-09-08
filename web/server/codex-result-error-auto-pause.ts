@@ -505,6 +505,14 @@ function pendingCodexInputToAutoPauseMessage(input: PendingCodexInput): BrowserU
     // and drop this uncommitted pending input.
     ...(input.imageRefs?.length ? { imageRefs: input.imageRefs } : {}),
     ...(input.deliveryContent ? { deliveryContent: input.deliveryContent } : {}),
+    ...(input.timerFiring
+      ? {
+          timerFiring: {
+            ...input.timerFiring,
+            ...(input.leaderTimerMessageId ? { messageId: input.leaderTimerMessageId } : {}),
+          },
+        }
+      : {}),
     ...(input.replyContext ? { replyContext: input.replyContext } : {}),
     ...(input.vscodeSelection ? { vscodeSelection: input.vscodeSelection } : {}),
     ...(input.agentSource ? { agentSource: input.agentSource } : {}),
@@ -605,5 +613,5 @@ function codexAutoPauseCoalesceKey(source: PausedInboundSource, message: Browser
   const agent = message.agentSource?.sessionId ?? "";
   const thread = message.threadKey ?? message.questId ?? "";
   const herd = message.takodeHerdBatch?.eventKeys?.join(",") ?? "";
-  return [source, agent, thread, herd, message.content.trim()].join("\u0000");
+  return [source, agent, thread, herd, message.content.trim(), message.timerFiring?.messageId ?? ""].join("\u0000");
 }

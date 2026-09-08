@@ -669,6 +669,45 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
   });
 
+  it.each([
+    false,
+    true,
+  ])("settles timer answers only at a successful completed turn (interrupted=%s)", (interrupted) => {
+    // Timer eligibility extends answer targets, not the existing interruption/Ready contract.
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1", "Unrelated request still owed"), {
+      type: "user_message",
+      id: "timer-firing",
+      content: "[⏰ Timer t1 reminder] Scheduled report",
+      timestamp: 2,
+      threadKey: "main",
+      agentSource: { sessionId: "timer:t1" },
+      leaderTimerMessageId: "f1",
+    });
+    const response = routedFinal("timer-final", 2, { ready: true, answerIds: ["f1"] });
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [1];
+    const deps = makeDeps();
+    handleResultMessage(
+      session,
+      makeResult({
+        uuid: "timer-result",
+        ...(interrupted ? { stop_reason: "interrupted" } : {}),
+      }),
+      deps,
+    );
+    if (interrupted) {
+      expect(response.threadAnswer).toBeUndefined();
+      expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
+    } else {
+      expect(response.threadAnswer?.answerUserMessageIds).toEqual(["f1"]);
+    }
+    expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
+    expect(
+      buildLeaderThreadResponseState(session, "main").projection.pendingMessages.map((entry) => entry.userMessageId),
+    ).toEqual(["u1"]);
+  });
+
   it("keeps transient provider retries out of durable history and terminal hooks", () => {
     // Long-lived network recovery can produce many attempts. The exact retry
     // owner lives in session state, so raw terminal rows must not accumulate.

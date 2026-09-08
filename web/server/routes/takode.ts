@@ -22,6 +22,8 @@ import {
 } from "../takode-messages.js";
 import { buildLeaderContextResume } from "../takode-leader-context-resume.js";
 import { findLeaderUserMessageById, isCanonicalLeaderUserMessageId } from "../leader-user-message-id.js";
+import { buildLeaderTimerMessageIdentities } from "../leader-timer-message-id.js";
+import { isCanonicalLeaderAnswerMessageId } from "../../shared/leader-answer-message-id.js";
 import {
   getHerdDiagnostics as getHerdDiagnosticsController,
   markNotificationDone as markNotificationDoneController,
@@ -764,15 +766,17 @@ export function createTakodeRoutes(ctx: RouteContext) {
     let idx: number;
     if (/^\d+$/.test(messageRef)) {
       idx = Number(messageRef);
-    } else if (isCanonicalLeaderUserMessageId(messageRef)) {
+    } else if (isCanonicalLeaderAnswerMessageId(messageRef)) {
       if (launcher.getSession(sessionId)?.isOrchestrator !== true) {
         return c.json({ error: "Session is not a leader session" }, 400);
       }
-      const resolved = findLeaderUserMessageById(history, messageRef);
-      if (!resolved) return c.json({ error: `User message ${messageRef} not found in leader session` }, 404);
+      const resolved = isCanonicalLeaderUserMessageId(messageRef)
+        ? findLeaderUserMessageById(history, messageRef)
+        : buildLeaderTimerMessageIdentities(history).find((entry) => entry.userMessageId === messageRef);
+      if (!resolved) return c.json({ error: `Message ${messageRef} not found in leader session` }, 404);
       idx = resolved.historyIndex;
     } else {
-      return c.json({ error: "Message reference must be a history index or session-scoped user ID like u12" }, 400);
+      return c.json({ error: "Message reference must be a history index or session-scoped ID like u12 or f3" }, 400);
     }
 
     const result = buildReadResponse(

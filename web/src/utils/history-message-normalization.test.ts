@@ -198,6 +198,27 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(user.metadata).toMatchObject({ leaderResponseCoverageVersion: 1, leaderUserMessageId: "u7" });
   });
 
+  it("retains one timer firing identity through authoritative history normalization", () => {
+    // Selected windows and full history use the same row normalization. A
+    // firing keeps its timer source without becoming a human obligation.
+    const [timer] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "user_message",
+        id: "timer-firing",
+        timestamp: 200,
+        content: "[⏰ Timer t2 reminder] Build report",
+        agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
+        leaderTimerMessageId: "f7",
+        threadKey: "main",
+      },
+      7,
+    );
+    expect(timer.metadata).toMatchObject({ leaderTimerMessageId: "f7", threadKey: "main" });
+    expect(timer.agentSource?.sessionId).toBe("timer:t2");
+    expect(timer.metadata?.leaderResponseCoverageVersion).toBeUndefined();
+    expect(timer.metadata?.leaderUserMessageId).toBeUndefined();
+  });
+
   it("preserves exact recovery model content while discarding ordinary delivery content", () => {
     // Authoritative history and selected-thread windows share this normalizer.
     // Only the server-produced recovery event retains the separately recorded payload.

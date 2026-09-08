@@ -167,6 +167,26 @@ describe("agentSource propagation", () => {
     });
   });
 
+  it("preserves live timer firing references without assigning human coverage", () => {
+    // Live delivery must expose the same distinct firing identity as history replay.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({
+      type: "user_message",
+      id: "timer-firing",
+      timestamp: 1000,
+      content: "[⏰ Timer t2 reminder] Build report",
+      threadKey: "main",
+      leaderTimerMessageId: "f7",
+      agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
+    });
+    const message = useStore.getState().messages.get("s1")![0];
+    expect(message.metadata).toMatchObject({ leaderTimerMessageId: "f7", threadKey: "main" });
+    expect(message.agentSource?.sessionId).toBe("timer:t2");
+    expect(message.metadata?.leaderResponseCoverageVersion).toBeUndefined();
+    expect(message.metadata?.leaderUserMessageId).toBeUndefined();
+  });
+
   it("preserves exact model-bound content only for live Codex recovery events", () => {
     // The short visible row and the exact model-bound instructions have different
     // audiences. Retain the latter only for the recovery event shape emitted by the server.

@@ -300,7 +300,26 @@ describe("Playground", () => {
     expect(pinnedDecision.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     expect(pinnedDecision.getByText("Choose whether the follow-up should remain parked.")).toBeVisible();
     expect(pinnedDecision.getByText("Choose the follow-up boundary")).toBeVisible();
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(8);
+    // Each recurring firing keeps its own report and exact firing reference,
+    // even though both previews name the same recurring timer schedule.
+    const timerReports = within(routedFinalStates.getByTestId("playground-timer-answer-reports"));
+    expect(
+      timerReports.getByText("The scheduled build checks passed. The release candidate is ready for its review."),
+    ).toBeVisible();
+    expect(
+      timerReports.getByText("The next scheduled check found one new test failure in the release candidate."),
+    ).toBeVisible();
+    const timerCoverage = timerReports.getAllByTestId("thread-response-answer-count");
+    expect(timerCoverage).toHaveLength(2);
+    for (const [index, badge] of timerCoverage.entries()) {
+      expect(badge).toHaveTextContent("Answers 1 message");
+      fireEvent.click(badge);
+      const preview = screen.getByRole("dialog", { name: "Referenced user messages" });
+      expect(within(preview).getByText(`f${index + 1}`)).toBeVisible();
+      expect(preview).toHaveTextContent("[⏰ Timer t2 reminder] Check build health");
+      fireEvent.click(badge);
+    }
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(10);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

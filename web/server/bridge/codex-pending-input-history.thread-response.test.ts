@@ -12,6 +12,45 @@ import type {
 } from "./codex-recovery-orchestrator.js";
 
 describe("Codex pending-input thread response coverage", () => {
+  it("keeps the delivered firing reference through restored queues and repeated receipt handling", () => {
+    // A restored pending timer is the same answer target; it must never mint a new ID or human obligation.
+    const input: PendingCodexInput = {
+      id: "timer-occurrence",
+      content: "[⏰ Timer t3 reminder] Report",
+      timestamp: 20,
+      cancelable: false,
+      agentSource: { sessionId: "timer:t3", sessionLabel: "Timer t3" },
+      threadKey: "q-42",
+      questId: "q-42",
+      leaderTimerMessageId: "f7",
+      threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
+    };
+    const session = {
+      id: "leader",
+      state: { cwd: "/tmp" },
+      messageHistory: [],
+      pendingCodexInputs: JSON.parse(JSON.stringify([input])),
+      notifications: [],
+      isGenerating: false,
+    } as unknown as CodexRecoveryOrchestratorSessionLike;
+    const deps = {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+      refreshBrowserConversationViews: vi.fn(),
+    } as unknown as CodexRecoveryOrchestratorDeps;
+    commitPendingCodexInputs(session, [input.id], deps);
+    commitPendingCodexInputs(session, [input.id], deps);
+    expect(session.messageHistory).toHaveLength(1);
+    expect(session.messageHistory[0]).toMatchObject({ id: input.id, leaderTimerMessageId: "f7", threadKey: "q-42" });
+    expect(session.messageHistory[0]).not.toHaveProperty("leaderResponseCoverageVersion");
+    expect(session.messageHistory[0]).not.toHaveProperty("leaderUserMessageId");
+    expect(deps.touchUserMessage).not.toHaveBeenCalled();
+    expect(deps.refreshBrowserConversationViews).toHaveBeenCalledWith(session);
+  });
+
   it("preserves coverage and invalidates stale Ready when delayed human input commits", () => {
     const input: PendingCodexInput = {
       id: "covered-user",

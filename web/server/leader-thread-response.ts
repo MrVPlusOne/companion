@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isCanonicalLeaderAnswerMessageId } from "../shared/leader-answer-message-id.js";
 import {
   leaderResponseAssociatedThreadKeys,
   leaderResponseAnswerOwnerThreadKeys,
@@ -18,6 +19,7 @@ import {
   type LeaderUserMessageIdentity,
 } from "./leader-user-message-id.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
+import { buildLeaderTimerMessageIdentities } from "./leader-timer-message-id.js";
 import type {
   BrowserIncomingMessage,
   LeaderThreadAnswerMetadata,
@@ -47,7 +49,7 @@ export interface PendingLeaderAnswerInputState {
   userMessageIds: string[];
 }
 
-type DirectHumanMessage = LeaderUserMessageIdentity & {
+type AnswerTargetMessage = LeaderUserMessageIdentity & {
   timestamp: number;
   threadKey: string;
   associatedThreadKeys: string[];
@@ -79,7 +81,8 @@ type AnswerCandidate = {
 };
 
 type Evaluation = {
-  directMessages: DirectHumanMessage[];
+  directMessages: AnswerTargetMessage[];
+  answerTargets: AnswerTargetMessage[];
   currentAnswers: LeaderThreadResponseState[];
   coveredMessageIds: Set<string>;
 };
@@ -87,7 +90,7 @@ type Evaluation = {
 type AnswerRouteResolution =
   | {
       ok: true;
-      referenced: DirectHumanMessage[];
+      referenced: AnswerTargetMessage[];
       ownerGroups: LeaderAnswerRouteOwnerGroup[];
     }
   | {
@@ -232,12 +235,13 @@ function eligibleAssistantAnswer(message: Extract<BrowserIncomingMessage, { type
   );
 }
 
-function collectDirectMessages(
+function collectAnswerTargets(
   history: ReadonlyArray<BrowserIncomingMessage>,
   historyLimit: number,
-): DirectHumanMessage[] {
-  return buildLeaderUserMessageIdentities(history)
+): AnswerTargetMessage[] {
+  return [...buildLeaderUserMessageIdentities(history), ...buildLeaderTimerMessageIdentities(history)]
     .filter((entry) => entry.historyIndex < historyLimit)
+    .sort((left, right) => left.historyIndex - right.historyIndex)
     .flatMap((entry) => {
       const threadKey = leaderResponseThreadKeyForUserMessage(entry.message);
       if (!threadKey) return [];
@@ -384,13 +388,13 @@ function routedLegacyPendingBatchId(
 function legacyPendingBatches(
   sessionId: string,
   threadKey: string,
-  directMessages: readonly DirectHumanMessage[],
+  directMessages: readonly AnswerTargetMessage[],
   coveredMessageIds: ReadonlySet<string>,
   observedHistoryLength: number,
 ): LegacyPendingBatch[] {
   const eligible = directMessages.filter((message) => message.threadKey === threadKey);
-  const batches: DirectHumanMessage[][] = [];
-  let current: DirectHumanMessage[] = [];
+  const batches: AnswerTargetMessage[][] = [];
+  let current: AnswerTargetMessage[] = [];
   for (const message of eligible) {
     if (coveredMessageIds.has(message.historyMessageId)) {
       if (current.length > 0) batches.push(current);
@@ -412,7 +416,7 @@ function legacyPendingBatches(
 
 function evaluateLegacyCandidates(
   session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
-  directMessages: DirectHumanMessage[],
+  directMessages: AnswerTargetMessage[],
   boundedLimit: number,
 ): AnswerCandidate[] {
   const parsed = session.messageHistory.slice(0, boundedLimit).flatMap((message, historyIndex) => {
@@ -476,7 +480,7 @@ function validAnswerMetadata(value: unknown): value is LeaderThreadAnswerMetadat
     candidate.version === LEADER_THREAD_RESPONSE_VERSION &&
     Array.isArray(candidate.answerUserMessageIds) &&
     candidate.answerUserMessageIds.length > 0 &&
-    candidate.answerUserMessageIds.every(isCanonicalLeaderUserMessageId) &&
+    candidate.answerUserMessageIds.every(isCanonicalLeaderAnswerMessageId) &&
     new Set(candidate.answerUserMessageIds).size === candidate.answerUserMessageIds.length &&
     (candidate.authoredThreadKey === undefined ||
       candidate.authoredThreadKey === "main" ||
@@ -491,7 +495,7 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
-function answerOwnerGroups(referenced: readonly DirectHumanMessage[]): {
+function answerOwnerGroups(referenced: readonly AnswerTargetMessage[]): {
   groups: LeaderAnswerRouteOwnerGroup[];
   ownerByMessage: Array<string | null>;
 } {
@@ -511,11 +515,11 @@ function answerOwnerGroups(referenced: readonly DirectHumanMessage[]): {
 }
 
 function resolveExplicitAnswerMessagesForOwner(
-  directMessages: readonly DirectHumanMessage[],
+  answerTargets: readonly AnswerTargetMessage[],
   answerUserMessageIds: readonly string[],
   observedHistoryLength: number,
 ): AnswerRouteResolution {
-  const byId = new Map(directMessages.map((message) => [message.userMessageId, message]));
+  const byId = new Map(answerTargets.map((message) => [message.userMessageId, message]));
   const unresolved = answerUserMessageIds.filter((id) => {
     const message = byId.get(id);
     return !message || message.historyIndex >= observedHistoryLength;
@@ -524,7 +528,7 @@ function resolveExplicitAnswerMessagesForOwner(
     return { ok: false, reason: "invalid_ids", ownerGroups: [] };
   }
 
-  const referenced = answerUserMessageIds.map((id) => byId.get(id)!) as DirectHumanMessage[];
+  const referenced = answerUserMessageIds.map((id) => byId.get(id)!) as AnswerTargetMessage[];
   const { groups: ownerGroups, ownerByMessage } = answerOwnerGroups(referenced);
   if (ownerByMessage.some((owner) => owner === null)) {
     // A partial owner map cannot safely describe indivisible grouped prose.
@@ -606,7 +610,7 @@ function canonicalizeAnswerRoute(
 }
 
 const ANSWER_ROUTE_EXPECTED =
-  "Use the supplied IDs of earlier direct user requests. Their proven owners determine coverage, and their associated tabs receive the same answer automatically.";
+  "Use the supplied IDs of earlier direct user requests or delivered timer firings. Their proven owners determine coverage, and their associated tabs receive the same answer automatically.";
 
 function selectedThreadKeyForDiagnostic(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): string {
   const value = message.threadKey?.trim().toLowerCase();
@@ -617,7 +621,7 @@ function validDiagnosticAnswerIds(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every(isCanonicalLeaderUserMessageId) &&
+    value.every(isCanonicalLeaderAnswerMessageId) &&
     new Set(value).size === value.length
   );
 }
@@ -670,7 +674,7 @@ function clearAnswerRouteDiagnostic(message: Extract<BrowserIncomingMessage, { t
 function parsedExplicitCandidate(
   message: BrowserIncomingMessage,
   historyIndex: number,
-  directMessages: readonly DirectHumanMessage[],
+  answerTargets: readonly AnswerTargetMessage[],
   boundedLimit: number,
 ): AnswerCandidate | null {
   if (
@@ -699,7 +703,7 @@ function parsedExplicitCandidate(
     return null;
   }
   const resolution = resolveExplicitAnswerMessagesForOwner(
-    directMessages,
+    answerTargets,
     metadata.answerUserMessageIds,
     metadata.observedHistoryLength,
   );
@@ -718,7 +722,7 @@ function parsedExplicitCandidate(
 
 function projectCurrentAnswers(
   candidates: AnswerCandidate[],
-  directMessages: readonly DirectHumanMessage[],
+  answerTargets: readonly AnswerTargetMessage[],
 ): LeaderThreadResponseState[] {
   const uniqueCandidates: AnswerCandidate[] = [];
   const seenMessageIds = new Set<string>();
@@ -732,9 +736,7 @@ function projectCurrentAnswers(
   for (const candidate of uniqueCandidates) {
     candidate.referencedUserMessageIds.forEach((messageId) => latestByUserMessageId.set(messageId, candidate));
   }
-  const conciseByHistoryId = new Map(
-    directMessages.map((message) => [message.historyMessageId, message.userMessageId]),
-  );
+  const conciseByHistoryId = new Map(answerTargets.map((message) => [message.historyMessageId, message.userMessageId]));
 
   return uniqueCandidates.flatMap((candidate) => {
     const coveredUserMessageIds = candidate.referencedUserMessageIds.filter(
@@ -771,22 +773,26 @@ function evaluateResponses(
   historyLimit = session.messageHistory.length,
 ): Evaluation {
   const boundedLimit = Math.max(0, Math.min(Math.floor(historyLimit), session.messageHistory.length));
-  const directMessages = collectDirectMessages(session.messageHistory, boundedLimit);
+  const answerTargets = collectAnswerTargets(session.messageHistory, boundedLimit);
+  // Firing answerability is optional. Only direct humans create pending/Ready
+  // obligations, and legacy batch revisions remain confined to those humans.
+  const directMessages = answerTargets.filter((message) => isCanonicalLeaderUserMessageId(message.userMessageId));
   const candidates = evaluateLegacyCandidates(session, directMessages, boundedLimit);
   for (let historyIndex = 0; historyIndex < boundedLimit; historyIndex += 1) {
     const candidate = parsedExplicitCandidate(
       session.messageHistory[historyIndex]!,
       historyIndex,
-      directMessages,
+      answerTargets,
       boundedLimit,
     );
     if (candidate) candidates.push(candidate);
   }
-  const currentAnswers = projectCurrentAnswers(candidates, directMessages).sort(
+  const currentAnswers = projectCurrentAnswers(candidates, answerTargets).sort(
     (left, right) => left.currentHistoryIndex - right.currentHistoryIndex,
   );
   return {
     directMessages,
+    answerTargets,
     currentAnswers,
     coveredMessageIds: new Set(currentAnswers.flatMap((answer) => answer.coveredUserMessageIds)),
   };
@@ -794,7 +800,7 @@ function evaluateResponses(
 
 function projectCurrentAnswerForThread(
   answer: LeaderThreadResponseState,
-  directMessagesById: ReadonlyMap<string, DirectHumanMessage>,
+  answerTargetsById: ReadonlyMap<string, AnswerTargetMessage>,
   threadKey: string,
   source: BrowserIncomingMessage | undefined,
 ): LeaderThreadResponseState | null {
@@ -806,7 +812,7 @@ function projectCurrentAnswerForThread(
   }
   if (answer.source !== "explicit") return answer.threadKey === threadKey ? answer : null;
 
-  const referencedMessages = answer.referencedUserMessageIds.map((messageId) => directMessagesById.get(messageId));
+  const referencedMessages = answer.referencedUserMessageIds.map((messageId) => answerTargetsById.get(messageId));
   if (referencedMessages.some((message) => !message)) return null;
   const authoredThreadKey =
     source?.type === "assistant" ? (source.threadAnswer?.authoredThreadKey ?? answer.threadKey) : answer.threadKey;
@@ -817,12 +823,12 @@ function projectCurrentAnswerForThread(
     return null;
   }
   const coveredUserMessageIds = answer.coveredUserMessageIds.filter(
-    (id) => directMessagesById.get(id)?.threadKey === threadKey,
+    (id) => answerTargetsById.get(id)?.threadKey === threadKey,
   );
   return {
     ...answer,
     coveredUserMessageIds,
-    coveredAnswerUserMessageIds: coveredUserMessageIds.map((id) => directMessagesById.get(id)!.userMessageId),
+    coveredAnswerUserMessageIds: coveredUserMessageIds.map((id) => answerTargetsById.get(id)!.userMessageId),
   };
 }
 
@@ -834,13 +840,13 @@ function buildLeaderThreadResponseStateAt(
   const threadKey = normalizeThreadKey(requestedThreadKey);
   const boundedLimit = Math.max(0, Math.min(Math.floor(historyLimit), session.messageHistory.length));
   const evaluation = evaluateResponses(session, boundedLimit);
-  const directMessagesById = new Map(
-    evaluation.directMessages.map((message) => [message.historyMessageId, message] as const),
+  const answerTargetsById = new Map(
+    evaluation.answerTargets.map((message) => [message.historyMessageId, message] as const),
   );
   const currentAnswers = evaluation.currentAnswers.flatMap((answer) => {
     const projected = projectCurrentAnswerForThread(
       answer,
-      directMessagesById,
+      answerTargetsById,
       threadKey,
       session.messageHistory[answer.currentHistoryIndex],
     );
@@ -848,7 +854,7 @@ function buildLeaderThreadResponseStateAt(
   });
   const ownedMessages = evaluation.directMessages.filter((message) => message.threadKey === threadKey);
   const supportingMessageIds = new Set(currentAnswers.flatMap((answer) => answer.referencedUserMessageIds));
-  const projectedMessages = evaluation.directMessages.filter(
+  const projectedMessages = evaluation.answerTargets.filter(
     (message) => message.threadKey === threadKey || supportingMessageIds.has(message.historyMessageId),
   );
   const pendingMessages = ownedMessages
@@ -918,15 +924,13 @@ export function leaderAnswerThreadAuthority(
   return {
     ownerThreadKeys: [
       ...new Set(
-        evaluation.directMessages
-          .filter((entry) => covered.has(entry.historyMessageId))
-          .map((entry) => entry.threadKey),
+        evaluation.answerTargets.filter((entry) => covered.has(entry.historyMessageId)).map((entry) => entry.threadKey),
       ),
     ],
     visibleThreadKeys: [
       ...new Set([
         message.threadAnswer.authoredThreadKey ?? answer.threadKey,
-        ...evaluation.directMessages
+        ...evaluation.answerTargets
           .filter((entry) => referenced.has(entry.historyMessageId))
           .flatMap((entry) => entry.associatedThreadKeys),
       ]),
@@ -969,7 +973,7 @@ export function finalizeRoutedLeaderResponseMessage(
   if (
     !Array.isArray(answerUserMessageIds) ||
     answerUserMessageIds.length === 0 ||
-    answerUserMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id)) ||
+    answerUserMessageIds.some((id) => !isCanonicalLeaderAnswerMessageId(id)) ||
     new Set(answerUserMessageIds).size !== answerUserMessageIds.length
   ) {
     return rejectAnswerRoute(message, "invalid_ids", { selectedThreadKey });
@@ -989,12 +993,8 @@ export function finalizeRoutedLeaderResponseMessage(
     });
   }
 
-  const directMessages = collectDirectMessages(session.messageHistory, session.messageHistory.length);
-  const resolution = resolveExplicitAnswerMessagesForOwner(
-    directMessages,
-    answerUserMessageIds,
-    observedHistoryLength!,
-  );
+  const answerTargets = collectAnswerTargets(session.messageHistory, session.messageHistory.length);
+  const resolution = resolveExplicitAnswerMessagesForOwner(answerTargets, answerUserMessageIds, observedHistoryLength!);
   if (!resolution.ok) {
     return rejectAnswerRoute(message, resolution.reason, {
       selectedThreadKey,

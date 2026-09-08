@@ -193,8 +193,12 @@ describe("TimerMessageGroup", () => {
 
 describe("timer grouping in FeedEntries", () => {
   it("compacts the ten distinct producer-shaped firings into one row", () => {
+    // Session-scoped firing references distinguish answer targets while
+    // compatible recurring events keep their existing presentation group.
     const messages = Array.from({ length: 10 }, (_, index) =>
-      makeTimer(`timer-${index + 1}`, 1_000 + index * 1_800_000),
+      makeTimer(`timer-${index + 1}`, 1_000 + index * 1_800_000, {
+        metadata: { leaderTimerMessageId: `f${index + 1}`, threadKey: "main" },
+      }),
     );
     renderFeed(messages);
 

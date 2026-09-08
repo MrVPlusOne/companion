@@ -116,6 +116,7 @@ type BrowserTransportSocketData = BrowserConversationWindowSocketData &
 export interface ProgrammaticUserMessageOptions {
   deliveryContent?: ProgrammaticUserMessage["deliveryContent"];
   historyFollowUps?: ProgrammaticHistoryFollowUp[];
+  timerFiring?: ProgrammaticUserMessage["timerFiring"];
   replyContext?: ProgrammaticUserMessage["replyContext"];
   sessionId?: string;
   vscodeSelection?: ProgrammaticUserMessage["vscodeSelection"];
@@ -528,6 +529,10 @@ export function handleBrowserMessage(
     return { messageType: "invalid_json", completion: null };
   }
 
+  // Browser JSON cannot mint timer-firing authority. Internal ingress also
+  // resumes server-owned paused/recovery payloads and must retain their proof.
+  if (msg.type === "user_message") delete msg.timerFiring;
+
   trafficStats.record({
     sessionId: session.id,
     channel: "browser",
@@ -717,6 +722,7 @@ export function injectUserMessage(
     content,
     ...(options?.deliveryContent ? { deliveryContent: options.deliveryContent } : {}),
     ...(options?.historyFollowUps?.length ? { historyFollowUps: options.historyFollowUps } : {}),
+    ...(options?.timerFiring ? { timerFiring: options.timerFiring } : {}),
     ...(options?.replyContext ? { replyContext: options.replyContext } : {}),
     ...(options?.sessionId ? { session_id: options.sessionId } : {}),
     ...(options?.vscodeSelection ? { vscodeSelection: options.vscodeSelection } : {}),

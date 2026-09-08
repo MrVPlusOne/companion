@@ -364,6 +364,71 @@ const MULTI_OWNER_PRESENTATION: ThreadResponsePresentation = {
   layoutSignature: "playground-shared-answer",
 };
 
+const TIMER_REPORT_ENTRIES = [1, 2].map((ordinal) => {
+  const entry = assistantEntry(
+    `playground-timer-report-${ordinal}`,
+    ordinal === 1
+      ? "The scheduled build checks passed. The release candidate is ready for its review."
+      : "The next scheduled check found one new test failure in the release candidate.",
+    "answer",
+  );
+  return {
+    ...entry,
+    msg: {
+      ...entry.msg,
+      historyIndex: ordinal * 2,
+      metadata: {
+        ...entry.msg.metadata,
+        threadKey: "q-2042",
+        threadAnswer: {
+          version: 2 as const,
+          answerUserMessageIds: [`f${ordinal}`],
+          observedHistoryLength: ordinal * 2,
+        },
+      },
+    },
+  };
+});
+const TIMER_REPORT_TURN: Turn = {
+  ...ANSWER_ONLY_TURN,
+  id: "playground-timer-report-turn",
+  userEntry: null,
+  allEntries: TIMER_REPORT_ENTRIES,
+  presentationEntries: TIMER_REPORT_ENTRIES,
+  notificationEntries: TIMER_REPORT_ENTRIES,
+  responseEntry: null,
+};
+const TIMER_REPORT_PRESENTATION: ThreadResponsePresentation = {
+  ...ACTIVE_PRESENTATION,
+  currentResponses: TIMER_REPORT_ENTRIES.map((entry, index) => ({
+    response: {
+      ...PRESENTATION.currentResponses[0]!.response,
+      answerUserMessageIds: [`f${index + 1}`],
+      referencedUserMessageIds: [`playground-timer-firing-${index + 1}`],
+      coveredAnswerUserMessageIds: [`f${index + 1}`],
+      coveredUserMessageIds: [`playground-timer-firing-${index + 1}`],
+      currentMessageId: entry.msg.id,
+      currentHistoryIndex: entry.msg.historyIndex!,
+    },
+    anchorUserMessageId: `playground-timer-firing-${index + 1}`,
+    anchorTurnId: TIMER_REPORT_TURN.id,
+    anchorOrder: 0,
+    sourceTurnId: TIMER_REPORT_TURN.id,
+    messageEntry: entry,
+    collapsedMessageEntry: entry,
+    referencedUserMessages: [
+      {
+        historyMessageId: `playground-timer-firing-${index + 1}`,
+        userMessageId: `f${index + 1}`,
+        content: "[⏰ Timer t2 reminder] Check build health\n\nInspect the latest failing shard if the build is red.",
+      },
+    ],
+  })),
+  currentResponseMessageIds: new Set(TIMER_REPORT_ENTRIES.map((entry) => entry.msg.id)),
+  quizGroups: [],
+  layoutSignature: "playground-timer-reports",
+};
+
 const NOOP = () => {};
 
 function renderEntry(entry: FeedEntry) {
@@ -469,6 +534,21 @@ export function PlaygroundThreadResponseSection() {
                 threadResponsePresentation={ACTIVE_PRESENTATION}
               />
               <TurnToggleFooter expanded onToggle={NOOP} />
+            </div>
+          </Card>
+          <Card label="Recurring timer reports · unrelated user request pending">
+            <div
+              className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-timer-answer-reports"
+            >
+              <ReadyThreadResponseRows
+                turn={TIMER_REPORT_TURN}
+                presentation={TIMER_REPORT_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                questLinkSurface="chat-feed"
+              />
+              <TurnToggleFooter expanded={false} onToggle={NOOP} />
             </div>
           </Card>
           <Card label="One answer · Main and quest requests">
