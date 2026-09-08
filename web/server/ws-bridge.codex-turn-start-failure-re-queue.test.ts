@@ -17,6 +17,8 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
+import type { CodexOutboundTurn } from "./session-types.js";
+import { beginCodexTurnRecoveryContinuation } from "./bridge/codex-interrupted-turn-recovery.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
   advanceBoardRow as advanceBoardRowController,
@@ -179,6 +181,54 @@ function getCodexStartPendingInputs(msg: any) {
   expect(msg?.type).toBe("codex_start_pending");
   expect(Array.isArray(msg?.inputs)).toBe(true);
   return msg.inputs as Array<{ content: string }>;
+}
+
+async function beginInterruptedTurnContinuation(bridge: WsBridge, sessionId: string) {
+  const session = bridge.getSession(sessionId)!;
+  const timestamp = Date.now() - 1;
+  const historyIndex = session.messageHistory.length;
+  const userContent = "Finish the interrupted work.";
+  session.messageHistory.push({
+    type: "user_message",
+    id: "original-owner",
+    content: userContent,
+    timestamp,
+    threadKey: "main",
+  });
+  const original: CodexOutboundTurn = {
+    adapterMsg: { type: "user_message", content: userContent },
+    userMessageId: "original-owner",
+    userContent,
+    historyIndex,
+    status: "completed",
+    dispatchCount: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    acknowledgedAt: timestamp,
+    turnTarget: null,
+    lastError: null,
+    turnId: "turn-original",
+    disconnectedAt: timestamp,
+    resumeConfirmedAt: null,
+  };
+  // Production establishes exact recovery ownership before injection. Its
+  // acceptance callback binds the new owner and dispatches the continuation.
+  expect(
+    beginCodexTurnRecoveryContinuation(
+      session,
+      original,
+      { threadKey: "main" },
+      (bridge as any).getCodexRecoveryOrchestratorDeps(),
+    ),
+  ).toBe(true);
+  await Promise.resolve();
+  expect(session.pendingCodexInputs[0]?.id).toBeTruthy();
+  expect(session.state.codex_turn_recovery).toMatchObject({
+    originalOwnerId: "original-owner",
+    continuationOwnerId: session.pendingCodexInputs[0]?.id,
+    status: "continuation_pending",
+  });
+  return session;
 }
 
 function installReleasedRecoveryReceipt(session: any, pendingInput: any) {
@@ -813,32 +863,7 @@ describe("Codex turn-start failure re-queue", () => {
     emitCodexSessionReady(adapter);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    const delivery = bridge.injectUserMessage(
-      sid,
-      "Takode is continuing interrupted work.",
-      { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
-      undefined,
-      { threadKey: "main" },
-      { deliveryContent: "verification-first continuation and continue only missing work." },
-    );
-    expect(delivery).toBe("sent");
-    const session = bridge.getSession(sid)!;
-    const continuationOwnerId = session.pendingCodexInputs[0]?.id;
-    expect(continuationOwnerId).toBeTruthy();
-    session.state.codex_turn_recovery = {
-      recoveryId: "original-owner",
-      originalOwnerId: "original-owner",
-      originalProviderTurnId: "turn-original",
-      originalHistoryIndex: 0,
-      continuationOwnerId: continuationOwnerId!,
-      threadKey: "main",
-      status: "continuation_pending",
-      reason: "interrupted_after_activity",
-      attempt: 1,
-      maxAttempts: 1,
-      createdAt: 1,
-      updatedAt: 2,
-    };
+    const session = await beginInterruptedTurnContinuation(bridge, sid);
     const outbound = adapter.sendBrowserMessage.mock.calls.at(-1)?.[0];
 
     adapter.emitTurnStartFailed(outbound, { recoverable: false, message: "input_too_large" });
@@ -874,32 +899,7 @@ describe("Codex turn-start failure re-queue", () => {
       emitCodexSessionReady(adapter);
       const browser = makeBrowserSocket(sid);
       bridge.handleBrowserOpen(browser, sid);
-      const delivery = bridge.injectUserMessage(
-        sid,
-        "Takode is continuing interrupted work.",
-        { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
-        undefined,
-        { threadKey: "main" },
-        { deliveryContent: "verification-first continuation and continue only missing work." },
-      );
-      expect(delivery).toBe("sent");
-      const session = bridge.getSession(sid)!;
-      const continuationOwnerId = session.pendingCodexInputs[0]?.id;
-      expect(continuationOwnerId).toBeTruthy();
-      session.state.codex_turn_recovery = {
-        recoveryId: "original-owner",
-        originalOwnerId: "original-owner",
-        originalProviderTurnId: "turn-original",
-        originalHistoryIndex: 0,
-        continuationOwnerId: continuationOwnerId!,
-        threadKey: "main",
-        status: "continuation_pending",
-        reason: "interrupted_after_activity",
-        attempt: 1,
-        maxAttempts: 1,
-        createdAt: 1,
-        updatedAt: 2,
-      };
+      const session = await beginInterruptedTurnContinuation(bridge, sid);
       expect(getPendingCodexTurn(session)).toMatchObject({ status: "dispatched", turnId: null });
 
       await vi.advanceTimersByTimeAsync(30_000);
@@ -1069,34 +1069,9 @@ describe("Codex turn-start failure re-queue", () => {
     emitCodexSessionReady(adapter1);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    expect(
-      bridge.injectUserMessage(
-        sid,
-        "Takode is continuing interrupted work.",
-        { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
-        undefined,
-        { threadKey: "main" },
-        { deliveryContent: "verification-first continuation and continue only missing work." },
-      ),
-    ).toBe("sent");
-    const session = bridge.getSession(sid)!;
+    const session = await beginInterruptedTurnContinuation(bridge, sid);
     const continuation = getPendingCodexTurn(session);
     const continuationOwnerId = continuation.userMessageId;
-    session.state.codex_turn_recovery = {
-      recoveryId: "original-owner",
-      originalOwnerId: "original-owner",
-      originalProviderTurnId: "turn-original",
-      originalHistoryIndex: 0,
-      continuationOwnerId,
-      threadKey: "main",
-      status: "continuation_pending",
-      reason: "interrupted_after_activity",
-      continuationMode: "verify_then_continue",
-      attempt: 1,
-      maxAttempts: 1,
-      createdAt: 1,
-      updatedAt: 2,
-    };
     const clientUserMessageId = continuation.historyIncorporation!.clientUserMessageId;
 
     adapter1.emitTurnStartFailed(structuredClone(continuation.adapterMsg));
