@@ -84,6 +84,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Quest Title Styling",
   ]),
   createNavGroup("interactive", "Interactive", "Controls, overlays, and jumpable workflows.", [
+    "Turn Collapse Across Windows",
     "Composer",
     "Reply Chip",
     "Selection Context Menu",

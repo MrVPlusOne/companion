@@ -21,6 +21,8 @@ export interface ThreadWindowState {
   source_history_length: number;
   section_item_count: number;
   visible_item_count: number;
+  /** Server-proven identity of the leading feed turn, stable when a window clips its activity. */
+  leading_turn_id?: string;
   window_hash?: string;
 }
 

@@ -1391,6 +1391,8 @@ export function useFeedModel(
     anchoredNotificationMessageIds?: readonly string[];
     userBoundarySourceSessionId?: string | null;
     visibleAssistantChildMessageIds?: readonly string[];
+    /** Server-proven identity for a leading turn whose human boundary is outside the loaded window. */
+    leadingTurnId?: string;
     perf?: { sessionId: string; threadKey: string };
   },
 ): FeedModel {
@@ -1400,6 +1402,7 @@ export function useFeedModel(
   const frozenRevision = config?.frozenRevision ?? 0;
   const anchoredNotificationMessageIds = config?.anchoredNotificationMessageIds ?? [];
   const userBoundarySourceSessionId = config?.userBoundarySourceSessionId ?? null;
+  const leadingTurnId = config?.leadingTurnId;
   const visibleAssistantChildMessageIds = config?.visibleAssistantChildMessageIds ?? [];
   const visibleAssistantChildSignature = visibleAssistantChildMessageIds.join("\0");
   const anchoredNotificationSignature = anchoredNotificationMessageIds.join("\0");
@@ -1498,7 +1501,7 @@ export function useFeedModel(
       visibleAssistantChildMessageIds,
       leaderSessionMode,
     );
-    return concatFeedModels(
+    const combined = concatFeedModels(
       frozenModel,
       activeModel,
       leaderMode,
@@ -1507,6 +1510,13 @@ export function useFeedModel(
       visibleAssistantChildMessageIds,
       leaderSessionMode,
     );
+    const leadingTurn = combined.turns[0];
+    if (!leadingTurnId || !leadingTurn || leadingTurn.userEntry !== null || leadingTurn.id === leadingTurnId) {
+      return combined;
+    }
+    // Window bounds can move inside one human turn. Keep its identity without
+    // inserting an unloaded message or mutating the cached frozen model.
+    return { ...combined, turns: [{ ...leadingTurn, id: leadingTurnId }, ...combined.turns.slice(1)] };
   }, [
     messages,
     leaderMode,
@@ -1516,6 +1526,7 @@ export function useFeedModel(
     anchoredNotificationMessageIds,
     anchoredNotificationSignature,
     userBoundarySourceSessionId,
+    leadingTurnId,
     visibleAssistantChildMessageIds,
     visibleAssistantChildSignature,
   ]);

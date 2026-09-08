@@ -14,6 +14,7 @@ export function useCodexSafeFeedModel(params: {
   sessionNotifications: ReadonlyArray<SessionNotification> | undefined;
   userBoundarySourceSessionId: string | null;
   visibleAssistantChildMessageIds?: readonly string[];
+  leadingTurnId?: string;
   perf: { sessionId: string; threadKey: string };
 }) {
   const anchoredNotificationMessageIds = useMemo(
@@ -35,6 +36,7 @@ export function useCodexSafeFeedModel(params: {
     anchoredNotificationMessageIds,
     userBoundarySourceSessionId: params.userBoundarySourceSessionId,
     visibleAssistantChildMessageIds: params.visibleAssistantChildMessageIds,
+    leadingTurnId: params.leadingTurnId,
     perf: params.perf,
   });
 }

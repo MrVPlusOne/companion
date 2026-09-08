@@ -293,7 +293,14 @@ export function buildFeedWindowModel(input: BuildFeedWindowModelInput): FeedWind
     ? sections.length
     : findVisibleSectionEndIndex(sections, visibleSectionStartIndex, DEFAULT_VISIBLE_SECTION_COUNT);
   const visibleSections = isWindowedFeed ? sections : sections.slice(visibleSectionStartIndex, visibleSectionEndIndex);
-  const visibleWindowSignature = visibleSections.map((section) => section.id).join("|");
+  // Different bounded slices can belong to the same stable human turn. Layout
+  // restoration still needs to observe that their loaded range has changed.
+  const windowRange = activeThreadWindow
+    ? `thread:${activeThreadWindow.from_item}:${activeThreadWindow.item_count}`
+    : activeHistoryWindow
+      ? `history:${activeHistoryWindow.from_turn}:${activeHistoryWindow.turn_count}`
+      : "local";
+  const visibleWindowSignature = `${windowRange}|${visibleSections.map((section) => section.id).join("|")}`;
   const visibleTurns = visibleSections.flatMap((section) => section.turns);
   const previousSectionStartIndex = isWindowedFeed
     ? null

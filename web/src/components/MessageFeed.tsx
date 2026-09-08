@@ -332,6 +332,7 @@ export function MessageFeed({
     frozenCount: hasFilteredNativeChildMessages ? 0 : frozenCount,
     isCodexSession,
     leaderMode: collapseLeaderThreadActivity,
+    leadingTurnId: selectedFeedWindow?.leading_turn_id,
     leaderSessionMode: isLeaderSession && isCodexSession,
     frozenRevision,
     sessionNotifications,
@@ -942,9 +943,11 @@ export function MessageFeed({
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
+      autoFollowEnabledRef.current = true;
+      // Window replacement must follow this destination, not the previous reading anchor.
+      if (containerRef.current) snapshotViewportAnchor(containerRef.current);
       if (activeThreadWindow && hasNewerSections) {
         const latestFromItem = Math.max(0, activeThreadWindow.total_items - activeThreadWindow.item_count);
-        autoFollowEnabledRef.current = true;
         requestThreadWindow(latestFromItem);
         return;
       }
@@ -953,7 +956,6 @@ export function MessageFeed({
           activeHistoryWindow.turn_count ||
           getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
         const latestFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
-        autoFollowEnabledRef.current = true;
         requestHistoryWindow(
           latestFromTurn,
           turnCount,
@@ -965,7 +967,6 @@ export function MessageFeed({
       const performScroll = () => {
         const container = containerRef.current;
         if (!container) return;
-        autoFollowEnabledRef.current = true;
         const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
         const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
         const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(realContentBottom - container.clientHeight)));
@@ -991,6 +992,7 @@ export function MessageFeed({
       requestThreadWindow,
       requestHistoryWindow,
       scrollContainerTo,
+      snapshotViewportAnchor,
       sectionWindowStart,
       totalSections,
     ],

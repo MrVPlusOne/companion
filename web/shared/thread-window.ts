@@ -131,6 +131,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     fromItem: initialFromItem,
     endItem,
   });
+  const leadingTurnId = threadKey === ALL_THREADS_KEY ? undefined : deriveLeadingTurnId(items, entries);
   return {
     threadKey,
     entries,
@@ -147,6 +148,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
       source_history_length: input.messageHistory.length,
       section_item_count: sectionItemCount,
       visible_item_count: visibleItemCount,
+      ...(leadingTurnId ? { leading_turn_id: leadingTurnId } : {}),
     },
   };
 }
@@ -704,6 +706,55 @@ function threadWindowEntryRendersChatRow(message: BrowserIncomingMessage): boole
     return Boolean(result?.is_error && !message.interrupted);
   }
   return true;
+}
+
+function isHumanTurnBoundary(
+  message: BrowserIncomingMessage,
+): message is Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  // Leader feed turns ignore every sourced input and the legacy source-less kickoff.
+  return (
+    message.type === "user_message" && message.agentSource?.sessionId == null && !isLeaderKickoffPrompt(message.content)
+  );
+}
+
+function deriveLeadingTurnId(items: FeedItem[], entries: ThreadWindowEntry[]): string | undefined {
+  const leadingKeys = new Set<string>();
+  for (const entry of entries) {
+    if (!threadWindowEntryRendersChatRow(entry.message)) continue;
+    if (leadingKeys.size > 0 && isHumanTurnBoundary(entry.message)) break;
+    leadingKeys.add(entryKey(entry));
+  }
+  if (leadingKeys.size === 0) return undefined;
+
+  let currentTurn: { id: string | undefined; startIndex: number } | undefined;
+  let leadingTurn: typeof currentTurn;
+  for (const item of items) {
+    const { message, history_index: historyIndex } = item.entry;
+    if (!threadWindowEntryRendersChatRow(message)) continue;
+    const messageId =
+      message.type === "user_message"
+        ? typeof message.id === "string" && message.id.trim()
+          ? message.id
+          : `hist-user-${historyIndex}`
+        : message.type === "assistant"
+          ? message.message.id
+          : undefined;
+    if (isHumanTurnBoundary(message)) {
+      currentTurn = { id: messageId, startIndex: historyIndex };
+    } else {
+      // System-row normalization has distinct ids. Leave an unproven prefix
+      // unidentified until a real human boundary supplies the exact identity.
+      currentTurn ??= { id: messageId ? `turn-a-${messageId}` : undefined, startIndex: historyIndex };
+    }
+    if (!leadingKeys.delete(entryKey(item.entry))) continue;
+    // Response/tool support can prepend discontiguous source rows. A scalar
+    // hint is valid only when the delivered prefix belongs to one source turn.
+    if (leadingTurn && leadingTurn.startIndex !== currentTurn.startIndex) return undefined;
+    leadingTurn = currentTurn;
+    if (leadingKeys.size === 0) return leadingTurn.id;
+  }
+  // Foreign proof-only rows have no membership in the projected source stream.
+  return undefined;
 }
 
 function deriveThreadWindowAvailability(input: {
