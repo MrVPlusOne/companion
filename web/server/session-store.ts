@@ -103,6 +103,8 @@ export interface PersistedSession {
   pendingMessages: string[];
   forceCompactPending?: boolean;
   pendingCodexTurns?: CodexOutboundTurn[];
+  /** Server-only unresolved terminal recovery audit; never grants replay authority. */
+  codexTerminalRecoveries?: import("./session-types.js").CodexTurnRecoveryState[];
   pendingCodexInputs?: PendingCodexInput[];
   recoveryDeliveryTransfers?: RecoveryDeliveryTransfer[];
   pendingCodexRollback?: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;

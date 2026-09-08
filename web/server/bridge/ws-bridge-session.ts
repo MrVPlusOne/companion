@@ -113,6 +113,7 @@ export interface Session {
   forceCompactPending: boolean;
   /** Authoritative Codex outbound user-turn queue (persisted across disconnect/relaunch). */
   pendingCodexTurns: CodexOutboundTurn[];
+  codexTerminalRecoveries: import("../session-types.js").CodexTurnRecoveryState[];
   /** Codex inputs accepted by Takode but not yet delivered to Codex. */
   pendingCodexInputs: PendingCodexInput[];
   /** Server-only persisted payload owners while recovery-linked inputs cross into normal delivery. */

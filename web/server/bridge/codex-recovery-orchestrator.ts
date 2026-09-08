@@ -1,3 +1,5 @@
+import { retryPendingCodexTurn } from "./codex-pending-turn-retry.js";
+export { retryPendingCodexTurn } from "./codex-pending-turn-retry.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
 import type { TurnStartFailureInfo, TurnSteerFailureInfo } from "./adapter-interface.js";
 import type {
@@ -158,6 +160,9 @@ import {
   markCodexTurnRecoveryActionRequired,
   markCodexTurnRecoveryContinuationActive,
   markCodexTurnRecoveryOnDisconnect,
+  retireTerminalCodexRecoveryOwner,
+  retireTerminalCodexRecoveryOwners,
+  archiveUnrelatedTerminalCodexRecovery,
   resolveCodexTurnRecoveryRoute,
   selectCodexTurnRecoveryOwner,
   settleCodexTurnRecoveryFromResult,
@@ -593,6 +598,7 @@ export function dispatchQueuedCodexTurns(
     isCodexTurnRecoveryContinuationInjectionPending(session)
   )
     return;
+  retireTerminalCodexRecoveryOwners(session, deps);
   if (advanceCodexTerminalHistoryReconciliation(session, deps)) return;
   let head =
     typeof deps.getCodexHeadTurn === "function"
@@ -644,6 +650,7 @@ export function rebuildQueuedCodexPendingStartBatch(
   session: CodexRecoveryOrchestratorSessionLike,
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
+  retireTerminalCodexRecoveryOwners(session, deps);
   refreshPendingCodexThreadOutcomeReminders(session, deps);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const head = deps.getCodexHeadTurn(session);
@@ -930,6 +937,7 @@ export function trySteerPendingCodexInputs(
     deps.clearCodexFreshTurnRequirement(session, `${reason}_active_turn_changed`);
   }
   deps.pruneStalePendingCodexHerdInputs(session, `${reason}_before_steer`);
+  retireTerminalCodexRecoveryOwners(session, deps);
   refreshPendingCodexThreadOutcomeReminders(session, deps);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const deliverable = getCancelablePendingCodexInputs(session);
@@ -1534,6 +1542,10 @@ export function reconcileCodexResumedTurn(
 ): void {
   const pending = deps.getCodexTurnInRecovery(session);
   const lastTurn = snapshot.lastTurn;
+  if (pending && retireTerminalCodexRecoveryOwner(session, pending, deps)) {
+    deps.dispatchQueuedCodexTurns(session, "codex_terminal_recovery_owner_retired");
+    return;
+  }
   if (!pending) {
     const recovery = session.state.codex_turn_recovery ?? null;
     if (
@@ -1855,6 +1867,8 @@ function suppressCodexReplayForObservedActivity(
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
   const recoveryOwner = selectCodexTurnRecoveryOwner(session, pending);
+  if (retireTerminalCodexRecoveryOwner(session, recoveryOwner, deps)) return;
+  archiveUnrelatedTerminalCodexRecovery(session, recoveryOwner.userMessageId, deps);
   recordCodexReplaySuppressedProof(session, recoveryOwner, replayCause, activity);
   console.warn(
     `[ws-bridge] Suppressed Codex user-delivery replay for session ${sessionTag(session.id)} ` +
@@ -1880,68 +1894,6 @@ function suppressCodexReplayForObservedActivity(
       interruptSource: "system",
     },
   );
-}
-
-export function retryPendingCodexTurn(
-  session: CodexRecoveryOrchestratorSessionLike,
-  pending: CodexOutboundTurn,
-  deps: CodexRecoveryOrchestratorDeps,
-  options: { diagnoseDispatchFailure?: boolean } = {},
-): void {
-  const releasedHeadQueuedTurn = pending.turnTarget === "queued";
-  const preserveRecoveryTestingOwnership =
-    pending.turnTarget === "current" &&
-    pending.autoPauseRecoveryTestingRetired !== true &&
-    pending.autoPauseSourceKind === "manual" &&
-    !!session.state.codex_result_error_auto_pause?.pausedAt;
-  const restartRunningGuard = session.isGenerating && pending.turnTarget !== "queued";
-  if (restartRunningGuard) {
-    deps.setGenerating(session, false, "codex_retry_pending_turn_restart");
-  }
-  pending.status =
-    session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed"
-      ? "blocked_broken_session"
-      : "queued";
-  pending.updatedAt = Date.now();
-  pending.acknowledgedAt = null;
-  pending.lastError = null;
-  pending.turnTarget = preserveRecoveryTestingOwnership ? "current" : null;
-  pending.turnId = null;
-  pending.disconnectedAt = null;
-  pending.resumeConfirmedAt = null;
-  reconcileRecoveredQueuedTurnLifecycle(session, "codex_retry_pending_turn", deps, { releasedHeadQueuedTurn });
-  deps.dispatchQueuedCodexTurns(session, "codex_retry_pending_turn");
-  const pendingAfterDispatch: CodexOutboundTurn = pending;
-  const retryIssue = options.diagnoseDispatchFailure ? getCodexRetryDispatchIssue(session, pendingAfterDispatch) : null;
-  if (retryIssue) {
-    const message = `Codex resumed an interrupted user-only turn, but automatic retry was not dispatched: ${retryIssue}.`;
-    pendingAfterDispatch.lastError = message;
-    console.warn(`[ws-bridge] ${message} session=${sessionTag(session.id)}`);
-    deps.broadcastToBrowsers(session, { type: "error", message });
-    deps.persistSession(session);
-    return;
-  }
-  if (pendingAfterDispatch.status === "dispatched" && !session.isGenerating) {
-    const target = deps.markRunningFromUserDispatch(session, "codex_retry_pending_turn");
-    pendingAfterDispatch.turnTarget = target;
-    if (pendingAfterDispatch.historyIndex >= 0) {
-      deps.trackUserMessageForTurn(session, pendingAfterDispatch.historyIndex, target);
-    }
-  }
-  deps.persistSession(session);
-}
-
-function getCodexRetryDispatchIssue(
-  session: CodexRecoveryOrchestratorSessionLike,
-  pending: CodexOutboundTurn,
-): string | null {
-  if (pending.status === "dispatched" || pending.status === "backend_acknowledged") return null;
-  if (pending.status === "blocked_broken_session") return "session is in a non-retryable broken state";
-  if (!session.codexAdapter) return "adapter not connected";
-  if (session.state.backend_state !== "connected")
-    return `backend state is ${session.state.backend_state ?? "unknown"}`;
-  if (!session.codexAdapter.isConnected()) return "adapter not connected";
-  return `retry remained ${pending.status}`;
 }
 
 export function retryNonDrainableCodexHeadTurn(

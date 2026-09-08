@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionAttentionProjectionDefinition } from "../session-attention-projection.js";
-import { restorePersistedSessions } from "./session-registry-controller.js";
+import { buildPersistedSessionPayload, restorePersistedSessions } from "./session-registry-controller.js";
 import { setAttention } from "./session-notification-controller.js";
 import { injectCompactionRecovery } from "./compaction-recovery.js";
 
@@ -108,6 +108,29 @@ describe("restored session activity", () => {
 });
 
 describe("restored Codex interrupted-turn recovery", () => {
+  it("round-trips terminal audits outside the active recovery slot without exposing them as session state", async () => {
+    // Archived terminal records retain their replay veto after server restart;
+    // the browser state and a later queued input remain independently owned.
+    const terminal = { ...recovery, status: "action_required", reason: "continuation_interrupted" };
+    const saved = persisted({
+      state: { ...persisted().state, codex_turn_recovery: null },
+      codexTerminalRecoveries: [terminal],
+      pendingCodexInputs: [{ id: "later-input", content: "still pending", timestamp: 30, cancelable: true }],
+    });
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(sessions, [saved], deps());
+    const restored = sessions.get(saved.id);
+    expect(restored.state.codex_turn_recovery).toBeNull();
+    expect(restored.state).not.toHaveProperty("codexTerminalRecoveries");
+    expect(restored.codexTerminalRecoveries).toEqual([expect.objectContaining(terminal)]);
+    expect(restored.pendingCodexInputs).toEqual(saved.pendingCodexInputs);
+    const serialized = JSON.parse(JSON.stringify(buildPersistedSessionPayload(restored)));
+    const again = new Map<string, any>();
+    await restorePersistedSessions(again, [serialized], deps());
+    expect(again.get(saved.id).codexTerminalRecoveries).toEqual(restored.codexTerminalRecoveries);
+    expect(again.get(saved.id).pendingCodexInputs).toEqual(saved.pendingCodexInputs);
+  });
+
   it("repairs the durable continuation owner and active status", async () => {
     const source = "system:codex-turn-recovery:original-owner";
     const sessions = new Map<string, any>();
@@ -212,9 +235,17 @@ describe("restored Codex interrupted-turn recovery", () => {
     );
   });
 
-  it("retires stale action-required state from persisted same-thread success and persists the metadata repair", async () => {
+  it.each([false, true])("persists same-thread success retirement after restore (archived: %s)", async (archived) => {
     const sessions = new Map<string, any>();
     const persistHistoryMetadataRepair = vi.fn(async () => {});
+    const terminal = {
+      ...recovery,
+      threadKey: "main",
+      questId: undefined,
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+      updatedAt: 20,
+    };
     await restorePersistedSessions(
       sessions,
       [
@@ -225,15 +256,9 @@ describe("restored Codex interrupted-turn recovery", () => {
             backend_state: "disconnected",
             backend_error: null,
             isOrchestrator: true,
-            codex_turn_recovery: {
-              ...recovery,
-              threadKey: "main",
-              questId: undefined,
-              status: "action_required",
-              reason: "continuation_dispatch_failed",
-              updatedAt: 20,
-            },
+            codex_turn_recovery: archived ? null : terminal,
           },
+          codexTerminalRecoveries: archived ? [terminal] : [],
           messageHistory: [
             {
               type: "user_message",
@@ -286,6 +311,7 @@ describe("restored Codex interrupted-turn recovery", () => {
 
     const restored = sessions.get("session-recovery");
     expect(restored.state.codex_turn_recovery).toBeNull();
+    expect(restored.codexTerminalRecoveries).toEqual([]);
     expect(restored.messageHistory[1]).toMatchObject({
       id: "recovery-diagnostic",
       codexTurnRecoveryId: "original-owner",

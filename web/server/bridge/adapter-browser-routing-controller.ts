@@ -1848,6 +1848,8 @@ export function routeAdapterBrowserMessage(
         !deliveryFrozen &&
         !isHerdEvent &&
         (!trustedCodexRecoveryRoute || !currentTurnId) &&
+        // An idle recovery queue owns delivery; accepting another input is not activity.
+        (session.isGenerating || session.pendingCodexTurns[0]?.status !== "recovery_pending") &&
         session.state.backend_state !== "broken" &&
         session.state.backend_state !== "recovery_suppressed"
       ) {

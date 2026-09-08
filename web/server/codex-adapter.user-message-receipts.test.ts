@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CodexAdapter } from "./codex-adapter.js";
-import type { BrowserOutgoingMessage } from "./session-types.js";
+import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "./session-types.js";
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
 
@@ -222,6 +222,104 @@ describe("CodexAdapter user-message history receipts", () => {
         observedAt: expect.any(Number),
       }),
     );
+  });
+
+  it("keeps user receipts independent when assistant streaming and completion IDs differ", async () => {
+    const adapter = await makeAdapter();
+    const messages: BrowserIncomingMessage[] = [];
+    const recorded = vi.fn();
+    adapter.onBrowserMessage((message) => messages.push(message));
+    adapter.onUserMessageRecorded(recorded);
+    adapter.sendBrowserMessage({
+      type: "codex_start_pending",
+      pendingInputIds: ["pending-rekeyed-assistant"],
+      clientUserMessageId: "batch-rekeyed-assistant",
+      inputs: [{ content: "Inspect the pending work" }],
+    });
+    await tick();
+    const request = findLastRequest(stdin, "turn/start");
+    expect(request.params.clientUserMessageId).toBe("batch-rekeyed-assistant");
+    stdout.push(JSON.stringify({ id: request.id, result: { turn: { id: "turn_rekeyed" } } }) + "\n");
+    await tick();
+
+    // Provider assistant IDs can change on completion. Neither output event
+    // proves that the independently identified user input entered history.
+    stdout.push(
+      JSON.stringify({
+        method: "item/started",
+        params: {
+          threadId: "thr_123",
+          turnId: "turn_rekeyed",
+          item: { type: "agentMessage", id: "assistant-streaming", phase: "commentary" },
+        },
+      }) + "\n",
+    );
+    stdout.push(
+      JSON.stringify({
+        method: "item/agentMessage/delta",
+        params: { threadId: "thr_123", turnId: "turn_rekeyed", itemId: "assistant-streaming", delta: "Inspecting " },
+      }) + "\n",
+    );
+    await tick();
+    expect(recorded).not.toHaveBeenCalled();
+
+    pushUserMessageReceipt(stdout, "item/started", {
+      clientId: "batch-rekeyed-assistant",
+      turnId: "turn_rekeyed",
+      itemId: "user-receipt",
+    });
+    await tick();
+    expect(recorded).toHaveBeenCalledOnce();
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          threadId: "thr_123",
+          turnId: "turn_rekeyed",
+          item: {
+            type: "agentMessage",
+            id: "assistant-completed",
+            phase: "commentary",
+            text: "Inspecting the pending work.",
+          },
+        },
+      }) + "\n",
+    );
+    // The second notification for the real user item must remain one receipt,
+    // even with an assistant completion interleaved between its notifications.
+    pushUserMessageReceipt(stdout, "item/completed", {
+      clientId: "batch-rekeyed-assistant",
+      turnId: "turn_rekeyed",
+      itemId: "user-receipt",
+    });
+    await tick();
+
+    expect(recorded).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        clientUserMessageId: "batch-rekeyed-assistant",
+        turnId: "turn_rekeyed",
+        itemId: "user-receipt",
+      }),
+    );
+    expect(messages).toContainEqual(
+      expect.objectContaining({
+        type: "stream_event",
+        event: expect.objectContaining({
+          type: "message_start",
+          message: expect.objectContaining({ id: "codex-agent-assistant-streaming" }),
+        }),
+      }),
+    );
+    expect(messages.filter((message) => message.type === "assistant")).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          id: "codex-agent-assistant-completed",
+          content: [{ type: "text", text: "Inspecting the pending work." }],
+        }),
+        codexMessagePhase: "commentary",
+      }),
+    ]);
   });
 
   it("passes a client id to turn/steer and releases its receipt after onTurnSteered", async () => {

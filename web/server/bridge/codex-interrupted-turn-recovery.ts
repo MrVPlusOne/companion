@@ -14,6 +14,7 @@ import type {
   CodexTurnRecoveryReason,
   PendingCodexInput,
   SessionState,
+  CodexTurnRecoveryState,
 } from "../session-types.js";
 import type { CodexResumeTurnSnapshot } from "../codex-adapter.js";
 import { sessionTag } from "../session-tag.js";
@@ -69,6 +70,8 @@ export interface CodexInterruptedTurnRecoverySessionLike {
   _frozenCount?: number;
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
+  /** Unresolved terminal recoveries retained outside the active scheduling slot. */
+  codexTerminalRecoveries?: CodexTurnRecoveryState[];
   pendingStartupMemoryCatalogInjection?: unknown;
 }
 
@@ -106,6 +109,81 @@ const RECOVERY_REASONS = new Set([
   "recovery_timeout",
   "recovery_failed",
 ]);
+
+/** Preserve an unrelated terminal outcome before assigning the active recovery slot. */
+export function archiveUnrelatedTerminalCodexRecovery(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  ownerId: string,
+  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
+): void {
+  const current = session.state.codex_turn_recovery;
+  if (
+    current?.status !== "action_required" ||
+    current.originalOwnerId === ownerId ||
+    current.continuationOwnerId === ownerId
+  )
+    return;
+  const retained = session.codexTerminalRecoveries ?? [];
+  session.codexTerminalRecoveries = [
+    ...retained.filter((recovery) => recovery.recoveryId !== current.recoveryId),
+    { ...current },
+  ];
+  // This is a scheduling handoff, not resolution: leave diagnostic history unresolved.
+  session.state.codex_turn_recovery = null;
+  deps.broadcastToBrowsers(session, { type: "session_update", session: { codex_turn_recovery: null } });
+  deps.persistSession(session);
+}
+
+/** Retire only terminal-owned queue entries; stale callbacks cannot authorize another attempt. */
+export function retireTerminalCodexRecoveryOwner(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  pending: CodexOutboundTurn,
+  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
+): boolean {
+  const terminal = findTerminalCodexRecoveryOwner(session, pending);
+  if (!terminal) return false;
+  retireCodexTurnRecoveryOwners(session, terminal, deps);
+  return true;
+}
+
+/** Reject delayed continuation delivery even before it has a pending-turn owner. */
+export function isTerminalCodexRecoverySource(
+  session: Pick<CodexInterruptedTurnRecoverySessionLike, "state" | "codexTerminalRecoveries">,
+  sourceId: string | undefined,
+): boolean {
+  if (!sourceId) return false;
+  return terminalCodexRecoveries(session).some(
+    (recovery) => sourceId === codexTurnRecoverySourceId(recovery.recoveryId),
+  );
+}
+
+/** Remove exact terminal ownership before constructing either a start or steer batch. */
+export function retireTerminalCodexRecoveryOwners(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
+): void {
+  for (const recovery of terminalCodexRecoveries(session)) retireCodexTurnRecoveryOwners(session, recovery, deps);
+}
+
+function terminalCodexRecoveries(
+  session: Pick<CodexInterruptedTurnRecoverySessionLike, "state" | "codexTerminalRecoveries">,
+): CodexTurnRecoveryState[] {
+  const current = session.state.codex_turn_recovery;
+  return [...(session.codexTerminalRecoveries ?? []), ...(current?.status === "action_required" ? [current] : [])];
+}
+
+function findTerminalCodexRecoveryOwner(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  pending: CodexOutboundTurn,
+): CodexTurnRecoveryState | undefined {
+  const ids = pending.pendingInputIds ?? [pending.userMessageId];
+  return terminalCodexRecoveries(session).find(
+    (recovery) =>
+      ids.includes(recovery.originalOwnerId) ||
+      (recovery.continuationOwnerId != null && ids.includes(recovery.continuationOwnerId)) ||
+      sourceIdForPendingTurn(session, pending) === codexTurnRecoverySourceId(recovery.recoveryId),
+  );
+}
 
 export function normalizeCodexTurnRecoveryState(value: unknown): SessionState["codex_turn_recovery"] {
   if (!value || typeof value !== "object") return null;
@@ -171,6 +249,30 @@ export interface RestoredCodexTurnRecoveryRepair {
 }
 
 export function repairRestoredCodexTurnRecovery(
+  session: CodexInterruptedTurnRecoverySessionLike,
+): RestoredCodexTurnRecoveryRepair {
+  let resolvedArchivedRecovery = false;
+  let historyMetadataChanged = false;
+  let requiresFrozenHistoryMetadataRepair = false;
+  session.codexTerminalRecoveries = session.codexTerminalRecoveries?.filter((recovery) => {
+    if (!hasHistoricalSuccessfulSameThreadHumanFollowUp(session, recovery)) return true;
+    resolvedArchivedRecovery = true;
+    const retired = retireCodexTurnRecoveryDiagnostics(session, recovery, Date.now());
+    historyMetadataChanged ||= retired.changed;
+    requiresFrozenHistoryMetadataRepair ||= retired.requiresFrozenHistoryMetadataRepair;
+    return false;
+  });
+  const active = repairRestoredActiveCodexTurnRecovery(session);
+  return {
+    ...active,
+    resolvedByHistoricalSuccess: active.resolvedByHistoricalSuccess || resolvedArchivedRecovery,
+    historyMetadataChanged: active.historyMetadataChanged || historyMetadataChanged,
+    requiresFrozenHistoryMetadataRepair:
+      active.requiresFrozenHistoryMetadataRepair || requiresFrozenHistoryMetadataRepair,
+  };
+}
+
+function repairRestoredActiveCodexTurnRecovery(
   session: CodexInterruptedTurnRecoverySessionLike,
 ): RestoredCodexTurnRecoveryRepair {
   const current = normalizeCodexTurnRecoveryState(session.state.codex_turn_recovery);
@@ -442,6 +544,8 @@ export function markCodexTurnRecoveryHistoryPresence(
   historyPresence: "present" | "absent" | "unknown",
   deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
 ): boolean {
+  if (findTerminalCodexRecoveryOwner(session, pending)) return false;
+  archiveUnrelatedTerminalCodexRecovery(session, pending.userMessageId, deps);
   const current = session.state.codex_turn_recovery ?? null;
   if (current && current.originalOwnerId !== pending.userMessageId) return false;
   if (current?.historyPresence === historyPresence) return false;
@@ -482,6 +586,8 @@ export function markCodexTurnRecoveryOnDisconnect(
 ): void {
   const recoveryOwner = pending.historyIncorporation ? pending : selectCodexTurnRecoveryOwner(session, pending);
   pending = recoveryOwner;
+  if (findTerminalCodexRecoveryOwner(session, pending)) return;
+  archiveUnrelatedTerminalCodexRecovery(session, pending.userMessageId, deps);
   const current = session.state.codex_turn_recovery ?? null;
   if (current && isRecoveryContinuationTurn(session, pending, current.recoveryId)) {
     setRecoveryState(
@@ -633,6 +739,8 @@ export function beginCodexTurnRecoveryContinuation(
   deps: CodexInterruptedTurnRecoveryDeps,
   continuationMode: CodexTurnRecoveryContinuationMode = "verify_then_continue",
 ): boolean {
+  if (findTerminalCodexRecoveryOwner(session, pending)) return false;
+  archiveUnrelatedTerminalCodexRecovery(session, pending.userMessageId, deps);
   const existing = session.state.codex_turn_recovery ?? null;
   if (isRecoveryContinuationTurn(session, pending, existing?.recoveryId)) {
     markCodexTurnRecoveryActionRequired(session, "continuation_interrupted", deps);
@@ -775,7 +883,12 @@ export function markCodexTurnRecoveryContinuationActive(
   deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
 ): void {
   const current = session.state.codex_turn_recovery ?? null;
-  if (!current || !isRecoveryContinuationTurn(session, pending, current.recoveryId)) return;
+  if (
+    !current ||
+    current.status === "action_required" ||
+    !isRecoveryContinuationTurn(session, pending, current.recoveryId)
+  )
+    return;
   setRecoveryState(
     session,
     {
@@ -930,6 +1043,8 @@ export function markCodexTurnRecoveryOwnerActionRequired(
     | "setAttentionError"
   >,
 ): void {
+  if (retireTerminalCodexRecoveryOwner(session, pending, deps)) return;
+  archiveUnrelatedTerminalCodexRecovery(session, pending.userMessageId, deps);
   const current = session.state.codex_turn_recovery ?? null;
   if (!current) {
     const now = Date.now();
@@ -973,7 +1088,10 @@ export function resolveCodexTurnRecoveryAction(
     | "queueCodexPendingStartBatch"
   >,
 ): boolean {
-  const current = session.state.codex_turn_recovery ?? null;
+  const current =
+    session.state.codex_turn_recovery?.recoveryId === recoveryId
+      ? session.state.codex_turn_recovery
+      : session.codexTerminalRecoveries?.find((recovery) => recovery.recoveryId === recoveryId);
   if (!current || current.status !== "action_required" || current.recoveryId !== recoveryId) return false;
   retireCodexTurnRecoveryOwners(session, current, deps);
   clearCodexTurnRecoveryState(session, current, deps);
@@ -1011,9 +1129,16 @@ export function settleCodexTurnRecoveryFromResult(
   deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession" | "setAttentionError">,
   interrupted = false,
 ): void {
+  const successful = isSuccessfulResult(result, interrupted);
+  if (successful) {
+    for (const recovery of [...(session.codexTerminalRecoveries ?? [])]) {
+      if (completedTurns.some((turn) => isFreshSameThreadHumanRecoveryFollowUp(session, turn, recovery))) {
+        clearCodexTurnRecoveryState(session, recovery, deps);
+      }
+    }
+  }
   const current = session.state.codex_turn_recovery ?? null;
   if (!current) return;
-  const successful = isSuccessfulResult(result, interrupted);
   if (successful && current.status === "action_required") {
     const followUp = completedTurns.find((turn) => isFreshSameThreadHumanRecoveryFollowUp(session, turn, current));
     if (followUp) {
@@ -1072,8 +1197,13 @@ function clearCodexTurnRecoveryState(
   >,
 ): void {
   const retired = retireCodexTurnRecoveryDiagnostics(session, recovery, Date.now());
-  session.state.codex_turn_recovery = null;
-  deps.broadcastToBrowsers(session, { type: "session_update", session: { codex_turn_recovery: null } });
+  if (session.state.codex_turn_recovery?.recoveryId === recovery.recoveryId) {
+    session.state.codex_turn_recovery = null;
+    deps.broadcastToBrowsers(session, { type: "session_update", session: { codex_turn_recovery: null } });
+  }
+  session.codexTerminalRecoveries = session.codexTerminalRecoveries?.filter(
+    (retained) => retained.recoveryId !== recovery.recoveryId,
+  );
   if (retired.requiresFrozenHistoryMetadataRepair && deps.persistHistoryMetadataRepair) {
     const expectedFrozenCount = normalizedFrozenHistoryCount(session);
     void deps.persistHistoryMetadataRepair(session, expectedFrozenCount).catch((error) => {
@@ -1213,7 +1343,11 @@ export function isRecoveryContinuationTurn(
   recoveryId = session.state.codex_turn_recovery?.recoveryId,
 ): boolean {
   if (!recoveryId) return false;
-  if (pending.userMessageId === session.state.codex_turn_recovery?.continuationOwnerId) return true;
+  if (
+    recoveryId === session.state.codex_turn_recovery?.recoveryId &&
+    pending.userMessageId === session.state.codex_turn_recovery?.continuationOwnerId
+  )
+    return true;
   const sourceId = sourceIdForPendingTurn(session, pending);
   return sourceId === codexTurnRecoverySourceId(recoveryId);
 }

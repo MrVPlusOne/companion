@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage, CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
 import { injectUserMessage as injectProgrammaticUserMessage } from "./browser-transport-controller.js";
 import {
+  archiveUnrelatedTerminalCodexRecovery,
   beginCodexTurnRecoveryContinuation,
   hasIncompleteCodexActivityWithoutTerminalEvidence,
   isCodexTurnRecoveryContinuationInjectionPending,
@@ -191,7 +192,10 @@ describe("Codex interrupted turn recovery classification", () => {
 });
 
 describe("Codex interrupted turn recovery state", () => {
-  it("reserves recovery ordering until a genuinely queued programmatic route is accepted", async () => {
+  it.each([
+    false,
+    true,
+  ])("reserves recovery ordering until a queued route settles (archived before routing: %s)", async (archived) => {
     const session = Object.assign(makeSession(), {
       backendType: "codex" as const,
       browserSockets: new Set(),
@@ -244,12 +248,24 @@ describe("Codex interrupted turn recovery state", () => {
     } as any;
     const rebuildQueuedCodexPendingStartBatch = vi.fn();
     const dispatchQueuedCodexTurns = vi.fn();
+    const afterAccepted = vi.fn();
+    const afterRejected = vi.fn();
     const recoveryDeps = {
       ...deps(session),
       rebuildQueuedCodexPendingStartBatch,
       dispatchQueuedCodexTurns,
       injectUserMessage: (sessionId: string, content: string, agentSource: any, route: any, options: any) =>
-        injectProgrammaticUserMessage(session as any, content, agentSource, undefined, browserDeps, route, options),
+        injectProgrammaticUserMessage(session as any, content, agentSource, undefined, browserDeps, route, {
+          ...options,
+          afterAccepted: () => {
+            afterAccepted();
+            options.afterAccepted?.();
+          },
+          afterRejected: (reason: "dropped" | "route_rejected" | "route_failed") => {
+            afterRejected(reason);
+            options.afterRejected?.(reason);
+          },
+        }),
     };
 
     expect(
@@ -259,10 +275,56 @@ describe("Codex interrupted turn recovery state", () => {
     expect(isCodexTurnRecoveryContinuationInjectionPending(session)).toBe(true);
     expect(dispatchQueuedCodexTurns).not.toHaveBeenCalled();
 
+    if (archived) {
+      // A's route is still waiting on unrelated routing work when recovery ends.
+      // B now owns a live turn; releasing A must reject before adapter routing
+      // can mistake that old continuation for an ordinary steer into B.
+      markCodexTurnRecoveryActionRequired(session, "recovery_timeout", recoveryDeps);
+      archiveUnrelatedTerminalCodexRecovery(session, "later-owner", recoveryDeps);
+      const oldRecovery = structuredClone(session.codexTerminalRecoveries![0]!);
+      const activeRecovery = {
+        ...oldRecovery,
+        recoveryId: "later-owner",
+        originalOwnerId: "later-owner",
+        originalProviderTurnId: "later-provider-turn",
+        continuationOwnerId: "later-continuation",
+        status: "continuation_active" as const,
+      };
+      session.state.codex_turn_recovery = activeRecovery;
+      session.isGenerating = true;
+      session.pendingCodexTurns = [
+        turn({
+          userMessageId: "later-continuation",
+          pendingInputIds: ["later-continuation"],
+          turnId: "later-provider-turn",
+        }),
+      ];
+      const preservedTurns = structuredClone(session.pendingCodexTurns);
+      const preservedHistory = structuredClone(session.messageHistory);
+      const drain = routeState.current;
+      releaseRoute();
+      await drain;
+
+      expect(afterRejected).toHaveBeenCalledExactlyOnceWith("dropped");
+      expect(afterAccepted).not.toHaveBeenCalled();
+      expect(routeBrowserMessage).not.toHaveBeenCalled();
+      expect(session.state.codex_turn_recovery).toEqual(activeRecovery);
+      expect(session.codexTerminalRecoveries).toEqual([oldRecovery]);
+      expect(session.pendingCodexTurns).toEqual(preservedTurns);
+      expect(session.pendingCodexInputs).toEqual([]);
+      expect(session.messageHistory).toEqual(preservedHistory);
+      expect(session.isGenerating).toBe(true);
+      expect(rebuildQueuedCodexPendingStartBatch).not.toHaveBeenCalled();
+      expect(dispatchQueuedCodexTurns).not.toHaveBeenCalled();
+      return;
+    }
+
     const drain = routeState.current;
     releaseRoute();
     await drain;
 
+    expect(afterAccepted).toHaveBeenCalledOnce();
+    expect(afterRejected).not.toHaveBeenCalled();
     expect(session.state.codex_turn_recovery).toMatchObject({
       status: "continuation_pending",
       continuationOwnerId: "continuation-owner",

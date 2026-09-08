@@ -781,7 +781,10 @@ describe("Codex evidence-aware history recovery", () => {
     });
   });
 
-  it("drains recorded and absent same-turn co-owners in FIFO order", async () => {
+  it.each([
+    false,
+    true,
+  ])("drains recorded and absent same-turn co-owners in FIFO order (old terminal: %s)", async (oldTerminal) => {
     // Each steer owns its own receipt boundary even though all three inputs
     // shared one provider turn. Recovery must finish A, then B, before the
     // proven-absent C payload is replayed as a fresh turn.
@@ -819,6 +822,44 @@ describe("Codex evidence-aware history recovery", () => {
     adapter1.emitTurnSteered("turn-shared-fifo", [secondOwnerId], secondClientId);
     adapter1.emitUserMessageRecorded({ turnId: "turn-shared-fifo", clientUserMessageId: secondClientId });
 
+    // Re-keyed duplicate assistant completion is presentation-only: the
+    // exact user's receipt and post-receipt activity must survive deduplication.
+    const timestamp = Date.now();
+    for (const id of ["assistant-stream-identity", "assistant-completion-identity"]) {
+      adapter1.emitBrowserMessage({
+        type: "assistant",
+        timestamp,
+        parent_tool_use_id: null,
+        codexMessagePhase: "commentary",
+        message: {
+          id,
+          type: "message",
+          role: "assistant",
+          model: "gpt-6-astra",
+          stop_reason: null,
+          content: [{ type: "text", text: "[thread:q-9101:C] Checking the second owner." }],
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      });
+    }
+    await Promise.resolve();
+    const secondTracked = bridge
+      .getSession(sid)!
+      .pendingCodexTurns.find((turn) => turn.userMessageId === secondOwnerId)!;
+    expect(secondTracked.historyIncorporation?.recordedAt).not.toBeNull();
+    expect(secondTracked.providerReplayUnsafeActivityObserved).toBe(true);
+    expect(
+      bridge
+        .getSession(sid)!
+        .messageHistory.filter(
+          (entry) =>
+            entry.type === "assistant" &&
+            entry.message.content.some(
+              (block) => block.type === "text" && block.text.includes("Checking the second owner."),
+            ),
+        ),
+    ).toHaveLength(1);
+
     await bridge.handleBrowserMessage(
       browser,
       JSON.stringify({ type: "user_message", content: "third owner", threadKey: "q-9102", questId: "q-9102" }),
@@ -831,6 +872,25 @@ describe("Codex evidence-aware history recovery", () => {
     const thirdClientId = thirdSteer.clientUserMessageId as string;
     adapter1.emitTurnSteered("turn-shared-fifo", [thirdOwnerId], thirdClientId);
 
+    // A terminal Main recovery must remain unresolved without monopolizing
+    // the continuation slot needed by independent quest-owned input.
+    const oldRecovery = {
+      recoveryId: "older-main-owner",
+      originalOwnerId: "older-main-owner",
+      originalProviderTurnId: "older-provider-turn",
+      originalHistoryIndex: 0,
+      continuationOwnerId: "older-continuation",
+      threadKey: "main",
+      status: "action_required" as const,
+      reason: "continuation_interrupted" as const,
+      historyPresence: "unknown" as const,
+      continuationMode: "verify_then_continue" as const,
+      attempt: 1,
+      maxAttempts: 1 as const,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    if (oldTerminal) bridge.getSession(sid)!.state.codex_turn_recovery = oldRecovery;
     adapter1.emitDisconnect("turn-shared-fifo");
     const adapter2 = makeReceiptAwareCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter2 as any);
@@ -864,6 +924,7 @@ describe("Codex evidence-aware history recovery", () => {
       .map((args: any[]) => args[0])
       .filter((message: any) => message?.type === "codex_start_pending");
     expect(starts).toHaveLength(1);
+    expect(bridge.getSession(sid)!.codexTerminalRecoveries).toEqual(oldTerminal ? [oldRecovery] : []);
     const firstContinuationOwnerId = starts[0].pendingInputIds[0] as string;
     expect(firstContinuationOwnerId).not.toBe(firstOwnerId);
     expect(getCodexStartPendingInputs(starts[0])[0]?.content).toContain("finish only the missing response");
@@ -916,6 +977,7 @@ describe("Codex evidence-aware history recovery", () => {
       .map((args: any[]) => args[0])
       .filter((message: any) => message?.type === "codex_start_pending");
     expect(starts).toHaveLength(3);
+    expect(bridge.getSession(sid)!.codexTerminalRecoveries).toEqual(oldTerminal ? [oldRecovery] : []);
     const replay = starts[2];
     expect(replay.pendingInputIds).toEqual([thirdOwnerId]);
     expect(getCodexStartPendingInputs(replay)).toEqual([expect.objectContaining({ content: "third owner" })]);
@@ -927,6 +989,18 @@ describe("Codex evidence-aware history recovery", () => {
         .filter((message: any) => message?.type === "codex_steer_pending")
         .some((message: any) => message.pendingInputIds?.includes(thirdOwnerId)),
     ).toBe(false);
+    adapter2.emitTurnStarted("turn-final-input");
+    adapter2.emitUserMessageRecorded({ turnId: "turn-final-input", clientUserMessageId: replay.clientUserMessageId });
+    adapter2.emitBrowserMessage(successResult(sid, "turn-final-input"));
+    await flushAsync();
+    expect(bridge.getSession(sid)!.pendingCodexInputs).toEqual([]);
+    expect(bridge.getSession(sid)!.pendingCodexTurns).toEqual([]);
+    expect(bridge.getSession(sid)!.codexTerminalRecoveries).toEqual(oldTerminal ? [oldRecovery] : []);
+    for (const ownerId of [firstOwnerId, secondOwnerId, thirdOwnerId]) {
+      expect(
+        bridge.getSession(sid)!.messageHistory.filter((entry) => entry.type === "user_message" && entry.id === ownerId),
+      ).toHaveLength(1);
+    }
   });
 
   it("treats a resume snapshot without an explicit full items view as unknown", async () => {

@@ -1,3 +1,4 @@
+import { isTerminalCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import {
@@ -731,6 +732,9 @@ export function injectUserMessage(
   };
   const dropped = Symbol("programmatic-message-dropped");
   const routeHerdMessage = (): Promise<boolean | void> | boolean | void | typeof dropped => {
+    if (session.backendType === "codex" && isTerminalCodexRecoverySource(session, agentSource?.sessionId)) {
+      return dropped;
+    }
     if (isHerdEventSource(agentSource) && takodeHerdBatch && deps.pruneTakodeHerdBatch) {
       const pruned = deps.pruneTakodeHerdBatch(session, takodeHerdBatch);
       if (pruned.changed) {

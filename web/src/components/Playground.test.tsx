@@ -70,7 +70,7 @@ import { PlaygroundChatViewRecoveryStates } from "./playground/ChatViewRecoveryP
 import { PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT } from "./playground/CodexRecoveryPlaygroundMessages.js";
 import { PlaygroundDiffViewerSection } from "./playground/DiffViewerPlaygroundSection.js";
 import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
-import { MOCK_SESSION_ID } from "./playground/fixtures.js";
+import { MOCK_SESSION_ID, PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID } from "./playground/fixtures.js";
 import { PlaygroundUniversalSearchStates } from "./playground/search-sidebar-states.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 import {
@@ -609,7 +609,10 @@ describe("Playground", () => {
   it("documents active Codex recovery progress and the audit-only terminal state", () => {
     // Current recovery progress stays inspectable, while terminal state remains
     // in server/audit authority without recreating the retired attention chip.
+    // A queued follow-up remains visible while the session is idle.
+    vi.useFakeTimers();
     render(<PlaygroundRecoveryStatesOnly />);
+    act(() => vi.advanceTimersByTime(1_000));
 
     const states = [
       {
@@ -646,7 +649,12 @@ describe("Playground", () => {
       fireEvent.click(chip);
     }
 
-    const terminal = within(screen.getByTestId("playground-codex-turn-recovery-action-required"));
+    const terminalElement = screen.getByTestId("playground-codex-turn-recovery-action-required");
+    const terminal = within(terminalElement);
+    expect(useStore.getState().sessionStatus.get(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID)).toBe("idle");
+    expect(terminal.getByText("Pending delivery")).toBeInTheDocument();
+    expect(terminal.getByText("Check whether the settings change still needs follow-up.")).toBeInTheDocument();
+    expect(terminalElement.querySelector('[data-feed-activity-row="true"]')).toBeNull();
     expect(terminal.queryByTestId("codex-turn-recovery-chip")).toBeNull();
     expect(terminal.queryByTestId("codex-turn-recovery-detail")).toBeNull();
     expect(terminal.queryByRole("button", { name: "Open affected thread" })).toBeNull();

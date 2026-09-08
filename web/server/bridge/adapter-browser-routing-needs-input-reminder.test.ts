@@ -11,9 +11,11 @@ import { commitPendingCodexInputs, removePendingCodexInput } from "./codex-recov
 import { withTrustedRecoveryDeliveryTransferRoute } from "./recovery-delivery-transfer-routing-context.js";
 import { buildCodexBatchMessageInputs } from "./codex-pending-start-batch.js";
 import { withTrustedCodexRecoveryRoute } from "./codex-recovery-routing-context.js";
+import { dispatchQueuedCodexTurns } from "./codex-turn-queue.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
+  CodexOutboundTurn,
   PermissionRequest,
   SessionNotification,
 } from "../session-types.js";
@@ -207,6 +209,125 @@ function installActiveRouteStatusBroadcast(deps: AdapterBrowserRoutingDeps): voi
     return "current" as const;
   });
 }
+
+function makeRecoveryHead(status: CodexOutboundTurn["status"]): CodexOutboundTurn {
+  return {
+    adapterMsg: {
+      type: "codex_start_pending",
+      pendingInputIds: ["retained-input"],
+      inputs: [{ content: "Retained work" }],
+    },
+    userMessageId: "retained-input",
+    pendingInputIds: ["retained-input"],
+    userContent: "Retained work",
+    historyIndex: -1,
+    status,
+    dispatchCount: status === "queued" ? 0 : 1,
+    createdAt: 100,
+    updatedAt: 200,
+    acknowledgedAt: null,
+    turnTarget: null,
+    lastError: null,
+    turnId: null,
+    disconnectedAt: null,
+    resumeConfirmedAt: null,
+  };
+}
+
+describe("Codex input admission activity", () => {
+  it.each([
+    { label: "blocked recovery head", status: "recovery_pending" as const, clearedByPoke: false, running: false },
+    { label: "dispatchable head", status: "queued" as const, clearedByPoke: false, running: true },
+    {
+      label: "recovery cleared by the stale-input poke",
+      status: "recovery_pending" as const,
+      clearedByPoke: true,
+      running: true,
+    },
+  ])("preserves the activity boundary for an idle session with $label", ({ status, clearedByPoke, running }) => {
+    // Admission precedes dispatch. A retained recovery head must keep both inputs
+    // pending without broadcasting activity; an actually dispatchable head keeps
+    // the existing immediate activity behavior. All persistence is mocked.
+    const session = makeSession();
+    session.backendType = "codex";
+    const sendBrowserMessage = vi.fn(() => true);
+    session.codexAdapter = { getCurrentTurnId: () => null, isConnected: () => true, sendBrowserMessage };
+    const head = makeRecoveryHead(status);
+    const retainedHead = structuredClone(head);
+    session.pendingCodexTurns.push(head);
+    session.pendingCodexInputs.push({
+      id: "retained-input",
+      content: "Retained work",
+      timestamp: 100,
+      cancelable: false,
+    });
+    const deps = makeDeps({ isOrchestrator: true });
+    installActiveRouteStatusBroadcast(deps);
+    deps.addPendingCodexInput = vi.fn((target, input) => {
+      target.pendingCodexInputs.push(input);
+    });
+    deps.pokeStaleCodexPendingDelivery = vi.fn(() => {
+      if (clearedByPoke) head.status = "queued";
+      return clearedByPoke;
+    });
+    deps.queueCodexPendingStartBatch = vi.fn((target, reason) => {
+      dispatchQueuedCodexTurns({ ...target, codexFreshTurnRequiredUntilTurnId: null }, reason, {
+        pruneStalePendingCodexHerdInputs: vi.fn(),
+        setPendingCodexInputsCancelable: vi.fn(),
+        persistSession: vi.fn(),
+      });
+    });
+
+    expect(routeAdapterBrowserMessage(session, userMessage(), null, deps)).toBe(true);
+
+    expect(session.isGenerating).toBe(running);
+    expect(deps.markRunningFromUserDispatch).toHaveBeenCalledTimes(running ? 1 : 0);
+    expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "browser_user_message");
+    expect(sendBrowserMessage).toHaveBeenCalledTimes(running ? 1 : 0);
+    expect(session.pendingCodexInputs.map((input) => input.content)).toEqual(["Retained work", "Fresh user message"]);
+    if (running) {
+      expect(head.status).toBe("dispatched");
+      expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+        session,
+        expect.objectContaining({ type: "status_change", status: "running" }),
+      );
+    } else {
+      expect(head).toEqual(retainedHead);
+      expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
+        session,
+        expect.objectContaining({ type: "status_change", status: "running" }),
+      );
+    }
+  });
+
+  it("retains active-turn steering when a recovery head is also retained", () => {
+    // An existing root turn keeps its lifecycle; merely having recovery audit
+    // state must not suppress user steering or turn an active session idle.
+    const session = makeSession();
+    session.backendType = "codex";
+    session.isGenerating = true;
+    session.codexAdapter = {
+      getCurrentTurnId: () => "active-turn",
+      isConnected: () => true,
+      sendBrowserMessage: vi.fn(() => true),
+    };
+    session.pendingCodexTurns.push(makeRecoveryHead("recovery_pending"));
+    const deps = makeDeps();
+    deps.addPendingCodexInput = vi.fn((target, input) => {
+      target.pendingCodexInputs.push(input);
+    });
+    deps.markRunningFromUserDispatch = vi.fn(() => "queued" as const);
+    deps.trySteerPendingCodexInputs = vi.fn(() => true);
+
+    expect(routeAdapterBrowserMessage(session, userMessage(), null, deps)).toBe(true);
+
+    expect(session.isGenerating).toBe(true);
+    expect(deps.markRunningFromUserDispatch).toHaveBeenCalledTimes(1);
+    expect(deps.trySteerPendingCodexInputs).toHaveBeenCalledWith(session, "browser_user_message");
+    expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    expect(session.pendingCodexInputs[0]?.content).toBe("Fresh user message");
+  });
+});
 
 describe("direct user needs-input reminders", () => {
   it("persists and consumes a visible-stream boundary on the next direct human message", async () => {

@@ -145,6 +145,7 @@ type SessionRuntimeOptions = {
   pendingMessages?: string[];
   forceCompactPending?: boolean;
   pendingCodexTurns?: any[];
+  codexTerminalRecoveries?: import("../session-types.js").CodexTurnRecoveryState[];
   pendingCodexInputs?: any[];
   recoveryDeliveryTransfers?: import("./recovery-delivery-transfer.js").RecoveryDeliveryTransfer[];
   pendingCodexRollback?: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;
@@ -205,6 +206,7 @@ function createSessionRuntime(
     pendingMessages: options.pendingMessages ?? [],
     forceCompactPending: options.forceCompactPending ?? false,
     pendingCodexTurns: options.pendingCodexTurns ?? [],
+    codexTerminalRecoveries: options.codexTerminalRecoveries ?? [],
     pendingCodexInputs: options.pendingCodexInputs ?? [],
     recoveryDeliveryTransfers: options.recoveryDeliveryTransfers ?? [],
     pendingCodexRollback: options.pendingCodexRollback ?? null,
@@ -657,6 +659,12 @@ export async function restorePersistedSessions(
           ? ((p as { forceCompactPending: boolean }).forceCompactPending ?? false)
           : false,
       pendingCodexTurns: restoredCodexTurns,
+      codexTerminalRecoveries: Array.isArray(p.codexTerminalRecoveries)
+        ? p.codexTerminalRecoveries.flatMap((value: unknown) => {
+            const recovery = normalizeCodexTurnRecoveryState(value);
+            return recovery ? [{ ...recovery, status: "action_required" as const }] : [];
+          })
+        : [],
       pendingCodexInputs: Array.isArray(p.pendingCodexInputs) ? p.pendingCodexInputs : [],
       recoveryDeliveryTransfers: normalizePersistedRecoveryDeliveryTransfers(p.recoveryDeliveryTransfers),
       pendingCodexRollback:
@@ -847,6 +855,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     pendingMessages: session.pendingMessages,
     forceCompactPending: session.forceCompactPending,
     pendingCodexTurns: session.pendingCodexTurns,
+    codexTerminalRecoveries: session.codexTerminalRecoveries,
     pendingCodexInputs: session.pendingCodexInputs,
     recoveryDeliveryTransfers: session.recoveryDeliveryTransfers,
     pendingCodexRollback: session.pendingCodexRollback,

@@ -9,6 +9,8 @@ import { removeCompletedCodexTurns } from "./codex-turn-queue.js";
 import type { CodexResumeSnapshot } from "../codex-adapter.js";
 import {
   beginCodexTurnRecoveryContinuation,
+  archiveUnrelatedTerminalCodexRecovery,
+  retireTerminalCodexRecoveryOwner,
   clearCodexTurnRecoveryForOwner,
   markCodexTurnRecoveryActionRequired,
   markCodexTurnRecoveryHistoryPresence,
@@ -108,6 +110,8 @@ export function advanceCodexTerminalHistoryReconciliation(
     const plan = head?.terminalHistoryReconciliation;
     if (!head || head.status !== "recovery_pending" || !plan) return false;
 
+    if (retireTerminalCodexRecoveryOwner(session, head, deps)) continue;
+    archiveUnrelatedTerminalCodexRecovery(session, head.userMessageId, deps);
     const current = session.state.codex_turn_recovery ?? null;
     if (current && (current.status !== "recovering" || current.originalOwnerId !== head.userMessageId)) return true;
 

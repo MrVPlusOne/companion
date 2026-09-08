@@ -102,6 +102,16 @@ export function seedCodexTurnRecoveryPlaygroundStates(store: PlaygroundStore, se
     PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID,
     buildPlaygroundActionRequiredRecoveryMessages(recoveryBase.recoveryId),
   );
+  // Pending delivery stays visible without presenting the retained recovery as active work.
+  store.setSessionStatus(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID, "idle");
+  store.setPendingCodexInputs(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID, [
+    {
+      id: "playground-recovery-pending-followup",
+      content: "Check whether the settings change still needs follow-up.",
+      timestamp: Date.now(),
+      cancelable: true,
+    },
+  ]);
 }
 
 function addRecoverySession(

@@ -9,6 +9,7 @@ import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 import { appendCodexLeaderRecoveryDiagnostic } from "./codex-leader-recovery-diagnostic.js";
 import {
   beginCodexTurnRecoveryContinuation,
+  archiveUnrelatedTerminalCodexRecovery,
   isCodexTurnRecoveryContinuationInjectionPending,
   markCodexTurnRecoveryActionRequired,
   type CodexInterruptedTurnRecoveryDeps,
@@ -25,6 +26,7 @@ import {
   type CodexRecoveryDiagnosticOutcome,
   type CodexRecoveryDiagnosticPresentation,
 } from "./codex-recovery-diagnostic-log.js";
+import { stageCodexTerminalHistoryReconciliation } from "./codex-history-incorporation.js";
 
 export type CodexRecoveredTurnDiagnosticSessionLike = Omit<CodexInterruptedTurnRecoverySessionLike, "isGenerating"> &
   RecoveredQueuedTurnSessionLike;
@@ -73,6 +75,28 @@ export function completeRecoveredCodexTurnWithDiagnostic<Session extends CodexRe
   deps: CodexRecoveredTurnDiagnosticDeps<Session>,
   options: CompleteRecoveredCodexTurnOptions = {},
 ): CodexRecoveryDiagnosticOutcome {
+  const owner = options.recoveryOwner ?? pending;
+  if (options.leaderContinuationRoute) {
+    archiveUnrelatedTerminalCodexRecovery(session, owner.userMessageId, deps);
+    const current = session.state.codex_turn_recovery;
+    if (
+      current &&
+      current.originalOwnerId !== owner.userMessageId &&
+      current.continuationOwnerId !== owner.userMessageId
+    ) {
+      // Preserve this owner until the already active continuation has settled.
+      // Retiring it first would leave only a diagnostic if injection was refused.
+      stageCodexTerminalHistoryReconciliation(owner, {
+        presence: owner.historyIncorporation?.recordedAt != null ? "present" : "unknown",
+        reason: "waiting_for_active_recovery",
+        action: "continue",
+        continuationMode: options.continuationMode ?? "verify_then_continue",
+        classifiedAt: Date.now(),
+      });
+      deps.persistSession(session);
+      return { continuationQueued: false, diagnosticAppended: false, browserErrorBroadcast: false };
+    }
+  }
   deps.completeCodexTurn(session, options.recoveryOwner ?? pending);
   if (options.interruptSource) deps.markTurnInterrupted(session, options.interruptSource);
   const generationReason = options.leaderContinuationRoute ? "codex_interrupted_turn_continuation" : reason;
