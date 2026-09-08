@@ -709,14 +709,14 @@ describe("Takode server-authoritative auth", () => {
       questId: "q-2",
       threadRefs: [{ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 10 }],
     });
-    const first = firing("first", "f1", "First firing");
+    const first = firing("first", "timer-m1", "First firing");
     const second = firing("second", "timer-m2", "Second firing");
     bridge._sessions["leader-a"] = { id: "leader-a", messageHistory: [first, second] };
     bridge._sessions["leader-b"] = { id: "leader-b", messageHistory: [firing("other", "timer-m1", "Other leader")] };
     bridge._sessions.worker = { id: "worker", messageHistory: [first] };
 
     for (const [leader, firingId, content] of [
-      ["leader-a", "f1", first.content],
+      ["leader-a", "timer-m1", first.content],
       ["leader-a", "timer-m2", second.content],
       ["leader-b", "timer-m1", "[⏰ Timer t1 reminder] Other leader"],
     ]) {
@@ -724,17 +724,25 @@ describe("Takode server-authoritative auth", () => {
       expect(response.status).toBe(200);
       expect((await response.json()).content).toBe(content);
     }
-    expect((await app.request("/api/sessions/worker/messages/f1")).status).toBe(400);
-    expect((await app.request("/api/sessions/leader-a/messages/f3")).status).toBe(404);
-    // Old and new spellings address their exact stored messages, not aliases.
-    expect((await app.request("/api/sessions/leader-a/messages/timer-m1")).status).toBe(404);
-    expect((await app.request("/api/sessions/leader-a/messages/f2")).status).toBe(404);
-    expect((await app.request("/api/sessions/leader-a/messages/f1?threadKey=q-3")).status).toBe(404);
+    expect((await app.request("/api/sessions/worker/messages/timer-m1")).status).toBe(400);
+    expect((await app.request("/api/sessions/leader-a/messages/timer-m3")).status).toBe(404);
+    // The removed short syntax is invalid, not a fallback spelling.
+    expect((await app.request("/api/sessions/leader-a/messages/f1")).status).toBe(400);
+    expect((await app.request("/api/sessions/leader-a/messages/f2")).status).toBe(400);
+    expect((await app.request("/api/sessions/leader-a/messages/timer-m1?threadKey=q-3")).status).toBe(404);
     for (const invalid of ["t1", "timer-m0", "timer-m01", "f0", "f01"]) {
       expect((await app.request(`/api/sessions/leader-a/messages/${invalid}`)).status).toBe(400);
     }
+    const unsupported = firing("unsupported", "f1", "Unsupported source");
+    bridge._sessions["leader-a"].messageHistory = [unsupported];
+    const rawRead = await app.request("/api/sessions/leader-a/messages/0");
+    expect(rawRead.status).toBe(200);
+    expect((await rawRead.json()).content).toBe(unsupported.content);
+    expect((await app.request("/api/sessions/leader-a/messages/f1")).status).toBe(400);
+    expect((await app.request("/api/sessions/leader-a/messages/timer-m1")).status).toBe(404);
+    expect(bridge._sessions["leader-a"].messageHistory).toEqual([unsupported]);
     for (const invalidHistory of [
-      [first, { ...second, leaderTimerMessageId: "f1" }],
+      [first, { ...second, leaderTimerMessageId: "timer-m1" }],
       [first, { ...second, id: "first" }],
       [{ ...first, content: "[⏰ Timer t1 cancelled] First firing" }],
       [{ ...first, leaderTimerMessageId: undefined }],
@@ -742,7 +750,7 @@ describe("Takode server-authoritative auth", () => {
       [{ ...first, codexSubagent: { childId: "child-1", rootTurnId: "root" } }],
     ]) {
       bridge._sessions["leader-a"].messageHistory = invalidHistory;
-      expect((await app.request("/api/sessions/leader-a/messages/f1")).status).toBe(404);
+      expect((await app.request("/api/sessions/leader-a/messages/timer-m1")).status).toBe(404);
     }
   });
 

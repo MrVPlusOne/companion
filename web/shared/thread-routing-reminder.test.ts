@@ -29,23 +29,24 @@ describe("buildThreadRoutingReminderContent", () => {
     expect(routing).toContain("Timer progress remains commentary");
   });
 
-  it("preserves the exact references in a historical timer answer diagnostic", () => {
-    // Persisted diagnostics remain readable without converting an old firing
-    // reference into a different current-format answer target.
+  it("rejects unsupported timer reference syntax in answer diagnostics", () => {
+    // The removed timer prefix cannot become supported syntax through a
+    // persisted diagnostic; the fallback teaches only current references.
     const diagnostic = {
       reason: "invalid_ids" as const,
       selectedThreadKey: "main",
       answerUserMessageIds: ["f2"],
       ownerGroups: [],
     };
-    expect(isLeaderAnswerRouteDiagnostic(diagnostic)).toBe(true);
+    expect(isLeaderAnswerRouteDiagnostic(diagnostic)).toBe(false);
     const content = buildThreadRoutingReminderContent({
       reason: "invalid_answer_route",
       answerRouteDiagnostic: diagnostic,
     });
-    expect(content).toContain("otherwise invalid: f2.");
-    expect(content).not.toContain("otherwise invalid: timer-m2.");
-    expect(content).toContain("Preserve exact older supplied `fN` references");
+    expect(content).toContain("could not validate the answer references");
+    expect(content).toContain("timer-firing `timer-mN` IDs");
+    expect(content).not.toContain("f2");
+    expect(content).not.toContain("`fN`");
   });
 
   // Leaders recovering from compaction need to know whether visible text or a shell command missed routing.

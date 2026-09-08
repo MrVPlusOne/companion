@@ -177,11 +177,11 @@ describe("agentSource propagation", () => {
       timestamp: 1000,
       content: "[⏰ Timer t2 reminder] Build report",
       threadKey: "main",
-      leaderTimerMessageId: "f7",
+      leaderTimerMessageId: "timer-m7",
       agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
     });
     const message = useStore.getState().messages.get("s1")![0];
-    expect(message.metadata).toMatchObject({ leaderTimerMessageId: "f7", threadKey: "main" });
+    expect(message.metadata).toMatchObject({ leaderTimerMessageId: "timer-m7", threadKey: "main" });
     expect(message.agentSource?.sessionId).toBe("timer:t2");
     expect(message.metadata?.leaderResponseCoverageVersion).toBeUndefined();
     expect(message.metadata?.leaderUserMessageId).toBeUndefined();

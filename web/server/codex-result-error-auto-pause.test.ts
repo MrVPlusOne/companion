@@ -362,12 +362,12 @@ describe("Codex result-error auto-pause", () => {
   });
 
   it.each([
-    ["f1", "f2"],
     ["timer-m1", "timer-m2"],
-    ["f1", "timer-m1"],
+    ["timer-m1", "timer-m10"],
+    ["timer-m9", "timer-m10"],
   ])("keeps %s and %s distinct while preserving unassigned timer coalescing", (first, second) => {
     // Exact admitted identities cannot share a held representative, including
-    // legacy and readable references with the same ordinal.
+    // references whose numeric suffixes share a prefix or cross a digit boundary.
     // Timers held before admission retain the existing content-based policy.
     const target = session();
     noteCodexResultForAutoPause(target, copilotAuthRefreshResult(), turn("automatic"), 100);

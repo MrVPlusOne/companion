@@ -72,7 +72,7 @@ describe("leader timer firing ingestion", () => {
     // A removed pending input still owns its firing ID while another durable
     // delivery state holds it, including after process restart.
     const target = session();
-    const message = { ...firing, timerFiring: { ...firing.timerFiring, messageId: "f7" } };
+    const message = { ...firing, timerFiring: { ...firing.timerFiring, messageId: "timer-m7" } };
     if (owner === "manual pause") {
       target.state.pause = {
         pausedAt: 1,
@@ -114,19 +114,22 @@ describe("leader timer firing ingestion", () => {
   it("reuses a held firing reference without duplicating its model source envelope", async () => {
     const target = session();
     const runtime = deps();
-    const deliveryContent = "[Timer reminder earlier id:f7] [thread:q-42] " + firing.content;
-    const message = { ...firing, deliveryContent, timerFiring: { ...firing.timerFiring, messageId: "f7" } };
+    const deliveryContent = "[Timer reminder earlier id:timer-m7] [thread:q-42] " + firing.content;
+    const message = { ...firing, deliveryContent, timerFiring: { ...firing.timerFiring, messageId: "timer-m7" } };
 
     const ingested = await ingestUserMessage(target, message, runtime, { commit: false });
 
-    expect(ingested.historyEntry.leaderTimerMessageId).toBe("f7");
+    expect(ingested.historyEntry.leaderTimerMessageId).toBe("timer-m7");
     expect(buildUserMessageDeliveryPrefix(target, ingested, message, deliveryContent, runtime)).toBe("");
     expect(message.deliveryContent).toBe(deliveryContent);
   });
 
-  it("keeps legacy and readable references with the same ordinal as distinct queued owners", async () => {
-    // Retained identity uses the exact string, while allocation reserves ordinals
-    // across both formats. Re-admitting an older held input must not alias it.
+  it.each([
+    "f1",
+    "f99",
+  ])("rejects unsupported %s without rewriting held input or reserving an ordinal", async (messageId) => {
+    // Unsupported references cannot alias a current owner or affect allocation;
+    // their raw stored payload remains available for inspection after rejection.
     const target = session();
     const runtime = deps();
     const readable = await ingestUserMessage(target, firing, runtime, { commit: false });
@@ -137,27 +140,29 @@ describe("leader timer firing ingestion", () => {
       cancelable: true,
       leaderTimerMessageId: readable.historyEntry.leaderTimerMessageId,
     });
-    const legacy = JSON.parse(
+    const unsupported = JSON.parse(
       JSON.stringify({
         ...firing,
-        deliveryContent: "[Timer reminder earlier id:f1] [thread:q-42] " + firing.content,
-        timerFiring: { ...firing.timerFiring, messageId: "f1" },
+        deliveryContent: `[Timer reminder earlier id:${messageId}] [thread:q-42] ` + firing.content,
+        timerFiring: { ...firing.timerFiring, messageId },
       }),
     );
     target.state.pause = {
       pausedAt: 1,
-      queuedMessages: [{ id: "legacy-held", queuedAt: 2, source: "programmatic", message: legacy }],
+      queuedMessages: [{ id: "unsupported-held", queuedAt: 2, source: "programmatic", message: unsupported }],
     };
-    const legacyBefore = structuredClone(legacy);
+    const unsupportedBefore = structuredClone(unsupported);
+    const pendingBefore = structuredClone(target.pendingCodexInputs);
 
-    const retained = await ingestUserMessage(target, legacy, runtime, { commit: false });
+    expect(() => ingestUserMessage(target, unsupported, runtime, { commit: false })).toThrow(
+      "Retained timer firing reference is invalid",
+    );
     const next = await ingestUserMessage(target, firing, runtime, { commit: false });
 
     expect(readable.historyEntry.leaderTimerMessageId).toBe("timer-m1");
-    expect(retained.historyEntry.leaderTimerMessageId).toBe("f1");
-    expect(buildUserMessageDeliveryPrefix(target, retained, legacy, legacy.deliveryContent, runtime)).toBe("");
     expect(next.historyEntry.leaderTimerMessageId).toBe("timer-m2");
-    expect(target.state.pause.queuedMessages[0].message).toEqual(legacyBefore);
+    expect(target.state.pause.queuedMessages[0].message).toEqual(unsupportedBefore);
+    expect(target.pendingCodexInputs).toEqual(pendingBefore);
     expect(target.messageHistory).toEqual([]);
   });
 

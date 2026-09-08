@@ -139,37 +139,41 @@ function legacyResponse(
 }
 
 describe("explicit routed leader answers", () => {
-  it("preserves sealed legacy references alongside new timer-message answers after restoration", () => {
-    // Durable old answers are not rewritten when later deliveries use the
-    // readable spelling. Both retain their exact raw source and owner proof.
+  it("preserves sealed timer-message answers and complementary references after restoration", () => {
+    // New deliveries and complementary answers retain the original source
+    // and owner proof of previously settled timer-message answers.
     const original = session();
-    original.messageHistory.push(timerFiring("f4", 1));
-    appendAnswer(original, "legacy-report", ["f4"], "Earlier timed check completed.", 1);
+    original.messageHistory.push(timerFiring("timer-m4", 1));
+    appendAnswer(original, "earlier-report", ["timer-m4"], "Earlier timed check completed.", 1);
     const saved = JSON.stringify(original.messageHistory);
     const restored = JSON.parse(JSON.stringify(original)) as ReturnType<typeof session>;
     restored.messageHistory.push(timerFiring("timer-m5", 3));
     appendAnswer(restored, "new-report", ["timer-m5"], "New timed check completed.", 3);
-    appendAnswer(restored, "combined-detail", ["f4", "timer-m5"], "Both checks have supporting details.", 4);
+    appendAnswer(restored, "combined-detail", ["timer-m4", "timer-m5"], "Both checks have supporting details.", 4);
 
     expect(JSON.stringify(restored.messageHistory.slice(0, 2))).toBe(saved);
     expect(
       buildLeaderThreadResponseState(restored, "main").projection.currentAnswers.map(
         (answer) => answer.answerUserMessageIds,
       ),
-    ).toEqual([["f4"], ["timer-m5"], ["f4", "timer-m5"]]);
+    ).toEqual([["timer-m4"], ["timer-m5"], ["timer-m4", "timer-m5"]]);
   });
 
   it.each([
     ["f1", "timer-m1"],
     ["timer-m1", "f1"],
-  ])("does not alias stored %s into a fabricated %s reference", (storedId, wrongId) => {
-    // Prefix recognition alone grants no lookup or answer authority.
+    ["f1", "f1"],
+  ])("rejects unsupported or unmatched references from stored %s to answer %s", (storedId, wrongId) => {
+    // Raw unsupported history is retained without granting answer authority
+    // or treating the removed prefix as an alias for a readable reference.
     const target = session();
     target.messageHistory.push(timerFiring(storedId, 1));
+    const rawSource = JSON.stringify(target.messageHistory[0]);
     const response = routedAssistant("wrong-spelling", "Unproven result.", [wrongId], 1);
     target.messageHistory.push(response);
     expect(finalizeRoutedLeaderResponseMessage(target, response)).toMatchObject({ finalized: false });
     expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers).toEqual([]);
+    expect(JSON.stringify(target.messageHistory[0])).toBe(rawSource);
   });
 
   it("retains timer answers without making each firing a pending human obligation", () => {
@@ -232,33 +236,33 @@ describe("explicit routed leader answers", () => {
     // consume the user's unrelated pending obligation.
     for (const invalidFiring of [
       undefined,
-      { ...timerFiring("f1", 2), content: "[⏰ Timer t1 cancelled] Check progress" },
-      { ...timerFiring("f1", 2), agentSource: { sessionId: "system:reminder" } },
-      { ...timerFiring("f1", 2), codexSubagent: { childId: "child-1", rootTurnId: "root" } },
-      { ...timerFiring("f1", 2), leaderTimerMessageId: undefined },
+      { ...timerFiring("timer-m1", 2), content: "[⏰ Timer t1 cancelled] Check progress" },
+      { ...timerFiring("timer-m1", 2), agentSource: { sessionId: "system:reminder" } },
+      { ...timerFiring("timer-m1", 2), codexSubagent: { childId: "child-1", rootTurnId: "root" } },
+      { ...timerFiring("timer-m1", 2), leaderTimerMessageId: undefined },
     ]) {
       const target = session();
       target.messageHistory.push(human("u1", 1));
       if (invalidFiring) target.messageHistory.push(invalidFiring);
-      const answer = routedAssistant("invalid", "Attempted result.", ["u1", "f1"], target.messageHistory.length);
+      const answer = routedAssistant("invalid", "Attempted result.", ["u1", "timer-m1"], target.messageHistory.length);
       target.messageHistory.push(answer);
       expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
       expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessageCount).toBe(1);
     }
     for (const observedLength of [0, 1]) {
       const target = session();
-      target.messageHistory.push(human("u1", 1), timerFiring("f1", 2));
-      const answer = routedAssistant("future", "Attempted unseen result.", ["f1"], observedLength);
+      target.messageHistory.push(human("u1", 1), timerFiring("timer-m1", 2));
+      const answer = routedAssistant("future", "Attempted unseen result.", ["timer-m1"], observedLength);
       target.messageHistory.push(answer);
       expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
     }
     for (const duplicate of [
-      { ...timerFiring("f1", 2), id: "other-raw" },
-      { ...timerFiring("f2", 2), id: "raw-f1" },
+      { ...timerFiring("timer-m1", 2), id: "other-raw" },
+      { ...timerFiring("timer-m2", 2), id: "raw-timer-m1" },
     ]) {
       const target = session();
-      target.messageHistory.push(timerFiring("f1", 1), duplicate);
-      const answer = routedAssistant("duplicate", "Attempted ambiguous result.", ["f1"], 2);
+      target.messageHistory.push(timerFiring("timer-m1", 1), duplicate);
+      const answer = routedAssistant("duplicate", "Attempted ambiguous result.", ["timer-m1"], 2);
       target.messageHistory.push(answer);
       expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
     }
@@ -267,9 +271,9 @@ describe("explicit routed leader answers", () => {
   it("invalidates stored timer proof after owner reassignment and keeps legacy revisions human-only", () => {
     // Replay reevaluates the same exact owner snapshot used for human answers.
     const target = session();
-    const firing = timerFiring("f1", 1, "q-1");
+    const firing = timerFiring("timer-m1", 1, "q-1");
     target.messageHistory.push(firing);
-    const answer = appendAnswer(target, "result", ["f1"], "Timed check completed.", 1, "q-1");
+    const answer = appendAnswer(target, "result", ["timer-m1"], "Timed check completed.", 1, "q-1");
     firing.threadRefs!.push({ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 2 });
     expect(isCurrentValidRoutedLeaderResponseMessage(target, answer)).toBe(false);
     expect(buildLeaderThreadResponseState(target, "q-1").projection.currentAnswers).toEqual([]);
@@ -280,8 +284,8 @@ describe("explicit routed leader answers", () => {
     });
 
     const legacyTarget = session();
-    legacyTarget.messageHistory.push(timerFiring("f1", 1));
-    legacyTarget.messageHistory.push(legacyResponse(legacyTarget, "legacy", "Old answer.", ["raw-f1"], 1));
+    legacyTarget.messageHistory.push(timerFiring("timer-m1", 1));
+    legacyTarget.messageHistory.push(legacyResponse(legacyTarget, "legacy", "Old answer.", ["raw-timer-m1"], 1));
     expect(buildLeaderThreadResponseState(legacyTarget, "main").projection.currentAnswers).toEqual([]);
   });
 

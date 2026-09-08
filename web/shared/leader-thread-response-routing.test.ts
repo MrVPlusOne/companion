@@ -14,19 +14,37 @@ describe("leader answer ownership routing", () => {
     // Owner partitions retain one answer identity across both target types.
     const ownerGroups = [
       { threadKey: "main", userMessageIds: ["u1"] },
-      { threadKey: "q-2", userMessageIds: ["f1", "f2"] },
+      { threadKey: "q-2", userMessageIds: ["timer-m1", "timer-m2"] },
     ];
     expect(
-      leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["f1", "u1", "f2"], ownerGroups }, "main"),
+      leaderResponseAnswerOwnerThreadKeys(
+        { answerUserMessageIds: ["timer-m1", "u1", "timer-m2"], ownerGroups },
+        "main",
+      ),
     ).toEqual(
       new Map([
         ["u1", "main"],
-        ["f1", "q-2"],
-        ["f2", "q-2"],
+        ["timer-m1", "q-2"],
+        ["timer-m2", "q-2"],
       ]),
     );
-    expect(leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["f1", "u1"], ownerGroups }, "main")).toBeNull();
+    expect(
+      leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["timer-m1", "u1"], ownerGroups }, "main"),
+    ).toBeNull();
     expect(leaderResponseAnswerOwnerThreadKeys({ answerUserMessageIds: ["t1"] }, "main")).toBeNull();
+    // Even a complete owner partition cannot make the removed syntax valid.
+    expect(
+      leaderResponseAnswerOwnerThreadKeys(
+        {
+          answerUserMessageIds: ["u1", "f1"],
+          ownerGroups: [
+            { threadKey: "main", userMessageIds: ["u1"] },
+            { threadKey: "q-2", userMessageIds: ["f1"] },
+          ],
+        },
+        "main",
+      ),
+    ).toBeNull();
   });
 
   it("decodes an exact owner partition independently from authored order and source route", () => {

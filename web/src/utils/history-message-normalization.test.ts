@@ -198,7 +198,10 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(user.metadata).toMatchObject({ leaderResponseCoverageVersion: 1, leaderUserMessageId: "u7" });
   });
 
-  it.each(["timer-m7", "f7"])("retains exact timer identity %s through authoritative history normalization", (id) => {
+  it.each([
+    "timer-m7",
+    "timer-m17",
+  ])("retains exact timer identity %s through authoritative history normalization", (id) => {
     // Selected windows and full history use the same row normalization. A
     // firing keeps its timer source without becoming a human obligation or
     // rewriting the exact reference retained by a historical row.

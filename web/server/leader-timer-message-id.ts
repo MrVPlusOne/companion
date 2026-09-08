@@ -33,7 +33,7 @@ export function buildLeaderTimerMessageIdentities(
   });
 }
 
-/** Mint readable references after every old or current ordinal, including rejected and queued rows. */
+/** Allocate after every persisted or queued reference, including rejected rows. */
 export function nextLeaderTimerMessageId(
   history: ReadonlyArray<BrowserIncomingMessage>,
   reservedIds: ReadonlyArray<string | undefined> = [],
@@ -43,7 +43,7 @@ export function nextLeaderTimerMessageId(
   );
   const max = [...persistedIds, ...reservedIds].reduce((max, id) => {
     if (!isCanonicalLeaderTimerMessageId(id)) return max;
-    const ordinal = BigInt(id.replace(/^(?:timer-m|f)/, ""));
+    const ordinal = BigInt(id.slice("timer-m".length));
     return ordinal > max ? ordinal : max;
   }, 0n);
   return `timer-m${max + 1n}`;

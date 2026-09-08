@@ -717,7 +717,7 @@ describe("buildInjectedSystemPromptForDebug", () => {
     // remains optional commentary rather than creating another human obligation.
     expect(leader).toContain("[thread:main:A:timer-m1]");
     expect(leader).toContain("[thread:q-N:A:u1,timer-m2]");
-    expect(leader).toContain("Older supplied `fN` references retain their exact spelling");
+    expect(leader).not.toContain("`fN`");
     expect(leader).not.toContain("[thread:main:A:f1]");
     expect(leader).toContain("Timer firings are optional answer targets");
     expect(leader).toContain("answering them leaves unrelated requests pending");

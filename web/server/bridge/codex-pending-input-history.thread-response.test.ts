@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
 import { createCodexHistoryIncorporation } from "./codex-history-incorporation.js";
+import { buildLeaderTimerMessageIdentities } from "../leader-timer-message-id.js";
 import {
   commitPendingCodexInputs,
   recordCodexHistoryReceiptObservation,
@@ -12,8 +13,12 @@ import type {
 } from "./codex-recovery-orchestrator.js";
 
 describe("Codex pending-input thread response coverage", () => {
-  it.each(["timer-m7", "f7"])("keeps %s through restored queues and repeated receipt handling", (messageId) => {
-    // A restored pending timer is the same answer target; it must never mint a new ID or human obligation.
+  it.each([
+    { messageId: "timer-m7", answerable: true },
+    { messageId: "f7", answerable: false },
+  ])("preserves raw $messageId receipts with answerable=$answerable", ({ messageId, answerable }) => {
+    // Receipt handling preserves stored data without assigning a new identity.
+    // Unsupported raw references cannot become timer answer targets.
     const input: PendingCodexInput = {
       id: "timer-occurrence",
       content: "[⏰ Timer t3 reminder] Report",
@@ -54,6 +59,9 @@ describe("Codex pending-input thread response coverage", () => {
     });
     expect(session.messageHistory[0]).not.toHaveProperty("leaderResponseCoverageVersion");
     expect(session.messageHistory[0]).not.toHaveProperty("leaderUserMessageId");
+    expect(buildLeaderTimerMessageIdentities(session.messageHistory).map((identity) => identity.userMessageId)).toEqual(
+      answerable ? [messageId] : [],
+    );
     expect(deps.touchUserMessage).not.toHaveBeenCalled();
     expect(deps.refreshBrowserConversationViews).toHaveBeenCalledWith(session);
   });

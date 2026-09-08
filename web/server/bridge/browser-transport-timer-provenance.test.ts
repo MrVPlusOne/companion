@@ -8,7 +8,8 @@ import { buildProgrammaticUserMessage, unpauseSessionState } from "../session-pa
 
 describe("timer firing provenance at the browser boundary", () => {
   it.each(["timer-m7", "f7"])("removes browser-supplied %s provenance before durable pause", async (messageId) => {
-    // Browser JSON cannot acquire timer answer authority by impersonating TimerManager.
+    // Neither supported nor unsupported reference spelling lets browser JSON
+    // acquire timer answer authority by impersonating TimerManager.
     const session = {
       id: "paused-leader",
       backendType: "claude",

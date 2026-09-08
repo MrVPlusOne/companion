@@ -133,7 +133,7 @@ Three distinct operations -- never confuse them:
 
 Use `takode timer create "Check build health" --thread q-N --in 30m` to save a leader timer's destination; `--thread main` selects Main explicitly. Without `--thread`, a new leader timer inherits the current active turn's valid route only while the leader is generating. If no active route is available, specify the destination explicitly. The saved destination survives later thread changes and restarts. Existing timers without a saved destination keep their existing behavior.
 
-Each actual delivered firing supplies an `id:timer-mN` source reference. Recurring firings share timer `tN` but receive distinct firing references. Older supplied `fN` references retain their exact spelling; never substitute `timer-mN` for a historical reference. Do not access another app or start external work merely because a timer fired; existing task authority and permissions still apply.
+Each actual delivered firing supplies an `id:timer-mN` source reference. Recurring firings share timer `tN` but receive distinct firing references. Do not access another app or start external work merely because a timer fired; existing task authority and permissions still apply.
 
 ## User Notifications
 

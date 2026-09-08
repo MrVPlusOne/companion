@@ -29,7 +29,6 @@ describe("takode help", () => {
     expect(output).toContain("session-scoped");
     expect(output).toContain("timer-m3 (individual timer firing)");
     expect(output).toContain("cannot select an individual firing");
-    expect(output).toContain("fN references still select their exact historical messages");
-    expect(output).toContain("they are not aliases");
+    expect(output).not.toContain("fN");
   });
 });

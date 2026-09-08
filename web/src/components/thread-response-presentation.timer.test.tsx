@@ -155,7 +155,10 @@ describe("timer report answer presentation", () => {
     );
   });
 
-  it.each(["timer-m1", "f1"])("renders the collapsed answer and previews exact timer reference %s", (reference) => {
+  it.each([
+    "timer-m1",
+    "timer-m12",
+  ])("renders the collapsed answer and previews exact timer reference %s", (reference) => {
     // Historical references survive the same server window and preview path;
     // the renderer must display the stored ID without replacing its prefix.
     const timer = firing("first-firing", 1, "q-42");

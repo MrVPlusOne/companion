@@ -255,24 +255,25 @@ function persisted(session: RecoveryDeliveryTransferSessionLike): PersistedSessi
 
 describe("recovery delivery transfer ownership", () => {
   it.each([
-    "timer-m1",
-    "f1",
-  ])("keeps exact %s through pending, hold, restart, transfer, and re-admission", async (messageId) => {
+    false,
+    true,
+  ])("keeps timer-m1 through pending, hold, restart, transfer, and re-admission (assigned=%s)", async (assigned) => {
     // Exercise the real adapter admission on both sides of a persisted hold.
     // Frozen delivery prevents this isolated fixture from starting a backend.
     const session = makeSession([]);
     session.messageHistory = [];
+    const messageId = "timer-m1";
     const firing = buildProgrammaticUserMessage({
       content: "[⏰ Timer t1 reminder] Report",
       agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
       threadRoute: { threadKey: "q-42", questId: "q-42" },
       options: {
-        timerFiring: { timerId: "t1", scheduledFireAt: 1, ...(messageId === "f1" ? { messageId } : {}) },
+        timerFiring: { timerId: "t1", scheduledFireAt: 1, ...(assigned ? { messageId } : {}) },
       },
     });
-    if (messageId === "f1") {
-      // A pre-rename retained delivery already has its model envelope and exact identity.
-      firing.deliveryContent = "[Timer reminder earlier id:f1] [thread:q-42] " + firing.content;
+    if (assigned) {
+      // An already assigned delivery keeps its model envelope and exact identity.
+      firing.deliveryContent = "[Timer reminder earlier id:timer-m1] [thread:q-42] " + firing.content;
     }
     let nextId = 0;
     const routingDeps = {

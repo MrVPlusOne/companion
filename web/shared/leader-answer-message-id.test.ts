@@ -8,10 +8,9 @@ import {
 
 describe("leader answer message identities", () => {
   it("accepts direct-user and individual-firing IDs without accepting timer schedule IDs", () => {
-    // Current timer-mN and retained fN records use exact, distinct spellings;
-    // accepting either does not alias one to the other or accept schedule IDs.
-    for (const id of ["u1", "timer-m1", "timer-m200", "f1", "f200"])
-      expect(isCanonicalLeaderAnswerMessageId(id)).toBe(true);
+    // Only human and readable timer-message references grant answer authority;
+    // schedule IDs and the removed short syntax are not supported.
+    for (const id of ["u1", "timer-m1", "timer-m200"]) expect(isCanonicalLeaderAnswerMessageId(id)).toBe(true);
     for (const id of [
       "t1",
       "timer-m0",
@@ -19,6 +18,8 @@ describe("leader answer message identities", () => {
       "timer-m-1",
       "TIMER-M1",
       "timer-m1suffix",
+      "f1",
+      "f200",
       "f0",
       "f01",
       "F1",
@@ -33,7 +34,7 @@ describe("leader answer message identities", () => {
 
   it("requires a persisted firing ID and a matching timer reminder source", () => {
     // Cancellation events use the same source and must stay ineligible even
-    // when malformed history happens to carry an fN field.
+    // when malformed history happens to carry a timer-message ID.
     const firing = {
       leaderTimerMessageId: "timer-m1",
       agentSource: { sessionId: "timer:t2" },
@@ -42,6 +43,7 @@ describe("leader answer message identities", () => {
     expect(isLeaderTimerAnswerTarget(firing)).toBe(true);
     for (const override of [
       { leaderTimerMessageId: undefined },
+      { leaderTimerMessageId: "f1" },
       { content: "[⏰ Timer t2 cancelled] Check progress" },
       { content: "[⏰ Timer t3 reminder] Check progress" },
       { content: "ordinary direct input" },
@@ -63,7 +65,11 @@ describe("leader answer message identities", () => {
       const content = prefix + reminder;
       expect(timerReminderMatchesSource(content, "timer:t2")).toBe(true);
       expect(
-        isLeaderTimerAnswerTarget({ content, agentSource: { sessionId: "timer:t2" }, leaderTimerMessageId: "f1" }),
+        isLeaderTimerAnswerTarget({
+          content,
+          agentSource: { sessionId: "timer:t2" },
+          leaderTimerMessageId: "timer-m1",
+        }),
       ).toBe(true);
       expect(timerReminderMatchesSource(content, "timer:t3")).toBe(false);
       expect(timerReminderMatchesSource(prefix + "[⏰ Timer t2 cancelled] Check progress", "timer:t2")).toBe(false);

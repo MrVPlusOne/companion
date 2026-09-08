@@ -802,11 +802,11 @@ describe("takode peek/scan source-aware truncation", () => {
 
   it.each([
     "timer-m2",
-    "f2",
+    "timer-m12",
   ])("reveals the full timer source through exact %s while keeping numeric reads compact", async (id) => {
     // Exact supplied source references are the explicit detail path; a large
-    // automatic note must not make ordinary numeric reads more verbose. Both
-    // current and historical IDs are forwarded without alias substitution.
+    // automatic note must not make ordinary numeric reads more verbose. The
+    // readable timer-message format supports both short and longer ordinals.
     const content = `[⏰ Timer t1 reminder] Check progress\n${"x".repeat(20_000)} FIRING_DETAIL_END`;
     const requests: string[] = [];
     const server = createServer((req, res) => {

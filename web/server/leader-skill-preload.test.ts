@@ -91,7 +91,7 @@ describe("leader skill preload builder", () => {
     expect(orchestration?.content).toContain("`--thread main` selects Main explicitly");
     expect(orchestration?.content).toContain("A firing is optional to answer");
     expect(orchestration?.content).toContain("takode read <leader-session> timer-mN");
-    expect(orchestration?.content).toContain("Older supplied `fN` references retain their exact spelling");
+    expect(orchestration?.content).not.toContain("`fN`");
     expect(orchestration?.content).not.toContain("[thread:main:A:f1]");
     expect(orchestration?.content).toContain(
       "Answers may cover nonconsecutive IDs and messages with different owning threads",

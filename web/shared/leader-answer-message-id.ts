@@ -1,8 +1,8 @@
 import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
 
-/** Recognize current references and the exact spelling retained by earlier durable messages. */
+/** Recognize the session-scoped reference of an individual timer message. */
 export function isCanonicalLeaderTimerMessageId(value: unknown): value is string {
-  return typeof value === "string" && /^(?:timer-m|f)[1-9]\d*$/.test(value);
+  return typeof value === "string" && /^timer-m[1-9]\d*$/.test(value);
 }
 
 export function isCanonicalLeaderAnswerMessageId(value: unknown): value is string {

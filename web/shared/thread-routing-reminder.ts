@@ -182,7 +182,7 @@ function buildInvalidAnswerRouteReminderContent(value: unknown): string {
     return [
       THREAD_ROUTING_REMINDER_HEADER,
       "Invalid answer route. The retained leader prose did not establish answer coverage.",
-      "Takode could not validate the answer references or their current owners. Use only valid earlier human `uN` or timer-firing `timer-mN` IDs supplied in this session. Preserve exact older supplied `fN` references; do not guess a correction from incomplete evidence.",
+      "Takode could not validate the answer references or their current owners. Use only valid earlier human `uN` or timer-firing `timer-mN` IDs supplied in this session; do not guess a correction from incomplete evidence.",
       "Do not mark the selected thread Ready on the strength of this rejected answer.",
     ].join("\n");
   }
@@ -191,7 +191,7 @@ function buildInvalidAnswerRouteReminderContent(value: unknown): string {
     THREAD_ROUTING_REMINDER_HEADER,
     `Invalid answer route from ${formatThreadLabel(value.selectedThreadKey)}. The original answer prose remains in append-only history, but it did not gain coverage.`,
     formatAnswerRouteFailure(value),
-    "Use the supplied earlier human `uN` or timer-firing `timer-mN` IDs. Preserve exact older supplied `fN` references. Never use recurring timer `tN` as an answer reference. Current answers may cover nonconsecutive IDs and different owning threads; Takode routes one stored answer automatically from Main or a quest to every associated tab.",
+    "Use the supplied earlier human `uN` or timer-firing `timer-mN` IDs. Never use recurring timer `tN` as an answer reference. Current answers may cover nonconsecutive IDs and different owning threads; Takode routes one stored answer automatically from Main or a quest to every associated tab.",
     "Do not discover history indices, attach the answer, split the answer, or repeat its prose merely for routing. Each thread receives coverage only for its own referenced requests.",
     `Do not mark ${formatThreadLabel(value.selectedThreadKey)} Ready on the strength of this rejected answer.`,
   ].join("\n");
