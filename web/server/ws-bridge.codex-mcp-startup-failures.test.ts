@@ -17,6 +17,9 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
+import { CodexMcpManager } from "./codex-mcp-manager.js";
+import type { JsonRpcTransport } from "./codex-jsonrpc-transport.js";
+import { subscribeCurrentBrowser, waitForBrowserMessage } from "./ws-bridge-current-browser-test-helpers.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
   advanceBoardRow as advanceBoardRowController,
@@ -551,6 +554,14 @@ beforeEach(() => {
   });
 });
 
+afterEach(async () => {
+  // Store writes and cleanup stay within the fixture's disposable session root.
+  await flushAsync();
+  await store.flushAll();
+  rmSync(tempDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
+
 // localDateKey is a private static — access via `any` cast for testing.
 // ─── Helper: build a system.init NDJSON string ────────────────────────────────
 
@@ -576,6 +587,90 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex MCP startup failures", () => {
+  it("synchronizes status retrieval errors and recovery across browsers without feed or lifecycle errors", async () => {
+    // Exercise real manager emissions through the adapter bridge. Existing and
+    // newly opened browsers must share the same authoritative diagnostic state.
+    const sid = "mcp-status-browsers";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+    } as any);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter);
+    const session = bridge.getSession(sid)!;
+    const historyBefore = [...session.messageHistory];
+    const browsers = [makeBrowserSocket(sid), makeBrowserSocket(sid)];
+    for (const browser of browsers) {
+      bridge.handleBrowserOpen(browser, sid);
+      await subscribeCurrentBrowser(bridge, browser);
+    }
+    relaunchCb.mockClear();
+
+    const call = vi.fn<JsonRpcTransport["call"]>().mockRejectedValueOnce(new Error("RPC timeout"));
+    const manager = new CodexMcpManager({ call } as unknown as JsonRpcTransport, adapter.emitBrowserMessage, sid);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await manager.handleGetStatus();
+    const diagnostic = "Failed to get MCP status: Error: RPC timeout";
+
+    for (const browser of browsers) {
+      await waitForBrowserMessage(
+        browser,
+        (message) => message.type === "session_update" && message.session.mcp_status_error === diagnostic,
+      );
+    }
+    expect(session.state.mcp_status_error).toBe(diagnostic);
+    await store.flushAll();
+    expect((await store.load(sid))?.state.mcp_status_error).toBe(diagnostic);
+
+    // A cold connection receives the error in session_init before fetching any
+    // history. Reopening an existing browser follows the same snapshot contract.
+    const coldBrowser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(coldBrowser, sid);
+    expect(JSON.parse(coldBrowser.send.mock.calls[0][0])).toMatchObject({
+      type: "session_init",
+      session: { mcp_status_error: diagnostic },
+    });
+    await subscribeCurrentBrowser(bridge, coldBrowser);
+    bridge.handleBrowserClose(browsers[1]);
+    browsers[1].send.mockClear();
+    bridge.handleBrowserOpen(browsers[1], sid);
+    expect(JSON.parse(browsers[1].send.mock.calls[0][0])).toMatchObject({
+      type: "session_init",
+      session: { mcp_status_error: diagnostic },
+    });
+    await subscribeCurrentBrowser(bridge, browsers[1]);
+
+    // An unrelated startup notification must not clear a request-level failure.
+    manager.handleStartupStatusUpdated({ name: "docs", status: "failed", error: "connector auth failed" });
+    await waitForBrowserMessage(coldBrowser, (message) => message.type === "mcp_status");
+    expect(session.state.mcp_status_error).toBe(diagnostic);
+
+    call.mockResolvedValueOnce({ data: [] }).mockResolvedValueOnce({ config: {} });
+    await manager.handleGetStatus();
+    for (const browser of [...browsers, coldBrowser]) {
+      await waitForBrowserMessage(
+        browser,
+        (message) => message.type === "session_update" && message.session.mcp_status_error === null,
+      );
+      const sentTypes = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw).type);
+      expect(sentTypes).not.toContain("error");
+      expect(sentTypes).not.toContain("backend_disconnected");
+    }
+    expect(session.state.mcp_status_error).toBeNull();
+    expect(session.state.backend_state).toBe("connected");
+    expect(session.codexAdapter).toBe(adapter);
+    expect(session.messageHistory).toEqual(historyBefore);
+    expect(adapter.disconnect).not.toHaveBeenCalled();
+    expect(relaunchCb).not.toHaveBeenCalled();
+    await store.flushAll();
+    expect((await store.load(sid))?.state.mcp_status_error).toBeNull();
+    expect((await store.load(sid))?.messageHistory).toEqual(historyBefore);
+  });
+
   it("keeps an established session connected when optional connector auth fails", async () => {
     const sid = "s-established-mcp-auth-noise";
     const relaunchCb = vi.fn();

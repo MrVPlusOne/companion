@@ -281,6 +281,7 @@ export function McpSection({
 }) {
   const servers = useStore((s) => s.mcpServers.get(sessionId) || EMPTY_SERVERS);
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
+  const statusError = useStore((s) => s.sessions.get(sessionId)?.mcp_status_error);
   const [showAddForm, setShowAddForm] = useState(false);
 
   // The session_init mcp_servers gives us basic info (name + status).
@@ -364,6 +365,13 @@ export function McpSection({
 
       {!collapsed && (
         <>
+          {statusError && (
+            <div role="status" className="px-3 py-2 border-b border-cc-border text-[11px]">
+              <p className="text-cc-error">Couldn’t refresh MCP server status.</p>
+              <p className="mt-0.5 text-cc-muted [overflow-wrap:anywhere]">{statusError}</p>
+            </div>
+          )}
+
           {/* Add server form */}
           {showAddForm && (
             <div className="px-3 py-2 border-b border-cc-border">
@@ -381,7 +389,7 @@ export function McpSection({
           )}
 
           {/* Empty state */}
-          {!showAddForm && displayServers.length === 0 && (
+          {!statusError && !showAddForm && displayServers.length === 0 && (
             <div className="px-3 py-3 border-b border-cc-border">
               <p className="text-[11px] text-cc-muted text-center">
                 No MCP servers configured.{" "}

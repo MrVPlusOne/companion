@@ -1388,6 +1388,8 @@ export interface SessionState {
   permissionMode: string;
   claude_code_version: string;
   mcp_servers: { name: string; status: string }[];
+  /** Latest status-retrieval failure; only a successful retrieval clears it. */
+  mcp_status_error?: string | null;
   agents: string[];
   slash_commands: string[];
   skills: string[];

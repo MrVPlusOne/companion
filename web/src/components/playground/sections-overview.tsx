@@ -14,6 +14,7 @@ import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.j
 import { PlaygroundSessionAttentionStates } from "./PlaygroundSessionAttentionStates.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
 import { PlaygroundPendingImagePreviews } from "./PlaygroundPendingImagePreviews.js";
+import { PlaygroundMcpStatus } from "./PlaygroundMcpStatus.js";
 import { PlaygroundMessageTimingStates } from "./MessageTimingPlaygroundStates.js";
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
@@ -1550,6 +1551,9 @@ export function PlaygroundOverviewSections() {
       {/* ─── MCP Servers ──────────────────────────────── */}
       <Section title="MCP Servers" description="MCP server status display with toggle, reconnect, and tool listing">
         <div className="space-y-4">
+          <Card label="Status-fetch failure and recovery">
+            <PlaygroundMcpStatus />
+          </Card>
           <Card label="All server states (connected, failed, disabled, connecting)">
             <div className="w-[280px] border border-cc-border rounded-xl overflow-hidden bg-cc-card">
               {/* MCP section header */}

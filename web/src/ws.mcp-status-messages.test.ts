@@ -126,6 +126,35 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("MCP status messages", () => {
+  it("keeps status-fetch failures in session state and preserves unrelated chat errors on recovery", () => {
+    wsModule.connectSession("s1");
+    const statusError = "Failed to get MCP status: Error: mcpServerStatus/list timed out after 5000ms";
+    // Cold/reconnected browsers receive the same server-owned failure as live updates.
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), mcp_status_error: statusError } });
+    expect(useStore.getState().sessions.get("s1")?.mcp_status_error).toBe(statusError);
+    expect(useStore.getState().messages.get("s1") ?? []).toEqual([]);
+
+    fireMessage({ type: "error", message: "Failed to reload MCP servers" });
+    fireMessage({ type: "session_update", session: { mcp_status_error: statusError } });
+    // Ordinary tool/control failures still belong to the existing chat error path.
+    expect(
+      useStore
+        .getState()
+        .messages.get("s1")
+        ?.map((message) => message.content),
+    ).toEqual(["Failed to reload MCP servers"]);
+
+    fireMessage({ type: "mcp_status", servers: [] });
+    fireMessage({ type: "session_update", session: { mcp_status_error: null } });
+    expect(useStore.getState().sessions.get("s1")?.mcp_status_error).toBeNull();
+    expect(
+      useStore
+        .getState()
+        .messages.get("s1")
+        ?.map((message) => message.content),
+    ).toEqual(["Failed to reload MCP servers"]);
+  });
+
   it("mcp_status: stores servers in store", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

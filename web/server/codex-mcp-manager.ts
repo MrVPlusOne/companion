@@ -158,9 +158,12 @@ export class CodexMcpManager {
 
       this.mcpServersByName = new Map(servers.map((server) => [server.name, server]));
       this.emit({ type: "mcp_status", servers });
+      this.emit({ type: "session_update", session: { mcp_status_error: null } });
       return servers;
     } catch (err) {
-      this.emit({ type: "error", message: `Failed to get MCP status: ${err}` });
+      const message = `Failed to get MCP status: ${err}`;
+      console.warn(`[codex-adapter] ${message} for session ${this.sessionId}`);
+      this.emit({ type: "session_update", session: { mcp_status_error: message } });
       return [];
     }
   }
