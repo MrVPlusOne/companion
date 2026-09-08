@@ -49,6 +49,9 @@ export function shouldBufferForReplayWithContext(
   context?: { isLeaderSession?: boolean },
 ): msg is ReplayableBrowserIncomingMessage {
   if (NON_REPLAYABLE_BROWSER_EVENT_TYPES.has(msg.type)) return false;
+  if (msg.type === "session_update" && "codex_stream_retry" in msg.session && Object.keys(msg.session).length === 1) {
+    return false;
+  }
   if (context?.isLeaderSession === true && isTopLevelTextStreamDelta(msg)) return false;
   return true;
 }

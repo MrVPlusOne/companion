@@ -70,6 +70,7 @@ import {
 import { CodexApprovalManager } from "./codex-approval-manager.js";
 import { CodexAsyncDispatchQueue } from "./codex-async-dispatch-queue.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
+import { CodexStreamRetryObserver } from "./codex-stream-retry.js";
 import {
   buildCodexBatchInput,
   CodexUserMessageReceiptObserver,
@@ -83,7 +84,11 @@ import {
 } from "./codex-native-subagent-adapter-controller.js";
 import { CodexMcpManager } from "./codex-mcp-manager.js";
 import { CodexMcpToolAvailability } from "./codex-mcp-tool-availability.js";
-import { getRouterFailureToolName, isToolRouterFailureMessage } from "./codex-router-failure-utils.js";
+import {
+  getRouterFailureToolName,
+  isSameWriteStdinRouterFailure,
+  isToolRouterFailureMessage,
+} from "./codex-router-failure-utils.js";
 import type {
   CodexAdapterDisconnectDiagnostics,
   CodexSkillChangeDiagnostics,
@@ -157,6 +162,7 @@ export class CodexAdapter
   // State
   private threadId: string | null = null;
   private currentTurnId: string | null = null;
+  private streamRetry = new CodexStreamRetryObserver((message) => this.emit(message));
   private suppressedTurnResultIds = new Set<string>();
   private retiredTurnIds = new Set<string>();
   private toolRouterErrorByTurnId = new Map<string, string>();
@@ -281,6 +287,7 @@ export class CodexAdapter
     // the process node wrapper is still alive, leaving the adapter in a
     // stale "connected" state that rejects messages with "Transport closed".
     this.transport.onClose(() => {
+      this.streamRetry.clear();
       if (!this.connected) return; // already handled by proc.exited
       const diagnostics = this.captureDisconnectDiagnostics("transport_close");
       const pendingRequests = diagnostics.pendingRpcRequests;
@@ -319,6 +326,7 @@ export class CodexAdapter
 
     // Monitor process exit
     proc.exited.then((exitCode) => {
+      this.streamRetry.clear();
       if (!this.connected) {
         this.recordProcessExitAfterTransportClose(exitCode);
         return;
@@ -858,6 +866,7 @@ export class CodexAdapter
   }
 
   async disconnect(): Promise<void> {
+    this.streamRetry.clear();
     this.connected = false;
     try {
       this.proc.kill("SIGTERM");
@@ -995,8 +1004,9 @@ export class CodexAdapter
           // idle but the last turn's status may still say "inProgress" — that
           // turn is stale (it was in-progress in the dead process).
           const threadIsIdle = resumeSnapshot?.threadStatus === "idle";
-          this.currentTurnId =
-            !threadIsIdle && resumeSnapshot?.lastTurn?.status === "inProgress" ? resumeSnapshot.lastTurn.id : null;
+          this.setCurrentTurnId(
+            !threadIsIdle && resumeSnapshot?.lastTurn?.status === "inProgress" ? resumeSnapshot.lastTurn.id : null,
+          );
         } catch (err) {
           // Fresh or partially-initialized Codex threads may fail resume with
           // "no rollout found". Fall back to a fresh thread to avoid a stuck session.
@@ -1400,7 +1410,7 @@ export class CodexAdapter
       `[codex-adapter] Codex reported active turn ${foundTurnId} while steering stale turn ${expectedTurnId}; ` +
         `reconciling current turn for session ${this.sessionId}`,
     );
-    this.currentTurnId = foundTurnId;
+    this.setCurrentTurnId(foundTurnId);
   }
 
   private recoverStaleTurnSteerFailure(expectedTurnId: string): boolean {
@@ -1415,7 +1425,7 @@ export class CodexAdapter
       console.log(
         `[codex-adapter] Codex rejected turn/steer for stale turn ${expectedTurnId}; clearing current turn for session ${this.sessionId}`,
       );
-      this.currentTurnId = null;
+      this.setCurrentTurnId(null);
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       this.drainPendingInitialSkillMetadataRefresh();
       this.drainPendingInitialMcpToolAvailabilityRefresh();
@@ -1483,7 +1493,7 @@ export class CodexAdapter
           console.warn(
             `[codex-adapter] Turn ${this.currentTurnId} did not complete within ${TIMEOUT_MS}ms after interrupt for session ${this.sessionId}, proceeding anyway`,
           );
-          this.currentTurnId = null;
+          this.setCurrentTurnId(null);
           this.drainPendingInitialSkillMetadataRefresh();
           this.drainPendingInitialMcpToolAvailabilityRefresh();
         }
@@ -1509,6 +1519,7 @@ export class CodexAdapter
         this.itemEventManager.finishReasoningTurn(nativeDisposition.finishReasoningTurnId);
       }
       if (nativeDisposition.suppressDefault) return;
+      this.streamRetry.observe(method, params, this.threadId, this.currentTurnId);
       switch (method) {
         case "item/started":
           this.userMessageReceiptObserver.observe(params);
@@ -1625,13 +1636,6 @@ export class CodexAdapter
             this.scheduleInitialMcpToolAvailabilityRefresh();
           }
           break;
-        case "codex/event/stream_error": {
-          const msg = params.msg as { message?: string } | undefined;
-          if (msg?.message) {
-            console.log(`[codex-adapter] Stream error: ${msg.message}`);
-          }
-          break;
-        }
         case "codex/event/error": {
           const msg = params.msg as { message?: string } | undefined;
           if (msg?.message) {
@@ -1673,7 +1677,7 @@ export class CodexAdapter
       console.log(
         `[codex-adapter] Thread reported idle while currentTurnId=${staleTurnId} is set; clearing stale turn for session ${this.sessionId}`,
       );
-      this.currentTurnId = null;
+      this.setCurrentTurnId(null);
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       this.drainPendingInitialSkillMetadataRefresh();
       this.drainPendingInitialMcpToolAvailabilityRefresh();
@@ -1702,7 +1706,7 @@ export class CodexAdapter
     if (threadId && this.threadId && threadId !== this.threadId) return;
     if (this.currentTurnId === turnId) return;
     if (this.currentTurnId) return;
-    this.currentTurnId = turnId;
+    this.setCurrentTurnId(turnId);
     this.turnStartedCb?.(turnId, "codex_goal_continuation");
   }
 
@@ -1753,7 +1757,7 @@ export class CodexAdapter
         return;
       }
     }
-    this.currentTurnId = null;
+    this.setCurrentTurnId(null);
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
     this.drainPendingInitialSkillMetadataRefresh();
@@ -1773,7 +1777,7 @@ export class CodexAdapter
         this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
         if (
           !turn?.error?.message ||
-          this.isSameWriteStdinRouterFailure(turn.error.message, suppressedWriteStdinRouterError)
+          isSameWriteStdinRouterFailure(turn.error.message, suppressedWriteStdinRouterError)
         ) {
           return;
         }
@@ -1782,7 +1786,7 @@ export class CodexAdapter
       const handledWriteStdinRouterError = this.handledWriteStdinRouterErrorByTurnId.get(turnId);
       if (
         handledWriteStdinRouterError &&
-        this.isSameWriteStdinRouterFailure(turn?.error?.message, handledWriteStdinRouterError)
+        isSameWriteStdinRouterFailure(turn?.error?.message, handledWriteStdinRouterError)
       ) {
         this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
         this.emitTurnResult({
@@ -1816,13 +1820,6 @@ export class CodexAdapter
       status: "completed",
     });
     return true;
-  }
-
-  private isSameWriteStdinRouterFailure(errorMessage: string | undefined, handledMessage: string): boolean {
-    if (!errorMessage) return false;
-    const normalizedError = errorMessage.trim();
-    const normalizedHandled = handledMessage.trim();
-    return normalizedError === normalizedHandled || normalizedError.includes(normalizedHandled);
   }
 
   private emitTurnResult(args: { turnId?: string | null; status: string; errorMessage?: string }): void {
@@ -1935,8 +1932,13 @@ export class CodexAdapter
     this.browserMessageCb?.(msg);
   }
 
-  private handleTurnStartAcknowledged(turnId: string, clientUserMessageId: string | null): void {
+  private setCurrentTurnId(turnId: string | null): void {
+    if (this.currentTurnId !== turnId) this.streamRetry.clear();
     this.currentTurnId = turnId;
+  }
+
+  private handleTurnStartAcknowledged(turnId: string, clientUserMessageId: string | null): void {
+    this.setCurrentTurnId(turnId);
     this.turnStartedCb?.(turnId);
     this.userMessageReceiptObserver.acknowledge(clientUserMessageId);
   }

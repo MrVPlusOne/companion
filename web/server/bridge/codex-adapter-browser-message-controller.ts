@@ -950,6 +950,18 @@ export async function handleCodexAdapterBrowserMessage(
     await handleCodexSubagentOwnedMessage(session, msg, deps);
     return;
   }
+  if (msg.type === "session_update" && "codex_stream_retry" in msg.session) {
+    const retry = msg.session.codex_stream_retry ?? null;
+    if (retry && retry.turnId !== session.codexAdapter?.getCurrentTurnId?.()) return;
+    if (retry) {
+      deps.touchActivity(session.id);
+      session.lastCliMessageAt = Date.now();
+    }
+    if ((session.state.codex_stream_retry?.turnId ?? null) === (retry?.turnId ?? null)) return;
+    session.state.codex_stream_retry = retry;
+    deps.broadcastToBrowsers(session, { type: "session_update", session: { codex_stream_retry: retry } });
+    return;
+  }
   deps.touchActivity(session.id);
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);

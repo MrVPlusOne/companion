@@ -32,6 +32,7 @@ import {
   PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID,
   PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
   PLAYGROUND_STARTING_SESSION_ID,
+  PLAYGROUND_STREAM_RETRY_SESSION_ID,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
   MSG_ASSISTANT,
   MSG_ASSISTANT_TOOLS,
@@ -76,6 +77,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_CODEX_PENDING_SESSION_ID,
       PLAYGROUND_REPEATED_ERROR_SESSION_ID,
       PLAYGROUND_STARTING_SESSION_ID,
+      PLAYGROUND_STREAM_RETRY_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
       PLAYGROUND_DISCONNECTED_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
@@ -1667,6 +1669,18 @@ export function usePlaygroundSeed() {
     store.setCliConnected(PLAYGROUND_RECOVERING_SESSION_ID, false);
     store.setCliEverConnected(PLAYGROUND_RECOVERING_SESSION_ID);
     store.setSessionStatus(PLAYGROUND_RECOVERING_SESSION_ID, null);
+
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_STREAM_RETRY_SESSION_ID,
+      backend_type: "codex",
+      model: "gpt-5.6-sol",
+      backend_state: "connected",
+      codex_stream_retry: { turnId: "playground-stream-turn" },
+    });
+    store.setConnectionStatus(PLAYGROUND_STREAM_RETRY_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_STREAM_RETRY_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_STREAM_RETRY_SESSION_ID, "running");
 
     store.addSession({
       ...session,

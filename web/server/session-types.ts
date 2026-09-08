@@ -1,4 +1,5 @@
 import type { ReplyContext } from "../shared/reply-context.js";
+import type { BackendSessionState } from "./backend-session-state.js";
 import type { ThreadRoutingError } from "../shared/thread-routing-error.js";
 export type { ThreadRoutingError } from "../shared/thread-routing-error.js";
 export type { LeaderThreadTextRole } from "../shared/thread-routing.js";
@@ -1179,6 +1180,7 @@ export type BrowserIncomingMessageBase =
       backendError?: string | null;
       backendReconnect?: BackendReconnectProgress | null;
       codexProviderRetry?: CodexProviderRetryState | null;
+      codexStreamRetry?: SessionState["codex_stream_retry"];
       codexTurnRecovery?: CodexTurnRecoveryState | null;
       uiMode: string | null;
       askPermission: boolean;
@@ -1340,7 +1342,7 @@ export interface StarredMessageRecord {
 
 export type CodexOutboundTurn = CodexOutboundTurnBase<BrowserOutgoingMessage>;
 
-export interface SessionState {
+export interface SessionState extends BackendSessionState {
   session_id: string;
   /** Durable Takode session-group identity. Explicitly set to "default" when ungrouped. */
   treeGroupId?: string;
@@ -1355,21 +1357,6 @@ export interface SessionState {
   /** Server-owned starred chat messages keyed by stable raw message ID. */
   starredMessages?: Record<string, StarredMessageRecord>;
   backend_type?: BackendType;
-  /** Server-authored backend lifecycle state. */
-  backend_state?:
-    | "initializing"
-    | "resuming"
-    | "recovering"
-    | "connected"
-    | "disconnected"
-    | "recovery_suppressed"
-    | "broken";
-  /** Server-authored backend failure detail for disconnected/broken states. */
-  backend_error?: string | null;
-  /** Server-authored Codex process reconnect progress. */
-  backend_reconnect?: BackendReconnectProgress | null;
-  /** Server-authored same-turn provider retry progress, separate from process reconnects. */
-  codex_provider_retry?: CodexProviderRetryState | null;
   model: string;
   /** Server-owned historical warning for one-time unknown-provenance migration. */
   modelProvenanceMigration?: ModelProvenanceMigration;

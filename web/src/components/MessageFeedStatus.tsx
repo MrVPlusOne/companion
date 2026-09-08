@@ -50,6 +50,7 @@ export function ElapsedTimer({
   const streamingPausedDuration = useStore((s) => s.streamingPausedDuration.get(sessionId) ?? 0);
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  const streamRetry = useStore((s) => s.sessions?.get(sessionId)?.codex_stream_retry ?? null);
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
   const bridgeIsOrchestrator = useStore((s) => s.sessions?.get(sessionId)?.isOrchestrator === true);
   const bridgeClaimedQuestId = useStore((s) => s.sessions?.get(sessionId)?.claimedQuestId ?? null);
@@ -85,7 +86,7 @@ export function ElapsedTimer({
     return () => clearInterval(interval);
   }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
 
-  const showTimer = sessionStatus === "running" && elapsed > 0;
+  const showTimer = sessionStatus === "running" && (elapsed > 0 || !!streamRetry);
 
   useLayoutEffect(() => {
     if (!onVisibleHeightChange) return;
@@ -135,12 +136,17 @@ export function ElapsedTimer({
     ? "Session may be stuck"
     : streamingPauseStartedAt
       ? "Napping..."
-      : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
-          isLeaderSession,
-          isReviewerSession: sdkReviewerOf !== null,
-          claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
-          reviewedQuestId,
-        });
+      : streamRetry
+        ? "Retrying response..."
+        : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
+            isLeaderSession,
+            isReviewerSession: sdkReviewerOf !== null,
+            claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
+            reviewedQuestId,
+          });
+  const retryDetail = streamRetry
+    ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
+    : undefined;
   const dotColor = isStuck
     ? "text-cc-attention"
     : streamingPauseStartedAt
@@ -153,7 +159,9 @@ export function ElapsedTimer({
       <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
       <span className="relative flex min-w-0 items-center gap-1.5">
         <YarnBallDot className={dotColor} />
-        <span className="truncate text-cc-fg/90">{label}</span>
+        <span className="truncate text-cc-fg/90" title={retryDetail}>
+          {label}
+        </span>
         <span className="text-cc-muted/75">{formatElapsed(elapsed)}</span>
         {(streamingOutputTokens ?? 0) > 0 && (
           <span className="hidden truncate text-cc-muted/70 sm:inline">
@@ -206,7 +214,7 @@ export function ElapsedTimer({
       className="shrink-0 flex items-center gap-1.5 border-t border-cc-border bg-cc-card px-3 sm:px-4 py-1.5 text-[11px] text-cc-muted font-mono-code"
     >
       <YarnBallDot className={dotColor} />
-      <span>{label}</span>
+      <span title={retryDetail}>{label}</span>
       <span className="text-cc-muted/60">(</span>
       <span>{formatElapsed(elapsed)}</span>
       {(streamingOutputTokens ?? 0) > 0 && (

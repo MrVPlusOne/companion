@@ -558,6 +558,7 @@ describe("Playground", () => {
     expect(screen.getByText("Held inputs — Copilot sign-in required")).toBeTruthy();
     expect(screen.getByText("Reconnecting (2 of 5)")).toBeTruthy();
     expect(screen.getByText("Retrying message (attempt 4)")).toBeTruthy();
+    expect(screen.getByTestId("playground-codex-stream-retry")).toHaveTextContent("Retrying response...");
     expect(screen.getAllByText(/Cause: Copilot sign-in failed at/)).toHaveLength(1);
     expect(screen.getAllByText(/Cause: The model connection dropped repeatedly at/)).toHaveLength(4);
     expect(screen.getByText(/Cause: The selected model is not available at/)).toBeTruthy();

@@ -183,6 +183,8 @@ function createSessionRuntime(
   state: any,
   options: SessionRuntimeOptions = {},
 ): SessionLike {
+  // Internal stream retries belong to the current adapter, never a restored process.
+  state.codex_stream_retry = null;
   const processedClientMessageIds = options.processedClientMessageIds ?? [];
   const notifications = options.notifications ?? [];
   const notificationStatusVersion = normalizeStatusNumber(options.notificationStatusVersion, 0);
@@ -847,9 +849,10 @@ export function closeSession(
 }
 
 export function buildPersistedSessionPayload(session: SessionLike): PersistedSession {
+  const { codex_stream_retry: _streamRetry, ...state } = session.state;
   return {
     id: session.id,
-    state: session.state,
+    state,
     messageHistory: session.messageHistory,
     codexNativeSubagents: session.codexNativeSubagents,
     pendingMessages: session.pendingMessages,
@@ -926,16 +929,22 @@ export function setBackendState(
 ): void {
   const clearProviderRetry =
     (backendState === "broken" || backendState === "recovery_suppressed") && !!session.state.codex_provider_retry;
+  const clearStreamRetry = backendState !== "connected" && !!session.state.codex_stream_retry;
   const changed =
-    session.state.backend_state !== backendState || session.state.backend_error !== backendError || clearProviderRetry;
+    session.state.backend_state !== backendState ||
+    session.state.backend_error !== backendError ||
+    clearProviderRetry ||
+    clearStreamRetry;
   session.state.backend_state = backendState;
   session.state.backend_error = backendError;
   if (clearProviderRetry) session.state.codex_provider_retry = null;
+  if (clearStreamRetry) session.state.codex_stream_retry = null;
   if (!changed) return;
   deps.broadcastSessionUpdate?.(session, {
     backend_state: backendState,
     backend_error: backendError,
     ...(clearProviderRetry ? { codex_provider_retry: null } : {}),
+    ...(clearStreamRetry ? { codex_stream_retry: null } : {}),
   });
 }
 

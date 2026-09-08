@@ -940,6 +940,39 @@ describe("MessageFeed - floating status pill", () => {
     expect(screen.queryByRole("button", { name: "Work is complete" })).toBeNull();
   });
 
+  it("shows confirmed Codex stream retries in the generation chip and restores normal activity", () => {
+    // This is the session_update shape emitted for an exact root-turn willRetry
+    // notification. Quiet generation alone must never manufacture retry state.
+    const sid = "test-feed-stream-retry";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Working" })]);
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 180_000);
+    setStoreSessionState(sid, { backend_type: "codex", backend_state: "connected" });
+    setStoreConnectionState(sid, { cliConnected: true });
+    const { rerender } = render(<MessageFeed sessionId={sid} />);
+    expect(screen.getByText("Purring...")).toBeInTheDocument();
+    expect(screen.queryByText("Retrying response...")).toBeNull();
+
+    setStoreSessionState(sid, { codex_stream_retry: { turnId: "turn-1" } });
+    rerender(<MessageFeed sessionId={sid} />);
+    expect(screen.getByText("Retrying response...")).toHaveAttribute(
+      "title",
+      expect.stringContaining("attempt count is unavailable"),
+    );
+    expect(screen.queryByText("Purring...")).toBeNull();
+    expect(screen.queryByTestId("codex-provider-retry-chip")).toBeNull();
+
+    setStoreSessionState(sid, { codex_stream_retry: null });
+    rerender(<MessageFeed sessionId={sid} />);
+    expect(screen.getByText("Purring...")).toBeInTheDocument();
+    expect(screen.queryByText("Retrying response...")).toBeNull();
+
+    // The activity chip remains owned by this session's running lifecycle.
+    setStoreStatus(sid, "idle");
+    rerender(<MessageFeed sessionId={sid} />);
+    expect(screen.queryByText("Purring...")).toBeNull();
+  });
+
   it("shows message retry separately from session reconnect progress in plain language", () => {
     const sid = "test-feed-provider-retry-chip";
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Retrying safely" })]);

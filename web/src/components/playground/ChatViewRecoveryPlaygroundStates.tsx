@@ -8,6 +8,7 @@ import {
   PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_STARTING_SESSION_ID,
+  PLAYGROUND_STREAM_RETRY_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID,
@@ -82,6 +83,11 @@ export function PlaygroundChatViewRecoveryStates() {
         />
         <ChatStateCard label="Fresh session starting" sessionId={PLAYGROUND_STARTING_SESSION_ID} />
         <ChatStateCard label="Message retry + reconnecting chips" sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
+        <ChatStateCard
+          label="Codex-reported response retry"
+          sessionId={PLAYGROUND_STREAM_RETRY_SESSION_ID}
+          testId="playground-codex-stream-retry"
+        />
         <ChatStateCard label="Recoverable resuming chip" sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
         <ChatStateCard label="Recoverable disconnected chip" sessionId={PLAYGROUND_DISCONNECTED_SESSION_ID} />
         <ChatStateCard label="Broken session relaunch banner" sessionId={PLAYGROUND_BROKEN_SESSION_ID} />

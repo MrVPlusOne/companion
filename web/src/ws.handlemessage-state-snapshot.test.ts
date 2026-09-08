@@ -332,6 +332,26 @@ describe("handleMessage: state_snapshot", () => {
     });
   });
 
+  it("replaces transient Codex stream retry state on reconnect", () => {
+    // A second browser sees the same confirmed retry, and an explicit null from
+    // the server retires it without relying on local activity or elapsed time.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const snapshot = {
+      type: "state_snapshot",
+      sessionStatus: "running",
+      permissionMode: "default",
+      backendConnected: true,
+      backendState: "connected",
+      uiMode: null,
+      askPermission: true,
+    };
+    fireMessage({ ...snapshot, codexStreamRetry: { turnId: "turn-1" } });
+    expect(useStore.getState().sessions.get("s1")?.codex_stream_retry).toEqual({ turnId: "turn-1" });
+    fireMessage({ ...snapshot, codexStreamRetry: null });
+    expect(useStore.getState().sessions.get("s1")?.codex_stream_retry).toBeNull();
+  });
+
   it("replaces interrupted-turn recovery state from the authoritative snapshot", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

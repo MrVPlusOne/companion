@@ -12,3 +12,11 @@ export function getRouterFailureToolName(message: string): RouterFailureToolName
   if (/\bwrite_stdin\s+failed\b/i.test(message)) return "write_stdin";
   return null;
 }
+
+/** Match a terminal wrapper error to an already handled write_stdin failure. */
+export function isSameWriteStdinRouterFailure(errorMessage: string | undefined, handledMessage: string): boolean {
+  if (!errorMessage) return false;
+  const normalizedError = errorMessage.trim();
+  const normalizedHandled = handledMessage.trim();
+  return normalizedError === normalizedHandled || normalizedError.includes(normalizedHandled);
+}
