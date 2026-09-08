@@ -46,7 +46,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Same-thread feedback usually belongs, but verify exceptions.** Treat the current quest thread as strong context, not absolute proof of scope. If a user message in a quest thread appears to describe a separate feature, cross-cutting redesign, or unrelated issue, propose a new quest/Journey and attach the relevant discussion there instead of mutating the current quest until the user confirms. If that separate quest is a true successor to the current quest, propose it as an explicit follow-up and persist the relationship after approval.
 - **Don't echo board state as prose.** `takode board` commands display the board in the terminal with a special UI, and the user already sees the live board state in the Takode Chat UI. Never repeat current board rows as markdown tables or summaries -- just run the command and move on unless the user explicitly asks for a text summary.
 - **Use quest threads as shared state.** Main is the staging area for unthreaded/global work. Quest-backed threads carry quest-specific activity, and All Threads/global inspection preserves the append-only audit stream.
-- **Organize prior discussion when needed.** At quest setup, `takode thread attach` may associate clearly quest-specific prior discussion with `[q-N](quest:q-N)`. This is optional context organization; automatic answer routing never requires a separate answer attachment or history-index lookup.
+- **Hand off active quest responsibility explicitly.** Follow [Main-to-quest handoff](#main-to-quest-handoff) for unfinished Main requests and existing decisions. `takode thread attach` is optional context organization; it does not transfer unfinished responsibility, and automatic answer routing never requires answer attachment or history-index lookup.
 - **Apply `leader-decision-communication` before user-facing decisions or material status updates.** That focused skill owns decision-first plain language and the necessity filter; this skill keeps CLI, notification, routing, and approval mechanics.
 - **Externally consequential User Checkpoints require fresh explicit approval.** A material edit alone is not approval. One fresh reply may make one exact substitution and explicitly approve the resulting packet only when its referent, every unchanged term, dependent parameters, monitor/stop conditions, safety implications, consequences, and tradeoffs remain unchanged and unambiguous, with no question or user choice left. Otherwise fail closed, republish the exact packet, keep the board in `USER_CHECKPOINTING`, and obtain fresh explicit approval before external consequences. Harmless typo-only corrections can still proceed when the exact action was explicitly approved and no ambiguity remains.
 - **Checkpoint shortcuts require visible option explanations.** Before offering User Checkpoint shortcuts, publish a visible decision section that names every shortcut and explains its meaning plus relevant tradeoff. Phase notes, private packets, notification summaries, labels/buttons, and "see feedback" references do not substitute. Equivalent/no-tradeoff options should say so or be collapsed; yes/no prompts must state what yes authorizes and what no declines; multiple independent questions need matching `--question` groups; custom answers to exact packets are edits/new alternatives; revised packets need a fresh visible section and fresh notification.
@@ -299,9 +299,24 @@ Export a session's full conversation history to a text file. The exported file i
 takode export 1 /tmp/session-1.txt
 ```
 
+### Main-to-quest handoff
+
+Once a quest is active, transfer its unfinished Main requests explicitly:
+
+1. Select the exact relevant pending source-envelope user IDs (`uN`). Include exact existing decision notification IDs (`n-N`) only when their prompt anchors prove they belong to those requests. Do not infer decision association.
+2. Run `takode thread handoff <quest-id> --user u1 u2 [--notification n-1 n-2] [--json]`. Both selectors accept lists, comma-separated values, or repeated flags. `--user` is required; IDs use positive integers without leading zeros. The server rejects unknown, already-covered, non-Main, or in-flight requests, inactive quests, and missing or conflicting prompt anchors. Same-destination retries make no changes. If rejected, address the diagnostic before proceeding.
+3. After success, publish one brief `[thread:main:C]` notice linking the active quest. Continue quest discussion, progress, waiting, and `needs-input` in `[thread:q-N:C]`. Existing decisions retain their original prompt and notification; a handoff does not copy or recreate them. New blocking questions still require their own visible decision text and `takode notify needs-input`.
+4. Mark Main Ready only when its existing guards permit it. Transferred requests remain unanswered obligations of the destination quest; unrelated pending Main requests and decisions remain protected. A context attachment, dispatch announcement, or fabricated answer cannot satisfy this transfer. Never move queued inputs.
+
+Original raw source history, message identity, and answer prose remain intact; thread associations can change their presentation. Preserve cross-thread answer routing: write each answer once using its exact user IDs, without repeating it in Main or another quest.
+
+```bash
+takode thread handoff q-941 --user u1 u2 --notification n-1
+```
+
 ### `takode thread attach <quest-id> --message <index> | --range <start-end>`
 
-Associate existing Main-thread history with a quest thread without moving or duplicating persisted messages. Use this when a quest thread is created after useful context already appeared in Main. This command organizes prior context; answers automatically follow their referenced prompts and need no separate attachment.
+Associate existing Main-thread history with a quest thread while preserving the original persisted messages. Use this when a quest thread is created after useful context already appeared in Main. This command organizes prior context only; use [Main-to-quest handoff](#main-to-quest-handoff) to transfer unfinished responsibility. Answers automatically follow their referenced prompts and need no separate attachment.
 
 ```bash
 takode thread attach q-941 --range 120-135

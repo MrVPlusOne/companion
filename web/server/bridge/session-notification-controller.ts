@@ -290,7 +290,8 @@ function buildNotificationUpdateMessage(session: SessionLike): BrowserIncomingMe
   } as BrowserIncomingMessage;
 }
 
-function broadcastNotificationRefresh(session: SessionLike, deps: PersistNotificationDeps): void {
+/** Publish authoritative notification changes without resolving or recreating a prompt. */
+export function broadcastNotificationRefresh(session: SessionLike, deps: PersistNotificationDeps): void {
   touchNotificationStatus(session);
   deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
   clearActionAttentionIfNoNotifications(session, deps);

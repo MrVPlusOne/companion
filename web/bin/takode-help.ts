@@ -8,6 +8,7 @@ import {
 } from "./takode-lease.js";
 import { stripHelpFlags, TIMER_CREATE_GUIDANCE } from "./takode-core.js";
 import { FILE_RESOLVE_HELP } from "./takode-file-resolve.js";
+import { THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import {
   BOARD_ADVANCE_HELP,
   BOARD_DETAIL_HELP,
@@ -167,9 +168,12 @@ const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [m
        takode thread attach <quest-id> --range <start-end> [--json]
        takode thread attach <quest-id> --turn <turn> [--json]
 
-Associate existing Main-thread history entries with a quest thread without moving or duplicating them.
+Associate existing Main-thread history entries with a quest thread for context only.
+Original persisted messages are preserved; attach does not transfer unfinished responsibility.
 Turn numbers match the visible turn numbers from takode scan/peek.
 Message indices may be repeated after --message or comma-separated.
+
+${THREAD_HANDOFF_HELP}
 `;
 
 const RENAME_HELP = `Usage: takode rename <session> <name> [--json]
@@ -566,7 +570,7 @@ Commands:
   pause    Emergency-hold new inbound work for a session
   unpause  Resume a paused session and release held work
   goal     Show or manually control Codex Goal state
-  thread          Associate Main history entries with quest threads
+  thread          Attach prior context or hand off Main obligations to a quest
   rename   Rename a session (e.g. takode rename 5 My Session Name)
   herd     Herd sessions (e.g. takode herd 5,6,7 or takode herd --force 5)
   unherd   Release a session from your herd (e.g. takode unherd 5)
@@ -644,6 +648,7 @@ Examples:
   takode board --help
   takode board advance q-12
   takode thread attach q-12 --message 42
+  takode thread handoff q-12 --user u1 u2 --notification n-1
   takode help timer create
   takode lease acquire dev-server:companion --purpose "Run E2E checks" --ttl 30m
   takode permission get 2

@@ -753,6 +753,27 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(worker).not.toContain("## Leader Thread Routing");
   });
 
+  it("points loaded leader prompts to the canonical handoff workflow without replacing answer coverage", () => {
+    // Exercise both actual backend prompt compositions so startup guidance cannot retain attach-only handoffs.
+    for (const backend of ["claude", "codex"] as const) {
+      const leader = buildInjectedSystemPromptForDebug({ sessionNum: 7, backend, isOrchestrator: true });
+      const worker = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend });
+
+      expect(leader).toContain("skill's **Main-to-quest handoff** section");
+      expect(leader).toContain(
+        "use `takode thread handoff` to transfer exact unfinished Main requests and existing decisions",
+      );
+      expect(leader).toContain("one brief Main commentary notice linking the quest and continue there");
+      expect(leader).toContain("Main Ready remains subject to its existing guards");
+      expect(leader).toContain(
+        "`takode thread attach` only organizes prior context and does not transfer unfinished responsibility",
+      );
+      expect(leader).toContain("every currently thread-owned direct user message has valid current answer coverage");
+      expect(leader).not.toContain("Thread reminder: attach any prior messages");
+      expect(worker).not.toContain("Main-to-quest handoff");
+    }
+  });
+
   it("builds a worker prompt without orchestrator guardrails unless requested", () => {
     const result = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend: "codex" });
 

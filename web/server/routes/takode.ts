@@ -65,6 +65,7 @@ import { getPauseState, isSessionPaused } from "../session-pause.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
+import { registerTakodeThreadHandoffRoute } from "./takode-thread-handoff.js";
 import { buildTakodeCodexPendingDeliveryFields, buildTakodeInfoSafeSession } from "./session-detail-response.js";
 import {
   buildThreadAttachmentBoundError,
@@ -426,6 +427,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     } as any);
 
   registerTakodeReconnectRoute(api, ctx);
+  registerTakodeThreadHandoffRoute(api, ctx);
   registerTakodeNotificationResponseRoute(api, ctx, notificationPersistDeps);
   registerTakodeNotificationInboxRoutes(api, ctx, notificationPersistDeps);
 

@@ -29,11 +29,14 @@ import {
   type TakodeSessionInfo,
 } from "./takode-core.js";
 import { printSessionLine } from "./takode-session-commands.js";
+import { handleThreadHandoff, THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 
 const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
        takode thread attach <quest-id> --range 174-182
        takode thread attach <quest-id> --turn 3
+
+${THREAD_HANDOFF_HELP}
 `;
 
 const ANSWER_HELP = `Usage: takode answer <session> [--message <msg-id> | --target <id> | --thread <main|q-N> | --quest <q-N>] <response> [--json]
@@ -259,6 +262,10 @@ export async function handleUnpause(base: string, args: string[]): Promise<void>
 
 export async function handleThread(base: string, args: string[]): Promise<void> {
   const sub = args[0];
+  if (sub === "handoff") {
+    await handleThreadHandoff(base, args.slice(1));
+    return;
+  }
   if (sub !== "attach") err(THREAD_HELP.trim());
 
   const questId = args[1]?.trim().toLowerCase();
