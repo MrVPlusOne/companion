@@ -17,8 +17,8 @@ export function buildTurnActivityFixtureWindow() {
     currentThreadResponseProjection: turnActivityFixture.projection,
     threadKey: turnActivityFixture.threadKey,
     fromItem: 0,
-    itemCount: 10,
-    sectionItemCount: 10,
+    itemCount: turnActivityFixture.history.length,
+    sectionItemCount: turnActivityFixture.history.length,
     visibleItemCount: 3,
   });
 }

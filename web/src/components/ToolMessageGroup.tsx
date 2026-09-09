@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import type { ToolItem, ToolMsgGroup } from "../hooks/use-feed-model.js";
 import type { ToolResultPreview } from "../types.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
@@ -6,7 +6,7 @@ import { CompactToolActivity } from "./CompactToolActivity.js";
 import { LiveCodexTerminalStub } from "./MessageFeedLiveActivity.js";
 import { getToolGroupFeedBlockId } from "./message-feed-utils.js";
 import { NotificationMarker } from "./NotificationMarker.js";
-import { PawTrailAvatar } from "./PawTrail.js";
+import { HidePawContext, PawTrailAvatar } from "./PawTrail.js";
 import {
   ToolBlock,
   getToolIcon,
@@ -30,10 +30,11 @@ interface ToolMessageGroupProps {
 }
 
 export function ToolMessageGroup(props: ToolMessageGroupProps) {
+  const hidePaw = useContext(HidePawContext);
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="flex items-start gap-2 sm:gap-3">
-        <PawTrailAvatar />
+        {!hidePaw && <PawTrailAvatar />}
         <div className="flex-1 min-w-0">
           <ToolMessageGroupContent {...props} />
         </div>

@@ -480,7 +480,10 @@ export function HerdEventMessage({
   if (events.length === 0) {
     // Fallback for unexpected format — render as simple muted text
     return (
-      <div className="text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]">
+      <div
+        className="text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]"
+        data-worker-event
+      >
         {message.content}
       </div>
     );
@@ -598,7 +601,7 @@ function HerdEventEntry({
   }, []);
 
   return (
-    <div className="pl-9">
+    <div className="pl-9" data-worker-event>
       <div
         role="button"
         tabIndex={0}

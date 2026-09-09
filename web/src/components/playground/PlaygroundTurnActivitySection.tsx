@@ -61,7 +61,7 @@ export function PlaygroundTurnActivitySection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Turn Activity"
-        description="One compact summary shows or hides indented activity. Both answers stay visible, with activity kept before, between and after them."
+        description="One compact summary highlights on hover without underlining. Commentary and expanded worker events share one activity level around both retained answers."
       >
         <div
           className="max-h-[720px] max-w-4xl space-y-3 overflow-y-auto rounded-xl bg-cc-bg p-3 sm:p-6"

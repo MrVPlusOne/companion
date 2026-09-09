@@ -26,12 +26,12 @@ export function TurnActivityDisclosure({
       aria-expanded={expanded}
       aria-label={labels.length > 0 ? action + " · " + labels.join(" · ") : action}
       className={
-        "group/turn-summary inline-flex max-w-full touch-manipulation items-center gap-2 rounded-sm border-0 bg-transparent px-0 py-1 text-left text-xs font-normal text-cc-muted transition-colors hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-cc-bg sm:text-[13px] " +
+        "inline-flex max-w-full touch-manipulation items-center gap-2 rounded-sm border-0 bg-transparent px-0 py-1 text-left text-xs font-normal text-cc-muted transition-colors hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-cc-bg sm:text-[13px] " +
         heightClass
       }
       data-turn-toggle
     >
-      <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 tabular-nums underline-offset-4 group-hover/turn-summary:underline group-hover/turn-summary:decoration-cc-muted/60">
+      <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 tabular-nums">
         {labels.length === 0
           ? "Turn activity"
           : labels.map((label, index) => (

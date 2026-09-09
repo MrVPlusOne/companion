@@ -70,7 +70,9 @@ function assertDisclosureFlow(container: HTMLElement) {
   const turn = container.querySelector<HTMLElement>('[data-turn-id="activity-request"]')!;
   const view = within(turn);
   // Retain the existing Turn.stats accounting, including its superseded-answer case.
-  const disclosure = view.getByRole("button", { name: "Show turn activity · 1m 13s · 3 messages · 5 tools" });
+  const disclosure = view.getByRole("button", {
+    name: "Show turn activity · 1m 13s · 3 messages · 5 tools · 2 worker events",
+  });
   const firstAnswer = view.getByText(/The list now keeps your filters/);
   const secondAnswer = view.getByText(/One additional detail:/);
   expect(disclosure.compareDocumentPosition(firstAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
@@ -86,10 +88,21 @@ function assertDisclosureFlow(container: HTMLElement) {
   expect(runs).toHaveLength(3);
   expect(within(runs[0]!).getByText(/I’ll check how the list restores/)).toBeVisible();
   expect(within(runs[1]!).getByText(/I’m also checking/)).toBeVisible();
+  // Provider final_answer on a leader commentary row does not make it an
+  // explicit answer or justify a different visual level from other activity.
+  expect(view.getByText(/The worker has confirmed filter restoration/).closest("[data-turn-activity]")).toBe(runs[0]);
   expect(view.getByText(/The list now keeps your filters/).closest("[data-turn-activity]")).toBeNull();
   const expandedSecond = view.getByText(/One additional detail:/);
   expect(expandedSecond.closest("[data-turn-activity]")).toBeNull();
   expect(expandedSecond.compareDocumentPosition(runs[2]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+  // Expanding each worker event retains its complete audit text in place and
+  // does not add an answer or replace the turn's persistent control.
+  for (const run of [runs[0]!, runs[1]!]) {
+    fireEvent.click(within(run).getByRole("button", { name: /^Show .*activity item/ }));
+  }
+  expect(within(runs[0]!).getByText(/Filter restoration checks passed\./)).toBeVisible();
+  expect(within(runs[1]!).getByText(/Separate-list filter checks passed\./)).toBeVisible();
 
   // The post-answer tool batch remains inspectable rather than moving before the answers.
   fireEvent.click(within(runs[2]!).getByRole("button", { name: /Show 2 tool calls/ }));
@@ -157,5 +170,20 @@ describe("turn activity disclosure integration", () => {
     expect(useStore.getState().sessions.has(turnActivityFixture.sessionId)).toBe(false);
     expect(useStore.getState().toolResults.get(turnActivityFixture.sessionId)).toBe(previousResults);
     expect(JSON.stringify(turnActivityFixture)).toBe(before);
+  });
+
+  it("retains worker audit and tool access when compact tool activity is disabled", () => {
+    // The common activity level also hosts ordinary tool groups. Their separate
+    // display preference must not change answer selection or lose worker detail.
+    useStore.setState({ compactToolActivity: false });
+    render(<PlaygroundTurnActivitySection />);
+    const view = within(screen.getByTestId("playground-turn-activity"));
+    fireEvent.click(view.getByRole("button", { name: /^Show turn activity/ }));
+    expect(view.getByText("inspect regression cases")).toBeVisible();
+    expect(view.getByText(/The list now keeps your filters/)).toBeVisible();
+    expect(view.getByText(/One additional detail:/)).toBeVisible();
+    fireEvent.click(view.getByRole("button", { name: /#8.*turn_end/ }));
+    expect(view.getByText(/Filter restoration checks passed\./)).toBeVisible();
+    expect(view.getAllByRole("button", { name: /^Hide turn activity/ })).toHaveLength(1);
   });
 });

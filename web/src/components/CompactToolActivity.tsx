@@ -215,7 +215,11 @@ export function CompactToolActivity({
         </span>
         <span className="truncate">{summary}</span>
       </button>
-      {open && <div className="mt-1.5 space-y-2 border-l border-cc-border/70 pl-3">{children}</div>}
+      {open && (
+        <div className="mt-1.5 space-y-2 border-l border-cc-border/70 pl-3" data-activity-details>
+          {children}
+        </div>
+      )}
     </div>
   );
 }

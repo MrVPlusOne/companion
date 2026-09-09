@@ -285,6 +285,17 @@ html, body {
   animation: none !important;
 }
 
+/* The turn guide owns activity indentation. Expanding a tool/worker group
+ * must not add another guide or repeat the standalone worker avatar gutter. */
+[data-turn-activity] [data-activity-details] {
+  border-left-width: 0;
+  padding-left: 0;
+}
+
+[data-turn-activity] [data-worker-event] {
+  padding-left: 0;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

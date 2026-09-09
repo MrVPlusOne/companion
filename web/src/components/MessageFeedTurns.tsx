@@ -237,7 +237,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
             key={run.key}
             className={
               run.activity
-                ? "ml-7 space-y-2 border-l border-cc-border/70 pl-4 sm:ml-9 sm:space-y-3 sm:pl-5"
+                ? "space-y-2 border-l border-cc-border/70 pl-7 sm:space-y-3 sm:pl-9"
                 : "space-y-2 sm:space-y-3"
             }
             data-turn-activity={run.activity ? "true" : undefined}

@@ -55,6 +55,60 @@
       }
     },
     {
+      "type": "user_message",
+      "id": "activity-worker-first",
+      "content": "1 event from 1 session\n\n#8 | turn_end | ✓ 12.0s | tools: 2\n  [10] asst: \"Filter restoration checks passed.\"",
+      "timestamp": 1788955202000,
+      "agentSource": {
+        "sessionId": "herd-events",
+        "sessionLabel": "Herd Events"
+      },
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955202500,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "final_answer",
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "activity-reported-progress",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "The worker has confirmed filter restoration; I’m reviewing the navigation checks."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
       "type": "assistant",
       "timestamp": 1788955203000,
       "parent_tool_use_id": null,
@@ -158,11 +212,11 @@
         }
       },
       "leaderAnswerUserMessageIds": ["u1"],
-      "leaderAnswerObservedHistoryLength": 4,
+      "leaderAnswerObservedHistoryLength": 6,
       "threadAnswer": {
         "version": 2,
         "answerUserMessageIds": ["u1"],
-        "observedHistoryLength": 4,
+        "observedHistoryLength": 6,
         "authoredThreadKey": "q-42",
         "ownerGroups": [
           {
@@ -206,6 +260,25 @@
           "cache_read_input_tokens": 0
         }
       }
+    },
+    {
+      "type": "user_message",
+      "id": "activity-worker-second",
+      "content": "1 event from 1 session\n\n#9 | turn_end | ✓ 18.0s | tools: 2\n  [10] asst: \"Separate-list filter checks passed.\"",
+      "timestamp": 1788955225000,
+      "agentSource": {
+        "sessionId": "herd-events",
+        "sessionLabel": "Herd Events"
+      },
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ]
     },
     {
       "type": "assistant",
@@ -295,11 +368,11 @@
         }
       },
       "leaderAnswerUserMessageIds": ["u1"],
-      "leaderAnswerObservedHistoryLength": 8,
+      "leaderAnswerObservedHistoryLength": 11,
       "threadAnswer": {
         "version": 2,
         "answerUserMessageIds": ["u1"],
-        "observedHistoryLength": 8,
+        "observedHistoryLength": 11,
         "authoredThreadKey": "q-42",
         "ownerGroups": [
           {
@@ -404,7 +477,7 @@
       {
         "userMessageId": "u2",
         "historyMessageId": "activity-next-request",
-        "historyIndex": 11,
+        "historyIndex": 14,
         "askedAt": 1788955273000
       }
     ],
@@ -418,7 +491,7 @@
         "coveredAnswerUserMessageIds": [],
         "coveredUserMessageIds": [],
         "currentMessageId": "activity-answer-first",
-        "currentHistoryIndex": 4,
+        "currentHistoryIndex": 6,
         "createdAt": 1788955220000,
         "updatedAt": 1788955220000,
         "source": "explicit"
@@ -432,7 +505,7 @@
         "coveredAnswerUserMessageIds": ["u1"],
         "coveredUserMessageIds": ["activity-request"],
         "currentMessageId": "activity-answer-second",
-        "currentHistoryIndex": 8,
+        "currentHistoryIndex": 11,
         "createdAt": 1788955241000,
         "updatedAt": 1788955241000,
         "source": "explicit"
