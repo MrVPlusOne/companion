@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { projectedSessionAttentionStatus } from "./session-attention-status.js";
+import { hasUnreadSessionAttention, projectedSessionAttentionStatus } from "./session-attention-status.js";
+
+it("separates unread review/errors from an unresolved needs-input prompt", () => {
+  // Preserve the established error attention treatment while avoiding a false
+  // unread result for prompts that deliberately survive session reading.
+  expect(hasUnreadSessionAttention("review")).toBe(true);
+  expect(hasUnreadSessionAttention("error")).toBe(true);
+  expect(hasUnreadSessionAttention("action")).toBe(false);
+  expect(hasUnreadSessionAttention(null)).toBe(false);
+  expect(hasUnreadSessionAttention(undefined)).toBe(false);
+});
 
 const value = (
   attentionReason: "action" | "error" | "review" | null,

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type { SessionState, SdkSessionInfo } from "../types.js";
+import { createSessionAttentionProjectionDefinition } from "../../server/session-attention-projection.js";
 
 const mockConnectSession = vi.fn();
 const mockConnectAllSessions = vi.fn();
@@ -531,6 +532,56 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
       expect(screen.getByTestId("session-hover-attention-status")).toHaveTextContent("3 unread conversations");
     });
     expect(mockConnectSession).not.toHaveBeenCalledWith(sessionId);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("keeps a read leader's needs-input prompt amber without blue unread (selected=%s)", async (selected) => {
+    // Use the real producer for the reported shape: all review notifications
+    // are read, but an unrelated thread's checkpoint is still unresolved.
+    const sessionId = "read-leader-with-checkpoint";
+    const source = {
+      id: sessionId,
+      state: { isOrchestrator: true },
+      attentionReason: null,
+      lastReadAt: 300,
+      pendingPermissions: new Map(),
+      notificationStatusVersion: 2,
+      notifications: [
+        { id: "review", category: "review", timestamp: 200, done: true, threadKey: "main" },
+        { id: "checkpoint", category: "needs-input", timestamp: 100, done: false, threadKey: "q-1" },
+      ],
+    } as any;
+    const definition = createSessionAttentionProjectionDefinition({
+      getSession: () => source,
+      isHerdedWorkerSession: () => false,
+      authorizeSubscription: () => true,
+    });
+    const value = definition.derive(source, sessionId, definition.selectDependencies(source, sessionId));
+    const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
+    mockState = createMockState({
+      currentSessionId: selected ? sessionId : null,
+      sdkSessions: [makeSdkSession(sessionId, { name: "Read Leader", isOrchestrator: true, cliConnected: true })],
+      sessionAttention: new Map([[sessionId, value.attentionReason]]),
+      syncedProjectionValues: new Map([[entryId, value]]),
+      syncedProjectionKeys: new Set([entryId]),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map([[sessionId, "default"]]),
+    });
+
+    render(<Sidebar />);
+
+    const row = screen.getByText("Read Leader").closest("button")!;
+    expect(within(row).getByTestId("session-status-dot")).toHaveAttribute("data-status", "idle");
+    expect(screen.queryByTestId("status-count-unread")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "action");
+    fireEvent.mouseEnter(row);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-hover-attention-status")).toHaveTextContent("1 needs-input notification");
+    });
+    expect(source.notifications[1].done).toBe(false);
+    expect(source.lastReadAt).toBe(300);
   });
 
   it("places group sortables in the group context and updates group order on group drag", async () => {

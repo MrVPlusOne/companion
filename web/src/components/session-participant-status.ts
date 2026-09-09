@@ -1,6 +1,7 @@
 import { useStore } from "../store.js";
 import type { BoardParticipantStatus } from "../types.js";
 import { resolveSessionNavigation, type ResolvedSessionNavigation } from "../utils/session-navigation-resolver.js";
+import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import type { SessionStatusDotProps } from "./SessionStatusDot.js";
 
 export function participantStatusToDotProps(status: BoardParticipantStatus["status"]): SessionStatusDotProps {
@@ -44,6 +45,8 @@ export function useParticipantSessionStatusDotProps(
   fallbackStatus?: BoardParticipantStatus["status"],
 ): SessionStatusDotProps | null {
   const navigation = useStore((state) => (sessionId ? resolveSessionNavigation(state, sessionId) : null));
-  const hasUnread = useStore((state) => (sessionId ? !!state.sessionAttention.get(sessionId) : false));
+  const hasUnread = useStore((state) =>
+    sessionId ? hasUnreadSessionAttention(state.sessionAttention.get(sessionId)) : false,
+  );
   return resolveParticipantSessionStatusDotProps({ navigation, hasUnread, fallbackStatus });
 }

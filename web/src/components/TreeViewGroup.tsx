@@ -1,4 +1,5 @@
 import { type RefObject, useCallback, useState, useRef, useEffect } from "react";
+import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import { type DraggableAttributes } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -302,7 +303,7 @@ export function TreeViewGroup({
         permCount={permCount}
         isRecentlyRenamed={recentlyRenamed.has(s.id)}
         attention={attention}
-        hasUnread={!!attention}
+        hasUnread={hasUnreadSessionAttention(attention)}
         herdGroupBadgeTheme={herdGroupBadgeThemes?.get(s.id)}
         herdHoverHighlight={herdHoverHighlights?.get(s.id)}
         compact={opts?.compact}
@@ -328,7 +329,7 @@ export function TreeViewGroup({
         isConnected: s.isConnected,
         sdkState: s.sdkState,
         status: s.status,
-        hasUnread: !!sAttention,
+        hasUnread: hasUnreadSessionAttention(sAttention),
         idleKilled: s.idleKilled,
       });
       const showsTimerWaitingStatus =

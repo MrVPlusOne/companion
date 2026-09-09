@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
+import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import {
   DndContext,
   closestCenter,
@@ -1268,7 +1269,7 @@ export function Sidebar() {
                   sessionPreview={sessionPreview ?? (s.lastMessagePreview || undefined)}
                   permCount={s.permCount}
                   attention={sessionSetAttention.get(s.id) ?? null}
-                  hasUnread={!!sessionSetAttention.get(s.id)}
+                  hasUnread={hasUnreadSessionAttention(sessionSetAttention.get(s.id))}
                   isRecentlyRenamed={recentlyRenamed.has(s.id)}
                   herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                   herdHoverHighlight={herdHoverHighlights.get(s.id)}
@@ -1401,7 +1402,7 @@ export function Sidebar() {
                         sessionName={s.name ?? undefined}
                         permCount={s.permCount}
                         attention={sessionSetAttention.get(s.id) ?? null}
-                        hasUnread={!!sessionSetAttention.get(s.id)}
+                        hasUnread={hasUnreadSessionAttention(sessionSetAttention.get(s.id))}
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
                         herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                         herdHoverHighlight={herdHoverHighlights.get(s.id)}

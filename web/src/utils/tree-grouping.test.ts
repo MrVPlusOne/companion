@@ -290,6 +290,18 @@ describe("buildTreeViewGroups", () => {
     expect(result[0].permCount).toBe(1);
   });
 
+  it("does not count needs-input as unread while preserving review and error attention", () => {
+    // Group blue counts must not include a read leader whose only remaining
+    // attention is a separate needs-input prompt.
+    const reasons = ["action", "review", "error"] as const;
+    const sessions = reasons.map((id) => makeSession({ id, status: "idle", sdkState: "connected" }));
+    const attention = new Map(reasons.map((reason) => [reason, reason]));
+
+    const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments, attention);
+
+    expect(result[0].unreadCount).toBe(2);
+  });
+
   it("respects custom nodeOrder for sorting within a group", () => {
     const now = Date.now();
     const sessions = [

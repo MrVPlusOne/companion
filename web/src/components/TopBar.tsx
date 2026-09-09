@@ -9,6 +9,7 @@ import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
 import type { SessionViewModel } from "../utils/session-view-model.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
+import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import { resolveDiffTarget } from "../utils/diff-target.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
@@ -88,7 +89,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     currentPermCount: currentItem?.permCount ?? 0,
     currentSdkState: currentItem?.sdkState ?? null,
     isArchived: currentItem?.archived ?? false,
-    currentHasUnread: !!state.sessionAttention.get(currentSessionId),
+    currentHasUnread: hasUnreadSessionAttention(state.sessionAttention.get(currentSessionId)),
     sessionName,
     sessionNum: currentSessionVm?.sessionNum ?? null,
     isQuestNamed:

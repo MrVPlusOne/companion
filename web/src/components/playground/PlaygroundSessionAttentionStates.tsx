@@ -4,6 +4,7 @@ import {
   type SessionAttentionProjectionValue as Value,
 } from "../../../shared/session-attention-projection.js";
 import { useStore } from "../../store.js";
+import { hasUnreadSessionAttention } from "../../utils/session-attention-status.js";
 import { SessionHoverCard } from "../SessionHoverCard.js";
 import { SessionItem, StatusCountDots } from "../SessionItem.js";
 import { PLAYGROUND_SESSION_ROWS } from "./fixtures.js";
@@ -21,6 +22,7 @@ const DEMOS: Demo[] = [
   ["cleared", "Cleared to idle", null, null],
   ["permission", "Permission > attention", "action", "needs-input", 1, 2, 2],
   ["error", "Error attention", "error", null, 1],
+  ["leader-checkpoint", "Read leader + checkpoint", "action", "needs-input"],
 ];
 const value = ([, , attentionReason, urgency, , , count = 1]: Demo): Value => ({
   attentionReason,
@@ -33,7 +35,9 @@ const session = ([slug, , , , pendingTimerCount = 0, permCount = 0]: Demo, index
   createdAt: Date.now() - (index + 1) * 60_000,
   pendingTimerCount,
   permCount,
-  isOrchestrator: false,
+  isOrchestrator: slug === "leader-checkpoint",
+  leaderProfilePortrait:
+    slug === "leader-checkpoint" ? PLAYGROUND_SESSION_ROWS[0].session.leaderProfilePortrait : undefined,
 });
 const sessions = DEMOS.map(session);
 const reviewed = sessions[4];
@@ -85,7 +89,10 @@ export function PlaygroundSessionAttentionStates() {
     return () => SEEDED.forEach(({ session }) => clear(SESSION_ATTENTION_PROJECTION, session.id));
   }, []);
   return (
-    <Section title="Session Attention Projection" description="Accepted projection matrix. Hover Review for its count.">
+    <Section
+      title="Session Attention Projection"
+      description="Read results clear blue; unresolved prompts retain amber. Hover for the projected count."
+    >
       <div className="rounded-xl bg-cc-sidebar p-2">
         <div className="flex items-center gap-2 px-2 pb-1 text-[10px] text-cc-muted">
           Reviewer + tree aggregate
@@ -103,11 +110,11 @@ export function PlaygroundSessionAttentionStates() {
                 sessionName={label}
                 permCount={current.permCount}
                 attention={reasons.get(current.id) ?? null}
-                hasUnread={reasons.get(current.id) != null}
+                hasUnread={hasUnreadSessionAttention(reasons.get(current.id))}
                 onHoverStart={(_, rect) => setHover({ session: current, rect })}
                 onHoverEnd={() => setHover(null)}
                 reviewerSession={current === reviewed ? reviewer : undefined}
-                compact
+                compact={!current.isOrchestrator}
               />
             );
           })}

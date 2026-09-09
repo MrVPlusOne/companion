@@ -4,6 +4,7 @@ import "@testing-library/jest-dom";
 import { useState, type ComponentProps } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
+import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import {
   SESSION_ATTENTION_PROJECTION,
   type SessionAttentionProjectionValue,
@@ -147,7 +148,7 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
       onCancelRename={vi.fn()}
       editInputRef={{ current: null }}
       attention={projectedAttention}
-      hasUnread={!!projectedAttention}
+      hasUnread={hasUnreadSessionAttention(projectedAttention)}
       {...overrides}
     />,
   );

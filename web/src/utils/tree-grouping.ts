@@ -1,6 +1,7 @@
 import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.js";
 import type { TreeGroup } from "../types.js";
 import { deriveSessionStatus } from "../components/SessionStatusDot.js";
+import { hasUnreadSessionAttention } from "./session-attention-status.js";
 
 export const PENDING_TREE_GROUP_ID = "__pending_session_location__";
 const PENDING_TREE_GROUP: TreeGroup = { id: PENDING_TREE_GROUP_ID, name: "Locating..." };
@@ -269,7 +270,7 @@ export function buildTreeViewGroups(
         isConnected: s.isConnected,
         sdkState: s.sdkState,
         status: s.status,
-        hasUnread: !!sessionAttention?.get(s.id),
+        hasUnread: hasUnreadSessionAttention(sessionAttention?.get(s.id)),
         idleKilled: s.idleKilled,
       });
       if (visualStatus === "running" || visualStatus === "compacting") runningCount++;

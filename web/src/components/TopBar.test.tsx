@@ -295,6 +295,24 @@ beforeEach(() => {
 });
 
 describe("TopBar", () => {
+  it.each([
+    ["action", "idle"],
+    ["review", "completed_unread"],
+    ["error", "completed_unread"],
+    [null, "idle"],
+  ] as const)("keeps %s attention distinct from unread results", (reason, expectedStatus) => {
+    // A needs-input prompt can remain after every result was read. Its
+    // attention must not turn the selected session's header blue.
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, cliConnected: true, state: "idle" }],
+      sessionAttention: new Map([["s1", reason]]),
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", expectedStatus);
+  });
+
   it("derives the global needs-input aggregate from unresolved needs-input notifications only", () => {
     resetStore({
       sdkSessions: [

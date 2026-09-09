@@ -38,6 +38,16 @@ describe("PlaygroundSessionAttentionStates", () => {
     expect(row("timer").getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
     expect(row("needs-input").getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "action");
     expect(row("needs-input").queryByTestId("session-status-timer-icon")).toBeNull();
+    // A prompt is amber attention, not an unread result; keep the status idle.
+    expect(row("needs-input").getByTestId("session-status-dot")).toHaveAttribute("data-status", "idle");
+    expect(row("leader-checkpoint").getByTestId("session-attention-marker")).toHaveAttribute(
+      "data-attention",
+      "action",
+    );
+    expect(row("leader-checkpoint").getByRole("button", { name: /Open .* profile/ })).toHaveAttribute(
+      "data-status",
+      "idle",
+    );
     expect(row("review").getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
     expect(row("muted").getByTestId("session-notification-marker")).toHaveAttribute(
       "data-urgency",

@@ -162,7 +162,8 @@ describe("buildSidebarVisibleSessions", () => {
 
     expect(result.sessionSetAttention.get("needs-input")).toBe("action");
     expect(result.sessionSetAttention.get("muted")).toBeNull();
-    expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
+    // Neither an unresolved prompt nor a muted prompt is an unread result.
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(0);
   });
 
   it("uses attention projection authority before selection while preserving navigation timer data", () => {

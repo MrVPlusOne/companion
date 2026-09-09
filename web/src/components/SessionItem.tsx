@@ -1,4 +1,5 @@
 import { memo, useRef, useCallback, useState, type RefObject } from "react";
+import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { deriveSessionStatus, ScheduledTimerStatusIcon, type SessionVisualStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
@@ -878,7 +879,7 @@ function SessionItemComponent({
                     isConnected: reviewerSession.isConnected,
                     sdkState: reviewerSession.sdkState,
                     status: reviewerSession.status,
-                    hasUnread: !!reviewerAttention,
+                    hasUnread: hasUnreadSessionAttention(reviewerAttention),
                     idleKilled: reviewerSession.idleKilled,
                   });
                   const rvTheme = REVIEWER_BADGE_THEME[rvStatus];
