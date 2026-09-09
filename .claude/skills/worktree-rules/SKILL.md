@@ -38,8 +38,10 @@ If the current base-repo branch is not exactly `<BASE_BRANCH>`, stop and report 
 Only after the current branch is proven to match `<BASE_BRANCH>`, check status and pull remote changes:
 ```bash
 git -C <BASE_REPO> status
-git -C <BASE_REPO> fetch origin <BASE_BRANCH> && git -C <BASE_REPO> pull --rebase origin <BASE_BRANCH>
+git -C <BASE_REPO> fetch origin <BASE_BRANCH> && git -C <BASE_REPO> pull --ff-only origin <BASE_BRANCH>
 ```
+
+If the remote and local target diverge, stop and reconcile without rewriting landed history. Do not rebase, reset, or force-push the shared target.
 
 For a worktree target, check the exact target checkout instead:
 ```bash
