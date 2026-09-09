@@ -1331,17 +1331,17 @@ describe("MessageFeed explicit answer selected-window integration", () => {
         `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"] [data-testid="thread-source-badge"]`,
       ),
     ).toBeNull();
-    expect(within(mainTurn).getAllByRole("button", { name: /Expand turn/ })).toHaveLength(1);
+    expect(within(mainTurn).getAllByRole("button", { name: /Show turn activity/ })).toHaveLength(1);
 
-    fireEvent.click(within(mainTurn).getByRole("button", { name: /Expand turn/ }));
+    fireEvent.click(within(mainTurn).getByRole("button", { name: /Show turn activity/ }));
     assertOneAnswerIdentity();
     expect(
       screen
         .getByText(ASSOCIATED_MAIN_ANSWER_TEXT)
         .closest<HTMLElement>("[data-testid='thread-response-current-expanded']"),
     ).toBeInTheDocument();
-    expect(within(mainTurn).getByRole("button", { name: "Collapse turn" })).toBeVisible();
-    fireEvent.click(within(mainTurn).getByRole("button", { name: "Collapse turn" }));
+    expect(within(mainTurn).getByRole("button", { name: /Hide turn activity/ })).toBeVisible();
+    fireEvent.click(within(mainTurn).getByRole("button", { name: /Hide turn activity/ }));
     assertOneAnswerIdentity();
 
     view.rerender(<MessageFeed key={QUEST_ID} sessionId={SESSION_ID} threadKey={QUEST_ID} />);
@@ -1359,9 +1359,9 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     ).not.toBeInTheDocument();
     expect(within(questTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
     expect(within(questTurn).queryByText(/Quest Quiz:/i)).not.toBeInTheDocument();
-    expect(within(questTurn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(within(questTurn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
 
-    fireEvent.click(within(questTurn).getByRole("button", { name: "Expand turn · 1 tool" }));
+    fireEvent.click(within(questTurn).getByRole("button", { name: /Show turn activity.*1 tool/ }));
     assertOneAnswerIdentity();
     expect(within(questTurn).getByText("Quest-side implementation detail stays behind expansion.")).toBeVisible();
     const expandedAnswerRow = view.container.querySelector<HTMLElement>(
@@ -1375,12 +1375,12 @@ describe("MessageFeed explicit answer selected-window integration", () => {
         .getByText(ASSOCIATED_MAIN_ANSWER_TEXT)
         .closest<HTMLElement>("[data-testid='thread-response-current-expanded']"),
     ).not.toBeInTheDocument();
-    expect(within(questTurn).getByRole("button", { name: "Collapse turn" })).toBeVisible();
+    expect(within(questTurn).getByRole("button", { name: /Hide turn activity/ })).toBeVisible();
     expect(within(questTurn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
-    fireEvent.click(within(questTurn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(questTurn).getByRole("button", { name: /Hide turn activity/ }));
     assertOneAnswerIdentity();
-    expect(within(questTurn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(within(questTurn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
 
     view.rerender(<MessageFeed key={UNRELATED_QUEST_ID} sessionId={SESSION_ID} threadKey={UNRELATED_QUEST_ID} />);
     expect(screen.queryByText(ASSOCIATED_MAIN_ANSWER_TEXT)).not.toBeInTheDocument();
@@ -1449,11 +1449,11 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(turn).queryByText("The worker is finishing the guarded transition.")).not.toBeInTheDocument();
     expect(within(turn).queryByText("The transition finished; Memory is running.")).not.toBeInTheDocument();
     expect(within(turn).queryByTestId("thread-response-answer-count")).not.toBeInTheDocument();
-    expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
     expect(view.container.querySelectorAll('[data-message-id="legacy-completion"]')).toHaveLength(1);
     expect(within(turn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
-    fireEvent.click(within(turn).getByRole("button", { name: "Expand turn · 1 tool" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity.*1 tool/ }));
     const setup = within(turn).getByText("Created and dispatched the follow-up quest.");
     const progress = within(turn).getByText("The worker is finishing the guarded transition.");
     const transition = within(turn).getByText("The transition finished; Memory is running.");
@@ -1464,13 +1464,13 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     for (const messageId of ["legacy-setup", "legacy-progress", "legacy-transition", "legacy-completion"]) {
       expect(view.container.querySelectorAll(`[data-message-id="${messageId}"]`)).toHaveLength(1);
     }
-    expect(within(turn).getByRole("button", { name: "Collapse turn" })).toBeVisible();
+    expect(within(turn).getByRole("button", { name: /Hide turn activity/ })).toBeVisible();
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
-    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(turn).getByText("Collapsed turns now have one unified footer.")).toBeVisible();
     expect(within(turn).queryByText("Created and dispatched the follow-up quest.")).not.toBeInTheDocument();
-    expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
   });
 
   it("keeps a separate Quiz on its fallback Ready turn through collapse toggles", () => {
@@ -1500,11 +1500,11 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     expect(within(turn).queryByText(/Quest Quiz:/i)).not.toBeInTheDocument();
 
-    fireEvent.click(within(turn).getByRole("button", { name: "Expand turn · 1 tool" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity.*1 tool/ }));
     expect(within(turn).getByText("Created and dispatched the follow-up quest.")).toBeVisible();
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
-    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
   });
 
@@ -1587,7 +1587,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
   it("reveals superseded revisions and intermediate activity in unchanged expanded chronology", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     const thirdTurn = screen.getByText("Third pending request").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(thirdTurn).getByRole("button", { name: /Expand turn/i }));
+    fireEvent.click(within(thirdTurn).getByRole("button", { name: /Show turn activity/i }));
 
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
@@ -1609,7 +1609,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(secondTurn).getByRole("button", { name: /Expand turn/i }));
+    fireEvent.click(within(secondTurn).getByRole("button", { name: /Show turn activity/i }));
     const earlier = screen.getByText("Earlier grouped response");
     const current = screen.getByText("Current grouped response");
     expect(earlier).toBeVisible();
@@ -1644,15 +1644,16 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     const thirdTurn = screen.getByText("Third pending request").closest<HTMLElement>("[data-turn-id]")!;
     const quiz = within(thirdTurn).getByRole("region", { name: "Quest quiz" });
-    const expand = within(thirdTurn).getByRole("button", { name: /Expand turn/ });
+    const expand = within(thirdTurn).getByRole("button", { name: /Show turn activity/ });
     expect(expand).toHaveAttribute("aria-expanded", "false");
-    expect(quiz.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    // The single top summary precedes retained Quiz content without changing its host.
+    expect(quiz.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_PRECEDING).not.toBe(0);
 
     expand.focus();
     fireEvent.click(expand);
     expect(screen.getByText("Ready status published after the answer.")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
-    const collapse = within(thirdTurn).getByRole("button", { name: "Collapse turn" });
+    const collapse = within(thirdTurn).getByRole("button", { name: /Hide turn activity/ });
     expect(collapse).toHaveAttribute("aria-expanded", "true");
     expect(document.activeElement).toBe(collapse);
 
@@ -1660,7 +1661,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.queryByText("Ready status published after the answer.")).not.toBeInTheDocument();
     expect(screen.getByText("Current singleton response")).toBeVisible();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    const restoredExpand = within(thirdTurn).getByRole("button", { name: /Expand turn/ });
+    const restoredExpand = within(thirdTurn).getByRole("button", { name: /Show turn activity/ });
     expect(restoredExpand).toBeVisible();
     expect(document.activeElement).toBe(restoredExpand);
   });
@@ -1685,16 +1686,16 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
     expect(quiz.compareDocumentPosition(laterTurn) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
-    fireEvent.click(within(laterTurn).getByRole("button", { name: /Expand turn/ }));
+    fireEvent.click(within(laterTurn).getByRole("button", { name: /Show turn activity/ }));
     expect(within(laterTurn).getByText("Later current response without a Quiz")).toBeVisible();
     expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
-    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(laterTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
 
-    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: /Expand turn/ }));
+    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: /Show turn activity/ }));
     expect(within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
   });
 
@@ -1720,7 +1721,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     const turn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
 
-    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
 
     const answer = within(turn).getByText("The clarification is answered before the next decision.");
     const firstPrompt = within(turn).getByText(/Choose the deployment boundary/);
@@ -1742,7 +1743,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(turn).queryByText("Outdated embedded prompt snapshot")).not.toBeInTheDocument();
     expect(within(turn).getByText("Confirm follow-up state")).toBeVisible();
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
     expect(within(turn).queryByLabelText(/Thread Ready/)).not.toBeInTheDocument();
 
     act(() => {
@@ -1791,7 +1792,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(turn).queryByText(/Confirm whether the follow-up should remain parked/)).not.toBeInTheDocument();
     expect(within(turn).getByText("The clarification is answered before the next decision.")).toBeVisible();
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
   });
 
   it("fails closed for wrong-thread, missing, and stale herd needs-input anchor targets", () => {
@@ -1817,7 +1818,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     const turn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
 
-    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
 
     expect(within(turn).getByText("The clarification is answered before the next decision.")).toBeVisible();
     expect(within(turn).queryByText(/Choose the deployment boundary/)).not.toBeInTheDocument();
@@ -1827,7 +1828,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(turn).queryByTestId("thread-response-needs-input-prompt")).not.toBeInTheDocument();
     expect(within(turn).getAllByTestId("thread-response-answer-count")).toHaveLength(1);
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveLength(1);
   });
 
   it("keeps a later clarification answer visible while an older request remains pending", () => {
@@ -1842,7 +1843,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getByText("Later clarification")).toBeVisible();
     expect(screen.getByText("The clarification is fully answered while implementation continues.")).toBeVisible();
     const laterTurn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(laterTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(within(laterTurn).getByTestId("thread-response-current")).toBeVisible();
     expect(
       within(laterTurn).getByText("The clarification is fully answered while implementation continues."),
@@ -1873,23 +1874,23 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(sourceTurn).getByText(answerText)).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
-    expect(within(anchorTurn).getByRole("button", { name: /Expand turn/ })).toBeVisible();
+    expect(within(anchorTurn).getByRole("button", { name: /Show turn activity/ })).toBeVisible();
     expect(within(anchorTurn).queryByTestId("thread-response-current")).not.toBeInTheDocument();
 
-    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
     expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
     expect(within(anchorTurn).getByText(answerText)).toBeVisible();
     expect(within(sourceTurn).queryByText(answerText)).not.toBeInTheDocument();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
-    fireEvent.click(within(sourceTurn).getByRole("button", { name: /Expand turn/ }));
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: /Show turn activity/ }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
     expect(within(anchorTurn).queryByTestId("thread-response-current")).not.toBeInTheDocument();
     expect(within(sourceTurn).getByText(answerText)).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
-    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
     expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
@@ -1906,18 +1907,18 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     const turn = screen.getByText("Only pending request").closest<HTMLElement>("[data-turn-id]")!;
     expect(within(turn).queryByRole("button", { name: /Leader activity/i })).not.toBeInTheDocument();
-    const expand = within(turn).getByRole("button", { name: "Expand turn" });
-    expect(within(turn).getAllByRole("button", { name: /Expand turn/ })).toHaveLength(1);
+    const expand = within(turn).getByRole("button", { name: /Show turn activity/ });
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity/ })).toHaveLength(1);
     fireEvent.click(expand);
 
     expect(screen.getByText("Only current response")).toBeVisible();
-    const collapse = within(turn).getByRole("button", { name: "Collapse turn" });
+    const collapse = within(turn).getByRole("button", { name: /Hide turn activity/ });
     expect(collapse).toBeVisible();
     fireEvent.click(collapse);
-    expect(within(turn).getByRole("button", { name: /Expand turn/ })).toBeVisible();
+    expect(within(turn).getByRole("button", { name: /Show turn activity/ })).toBeVisible();
   });
 
-  it("unifies hidden tool activity into the one collapsed Ready footer", () => {
+  it("keeps one top summary for hidden tool activity in a Ready turn", () => {
     act(() => {
       useStore.getState().reset();
       handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
@@ -1928,20 +1929,20 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     const turn = screen.getByText("Only pending request").closest<HTMLElement>("[data-turn-id]")!;
     expect(within(turn).queryByText("Leader activity")).not.toBeInTheDocument();
-    const expand = within(turn).getByRole("button", { name: "Expand turn · 1 tool" });
-    expect(within(turn).getAllByRole("button", { name: /Expand turn/ })).toHaveLength(1);
+    const expand = within(turn).getByRole("button", { name: /Show turn activity.*1 tool/ });
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity/ })).toHaveLength(1);
     expect(expand).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(expand);
     const toolDisclosure = within(turn).getByRole("button", { name: /Show 1 tool call: Ran command/ });
     fireEvent.click(toolDisclosure);
     expect(within(turn).getByText("quest show q-2024")).toBeVisible();
-    expect(within(turn).getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+    expect(within(turn).getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
 
-    const topCollapse = within(turn).getByRole("button", { name: "Collapse turn from top" });
+    const topCollapse = within(turn).getByRole("button", { name: /Hide turn activity/ });
     topCollapse.focus();
     fireEvent.click(topCollapse);
-    const restoredExpand = within(turn).getByRole("button", { name: "Expand turn · 1 tool" });
+    const restoredExpand = within(turn).getByRole("button", { name: /Show turn activity.*1 tool/ });
     expect(document.activeElement).toBe(restoredExpand);
   });
 
@@ -1984,7 +1985,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getByText("Current grouped response")).toBeVisible();
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(secondTurn).getByRole("button", { name: /Expand turn/i }));
+    fireEvent.click(within(secondTurn).getByRole("button", { name: /Show turn activity/i }));
     expect(screen.getByText("Earlier grouped response")).toBeVisible();
     const current = screen.getByText("Current grouped response");
     const frame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;

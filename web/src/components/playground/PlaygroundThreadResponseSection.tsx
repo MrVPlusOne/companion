@@ -2,7 +2,8 @@ import type { FeedEntry, Turn } from "../../hooks/use-feed-model.js";
 import type { ThreadResponsePresentation } from "../thread-response-presentation.js";
 import { FeedEntries } from "../MessageFeedEntries.js";
 import { ReadyThreadResponseRows } from "../ReadyThreadResponseRows.js";
-import { TurnToggleFooter } from "../CollapseFooter.js";
+import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
+import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const SESSION_ID = "playground-thread-responses";
@@ -429,6 +430,13 @@ const TIMER_REPORT_PRESENTATION: ThreadResponsePresentation = {
   layoutSignature: "playground-timer-reports",
 };
 
+const EXPANDED_ENTRIES: FeedEntry[] = [
+  assistantEntry("playground-response-old", "Earlier answer wording for the same requests.", "answer"),
+  INTERMEDIATE,
+  CURRENT_RESPONSE,
+];
+const EXPANDED_TURN: Turn = { ...READY_TURN, allEntries: EXPANDED_ENTRIES, presentationEntries: EXPANDED_ENTRIES };
+
 const NOOP = () => {};
 
 function renderEntry(entry: FeedEntry) {
@@ -456,8 +464,9 @@ export function PlaygroundThreadResponseSection() {
           <Card label="Collapsed Ready · chronological answer set plus Quiz">
             <div
               className="min-w-0 max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
-              data-testid="playground-unified-footer-with-tools"
+              data-testid="playground-turn-summary-with-tools"
             >
+              <TurnActivityDisclosure stats={READY_TURN.stats} durationMs={null} expanded={false} onToggle={NOOP} />
               <ReadyThreadResponseRows
                 turn={READY_TURN}
                 presentation={PRESENTATION}
@@ -465,14 +474,19 @@ export function PlaygroundThreadResponseSection() {
                 sessionId={SESSION_ID}
                 questLinkSurface="chat-feed"
               />
-              <TurnToggleFooter expanded={false} onToggle={NOOP} toolCount={READY_TURN.stats.toolCount} />
             </div>
           </Card>
           <Card label="Collapsed answer only · no hidden tools">
             <div
               className="min-w-0 w-full max-w-[320px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
-              data-testid="playground-unified-footer-without-tools"
+              data-testid="playground-turn-summary-without-tools"
             >
+              <TurnActivityDisclosure
+                stats={ANSWER_ONLY_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
               <ReadyThreadResponseRows
                 turn={ANSWER_ONLY_TURN}
                 presentation={ANSWER_ONLY_PRESENTATION}
@@ -480,7 +494,6 @@ export function PlaygroundThreadResponseSection() {
                 sessionId={SESSION_ID}
                 questLinkSurface="chat-feed"
               />
-              <TurnToggleFooter expanded={false} onToggle={NOOP} />
             </div>
           </Card>
           <Card label="Collapsed decision · one source Quiz">
@@ -488,6 +501,12 @@ export function PlaygroundThreadResponseSection() {
               className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-pinned-quiz-source"
             >
+              <TurnActivityDisclosure
+                stats={QUIZ_PROMPT_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
               <ReadyThreadResponseRows
                 turn={QUIZ_PROMPT_TURN}
                 presentation={ACTIVE_PRESENTATION}
@@ -496,7 +515,6 @@ export function PlaygroundThreadResponseSection() {
                 sessionId={SESSION_ID}
                 questLinkSurface="chat-feed"
               />
-              <TurnToggleFooter expanded={false} onToggle={NOOP} toolCount={QUIZ_PROMPT_TURN.stats.toolCount} />
             </div>
           </Card>
           <Card label="Collapsed quest projection · associated Main answer">
@@ -504,6 +522,12 @@ export function PlaygroundThreadResponseSection() {
               className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-associated-main-answer"
             >
+              <TurnActivityDisclosure
+                stats={ASSOCIATED_MAIN_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
               <ReadyThreadResponseRows
                 turn={ASSOCIATED_MAIN_TURN}
                 presentation={ASSOCIATED_MAIN_PRESENTATION}
@@ -511,20 +535,16 @@ export function PlaygroundThreadResponseSection() {
                 sessionId={SESSION_ID}
                 questLinkSurface="chat-feed"
               />
-              <TurnToggleFooter expanded={false} onToggle={NOOP} toolCount={ASSOCIATED_MAIN_TURN.stats.toolCount} />
             </div>
           </Card>
           <Card label="Expanded active thread · complete chronology">
             <div
               className="min-w-0 max-w-[430px] space-y-3 rounded-xl border border-cc-border/30 bg-cc-card/20 p-3"
-              data-testid="playground-unified-footer-expanded"
+              data-testid="playground-turn-summary-expanded"
             >
-              <FeedEntries
-                entries={[
-                  assistantEntry("playground-response-old", "Earlier answer wording for the same requests.", "answer"),
-                  INTERMEDIATE,
-                  CURRENT_RESPONSE,
-                ]}
+              <TurnActivityDisclosure stats={READY_TURN.stats} durationMs={null} expanded onToggle={NOOP} />
+              <TurnEntriesExpanded
+                turn={EXPANDED_TURN}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"
                 isCodexSession={false}
@@ -533,7 +553,6 @@ export function PlaygroundThreadResponseSection() {
                 questLinkSurface="chat-feed"
                 threadResponsePresentation={ACTIVE_PRESENTATION}
               />
-              <TurnToggleFooter expanded onToggle={NOOP} />
             </div>
           </Card>
           <Card label="Recurring timer reports · unrelated user request pending">
@@ -541,6 +560,12 @@ export function PlaygroundThreadResponseSection() {
               className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-timer-answer-reports"
             >
+              <TurnActivityDisclosure
+                stats={TIMER_REPORT_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
               <ReadyThreadResponseRows
                 turn={TIMER_REPORT_TURN}
                 presentation={TIMER_REPORT_PRESENTATION}
@@ -548,7 +573,6 @@ export function PlaygroundThreadResponseSection() {
                 sessionId={SESSION_ID}
                 questLinkSurface="chat-feed"
               />
-              <TurnToggleFooter expanded={false} onToggle={NOOP} />
             </div>
           </Card>
           <Card label="One answer · Main and quest requests">
@@ -556,6 +580,12 @@ export function PlaygroundThreadResponseSection() {
               className="min-w-0 w-full max-w-[430px] rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-multi-owner-answer"
             >
+              <TurnActivityDisclosure
+                stats={MULTI_OWNER_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
               <ReadyThreadResponseRows
                 turn={MULTI_OWNER_TURN}
                 presentation={MULTI_OWNER_PRESENTATION}
@@ -563,7 +593,6 @@ export function PlaygroundThreadResponseSection() {
                 sessionId={SESSION_ID}
                 questLinkSurface="chat-feed"
               />
-              <TurnToggleFooter expanded={false} onToggle={NOOP} />
             </div>
           </Card>
         </div>

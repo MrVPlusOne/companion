@@ -232,11 +232,11 @@ describe("MessageFeed Quiz source ownership", () => {
     };
 
     assertOneSource();
-    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     assertOneSource();
-    fireEvent.click(within(turn).getByRole("button", { name: /Expand turn/ }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity/ }));
     assertOneSource();
-    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     assertOneSource();
 
     act(() => handleMessage(SESSION_ID, notificationUpdate(true)));
@@ -256,7 +256,7 @@ describe("MessageFeed Quiz source ownership", () => {
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     for (const ordinal of [1, 2]) {
       const turn = screen.getByText(`Review completed result ${ordinal}.`).closest<HTMLElement>("[data-turn-id]")!;
-      const expand = within(turn).queryByRole("button", { name: /Expand turn/ });
+      const expand = within(turn).queryByRole("button", { name: /Show turn activity/ });
       if (expand) fireEvent.click(expand);
       expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     }
@@ -296,9 +296,9 @@ describe("MessageFeed Quiz source ownership", () => {
       expect(view.container.querySelectorAll(`[data-message-id="${SOURCE_ID}"]`)).toHaveLength(1);
     };
     assertRetainedSources();
-    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     assertRetainedSources();
-    fireEvent.click(within(turn).getByRole("button", { name: /Expand turn/ }));
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity/ }));
     assertRetainedSources();
     expect(JSON.stringify(history)).toBe(rawBefore);
   });

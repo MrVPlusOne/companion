@@ -511,8 +511,8 @@ function isSystemEntry(entry: FeedEntry): boolean {
   return true;
 }
 
-/** Get a stable ID for an entry (for use as turn ID fallback) */
-function getEntryId(entry: FeedEntry): string {
+/** Keep render groups keyed to the same identity used by turn/window modeling. */
+export function getEntryId(entry: FeedEntry): string {
   if (entry.kind === "message") return entry.msg.id;
   if (entry.kind === "tool_msg_group") return entry.firstId;
   if (entry.kind === "subagent_batch") return entry.subagents[0]?.taskToolUseId || "batch";

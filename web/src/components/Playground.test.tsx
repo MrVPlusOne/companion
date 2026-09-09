@@ -218,10 +218,13 @@ describe("Playground", () => {
     const routedFinalSection = document.getElementById("overview-routed-answers");
     expect(routedFinalSection).toBeTruthy();
     const routedFinalStates = within(routedFinalSection!);
-    const withToolsCard = routedFinalStates.getByTestId("playground-unified-footer-with-tools");
+    const withToolsCard = routedFinalStates.getByTestId("playground-turn-summary-with-tools");
     expect(withToolsCard).toHaveClass("min-w-0", "max-w-[430px]", "overflow-hidden");
     const withTools = within(withToolsCard);
-    expect(withTools.getByRole("button", { name: "Expand turn · 2 tools" })).toHaveAttribute("aria-expanded", "false");
+    expect(withTools.getByRole("button", { name: /Show turn activity.*2 tool/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     const groupedCoverage = withTools.getAllByTestId("thread-response-answer-count");
     expect(groupedCoverage).toHaveLength(2);
     expect(groupedCoverage[0]).toHaveTextContent("Answers 2 messages");
@@ -232,15 +235,18 @@ describe("Playground", () => {
     const coveragePreview = screen.getByRole("dialog", { name: "Referenced user messages" });
     expect(coveragePreview).toHaveTextContent("Please foreground the polished result when this work is ready.");
     expect(coveragePreview).toHaveTextContent("Please include the mobile behavior too.");
-    expect(withTools.getByRole("button", { name: "Expand turn · 2 tools" })).toHaveAttribute("aria-expanded", "false");
+    expect(withTools.getByRole("button", { name: /Show turn activity.*2 tool/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     fireEvent.click(groupedCoverage[0]!);
     expect(screen.queryByRole("dialog", { name: "Referenced user messages" })).not.toBeInTheDocument();
     expect(withTools.getAllByRole("button", { name: "Message options" })).toHaveLength(2);
 
-    const withoutToolsCard = routedFinalStates.getByTestId("playground-unified-footer-without-tools");
+    const withoutToolsCard = routedFinalStates.getByTestId("playground-turn-summary-without-tools");
     expect(withoutToolsCard).toHaveClass("min-w-0", "w-full", "max-w-[320px]", "overflow-hidden");
     const withoutTools = within(withoutToolsCard);
-    expect(withoutTools.getByRole("button", { name: "Expand turn" })).toHaveAttribute("aria-expanded", "false");
+    expect(withoutTools.getByRole("button", { name: /Show turn activity/ })).toHaveAttribute("aria-expanded", "false");
     expect(withoutTools.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
     expect(withoutTools.getByRole("button", { name: "Message options" })).toBeVisible();
     expect(withoutTools.queryByText(/tools?/i)).not.toBeInTheDocument();
@@ -250,7 +256,7 @@ describe("Playground", () => {
     const associatedMain = within(associatedMainCard);
     expect(associatedMain.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
     expect(associatedMain.getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
-    expect(associatedMain.getByRole("button", { name: "Expand turn · 1 tool" })).toHaveAttribute(
+    expect(associatedMain.getByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
@@ -258,17 +264,17 @@ describe("Playground", () => {
       1,
     );
 
-    const expandedCard = routedFinalStates.getByTestId("playground-unified-footer-expanded");
+    const expandedCard = routedFinalStates.getByTestId("playground-turn-summary-expanded");
     expect(expandedCard).toHaveClass("min-w-0", "max-w-[430px]");
     const expanded = within(expandedCard);
-    expect(expanded.getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+    expect(expanded.getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
     const expandedCoverage = expanded.getByTestId("thread-response-answer-count");
     expect(expandedCoverage).toHaveTextContent("Answers 2 messages");
     fireEvent.click(expandedCoverage);
     expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
       "Please include the mobile behavior too.",
     );
-    expect(expanded.getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+    expect(expanded.getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(expandedCoverage);
     const expandedCurrent = expanded
       .getByText("The later answer adds the final mobile result without compressing the detailed answer above it.")
@@ -938,7 +944,9 @@ describe("Playground", () => {
     ).toBeNull();
     const phaseTurn = phaseFinal.closest("[data-turn-id]");
     expect(phaseTurn).toBeTruthy();
-    const phaseActivityButtons = within(phaseTurn as HTMLElement).getAllByRole("button", { name: /Expand turn/ });
+    const phaseActivityButtons = within(phaseTurn as HTMLElement).getAllByRole("button", {
+      name: /Show turn activity/,
+    });
     fireEvent.click(phaseActivityButtons.at(-1)!);
     expect(
       within(phaseThread).getByText("Checking the internal worker queue before publishing the dispatch plan."),

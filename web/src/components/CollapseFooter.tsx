@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
-import { isTouchDevice } from "../utils/mobile.js";
 
 /**
  * Minimum distance (px) between header and footer to show the collapse button.
@@ -84,57 +83,6 @@ export function CollapseFooter({
         <path d="M4 10l4-4 4 4" />
       </svg>
       <span className="font-mono-code">{label}</span>
-    </button>
-  );
-}
-
-/**
- * The single explicit bottom-of-turn toggle. Expanded turns snap their header
- * into place when collapsed; collapsed turns fold hidden tool metadata into
- * the same action instead of rendering a competing activity control.
- */
-export function TurnToggleFooter({
-  expanded,
-  headerRef,
-  onToggle,
-  toolCount = 0,
-}: {
-  expanded: boolean;
-  headerRef?: RefObject<HTMLElement | null>;
-  onToggle: () => void;
-  toolCount?: number;
-}) {
-  const action = expanded ? "Collapse turn" : "Expand turn";
-  const accessibleLabel =
-    !expanded && toolCount > 0 ? `${action} · ${toolCount} tool${toolCount === 1 ? "" : "s"}` : action;
-  const heightClass = isTouchDevice() ? "min-h-11" : "min-h-11 sm:min-h-8";
-  return (
-    <button
-      type="button"
-      onClick={(event) => {
-        const turnContainer = event.currentTarget.closest<HTMLElement>("[data-turn-id]");
-        if (expanded && headerRef) {
-          collapseAndSnap(event, headerRef, onToggle);
-        } else {
-          flushSync(onToggle);
-        }
-        turnContainer?.querySelector<HTMLButtonElement>("[data-turn-toggle]")?.focus({ preventScroll: true });
-      }}
-      aria-expanded={expanded}
-      aria-label={accessibleLabel}
-      className={`mt-1 flex ${heightClass} w-full touch-manipulation items-center justify-center gap-1.5 rounded-md border border-cc-border/25 bg-cc-card/15 px-3 py-2 text-xs font-medium text-cc-muted/75 transition-colors hover:bg-cc-hover/45 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/45 sm:py-1.5`}
-      data-turn-toggle
-      title={action}
-    >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0" aria-hidden="true">
-        <path d={expanded ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
-      </svg>
-      <span className="shrink-0">{action}</span>
-      {!expanded && toolCount > 0 && (
-        <span className="font-mono-code font-normal text-cc-muted/55">
-          <span>·</span> {toolCount} tool{toolCount === 1 ? "" : "s"}
-        </span>
-      )}
     </button>
   );
 }

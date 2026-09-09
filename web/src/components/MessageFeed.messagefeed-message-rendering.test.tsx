@@ -678,7 +678,7 @@ describe("MessageFeed - message rendering", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-1791" />);
 
     expect(screen.getByText("q-1791 Work is ready for review after focused validation.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Expand turn/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Show turn activity/i })).toBeTruthy();
     expect(screen.queryByText("Handled the reminder and refreshed the thread status.")).toBeNull();
     expect(screen.getByText("Continuing with the next step.")).toBeTruthy();
   });
@@ -718,8 +718,10 @@ describe("MessageFeed - message rendering", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="q-1799" />);
 
-    expect(screen.getByRole("button", { name: "Expand turn · 2 tools" })).toBeTruthy();
-    expect(screen.queryByText("1 worker event")).toBeNull();
+    const summary = screen.getByRole("button", { name: /Show turn activity.*2 tool/ });
+    // The event count belongs to the one summary; lifecycle detail stays in expanded activity.
+    expect(screen.getAllByText("1 worker event")).toHaveLength(1);
+    expect(screen.getByText("1 worker event").closest("button")).toBe(summary);
     expect(screen.getByText("The herd-event grouping and compact chip UI is implemented.")).toBeTruthy();
     expect(screen.queryByText("#2455")).toBeNull();
     expect(screen.queryByText("turn_end")).toBeNull();
@@ -1302,7 +1304,7 @@ describe("MessageFeed - message rendering", () => {
     ).toBeTruthy();
   });
 
-  it("keeps the current thread status footer above expanded turn collapse controls", () => {
+  it("keeps thread status on its turn below the single top disclosure", () => {
     const sid = "test-thread-status-expanded-footer-placement";
     const base = 1_700_000_000_000;
     const status = {
@@ -1379,12 +1381,12 @@ describe("MessageFeed - message rendering", () => {
 
     const chip = screen.getByLabelText("Thread Ready for thread:q-1320: memory audit dispatched");
     const statusFooter = screen.getByTestId("turn-thread-status-footer");
-    const collapseFooter = screen.getByRole("button", { name: "Collapse turn" });
+    const disclosure = screen.getByRole("button", { name: /Hide turn activity/ });
     const feedEndSlack = document.querySelector("[data-feed-end-slack]");
 
     expect(screen.getByText("Your memory-audit follow-up is now represented by q-1322.")).toBeTruthy();
-    expect(collapseFooter).toBeTruthy();
-    expect(chip.compareDocumentPosition(collapseFooter as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(disclosure).toBeTruthy();
+    expect(disclosure.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusFooter.closest("[data-turn-id]")).toBe(
       screen.getByText("Your memory-audit follow-up is now represented by q-1322.").closest("[data-turn-id]"),
     );

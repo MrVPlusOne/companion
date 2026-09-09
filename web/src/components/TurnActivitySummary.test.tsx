@@ -1,22 +1,42 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { TurnCollapseBar } from "./TurnActivitySummary.js";
+import { TurnActivityDisclosure } from "./TurnActivitySummary.js";
 
 const STATS = { messageCount: 1, toolCount: 3, subagentCount: 0, herdEventCount: 0 };
 
 describe("TurnActivitySummary root-only tool scope", () => {
-  it("keeps expanded summaries on the same root-only count contract", () => {
-    render(<TurnCollapseBar stats={STATS} durationMs={null} onClick={() => {}} />);
+  it("keeps all existing summary values visible in both disclosure states", () => {
+    // Collapsing previously discarded message/time metadata. Use the same
+    // values in both states, including supplemental counters and absent time.
+    const stats = { messageCount: 2, toolCount: 5, subagentCount: 2, herdEventCount: 3 };
+    const props = { stats, durationMs: 73_000, onToggle: () => {} };
+    const view = render(<TurnActivityDisclosure {...props} expanded={false} />);
+    const control = screen.getByRole("button", { name: /Show turn activity/ });
+    for (const text of ["2 messages", "5 tools", "2 agents", "3 worker events"]) {
+      expect(control).toHaveTextContent(text);
+    }
+    expect(screen.getByTestId("turn-summary-duration")).toHaveTextContent("1m 13s");
 
-    expect(screen.getByRole("button", { name: "Collapse turn from top" })).toHaveAttribute("aria-expanded", "true");
+    view.rerender(<TurnActivityDisclosure {...props} expanded />);
+    expect(screen.getByRole("button", { name: /Hide turn activity/ })).toBe(control);
+    expect(screen.getByTestId("turn-summary-duration")).toHaveTextContent("1m 13s");
+    view.rerender(<TurnActivityDisclosure {...props} durationMs={null} expanded />);
+    expect(screen.queryByTestId("turn-summary-duration")).not.toBeInTheDocument();
+    expect(control).toHaveTextContent("2 messages");
+  });
+
+  it("keeps expanded summaries on the same root-only count contract", () => {
+    render(<TurnActivityDisclosure stats={STATS} durationMs={null} expanded onToggle={() => {}} />);
+
+    expect(screen.getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button")).toHaveTextContent("1 message·3 tools");
     expect(screen.getByRole("button")).not.toHaveAccessibleName(/nested Codex subagent activity/i);
   });
 
   it("uses count-only copy for a single lifecycle worker event in the top shortcut", () => {
     render(
-      <TurnCollapseBar
+      <TurnActivityDisclosure
         stats={{
           messageCount: 0,
           toolCount: 0,
@@ -25,7 +45,8 @@ describe("TurnActivitySummary root-only tool scope", () => {
           herdEventLifecycle: ["failed"],
         }}
         durationMs={null}
-        onClick={() => {}}
+        expanded
+        onToggle={() => {}}
       />,
     );
 
@@ -35,7 +56,7 @@ describe("TurnActivitySummary root-only tool scope", () => {
 
   it("keeps uncommon herd lifecycle detail out of collapsed activity summaries", () => {
     render(
-      <TurnCollapseBar
+      <TurnActivityDisclosure
         stats={{
           messageCount: 0,
           toolCount: 0,
@@ -44,7 +65,8 @@ describe("TurnActivitySummary root-only tool scope", () => {
           herdEventLifecycle: ["context_continued", "interrupted"],
         }}
         durationMs={null}
-        onClick={() => {}}
+        expanded
+        onToggle={() => {}}
       />,
     );
 

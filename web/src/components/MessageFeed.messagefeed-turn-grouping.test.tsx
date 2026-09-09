@@ -588,7 +588,7 @@ describe("MessageFeed - turn grouping", () => {
     expect(screen.getByText("OK")).toBeTruthy();
   });
 
-  it("keeps normal-session turn duration in expanded audit after the lightweight footer", () => {
+  it("retains normal-session duration in collapsed and expanded summaries", () => {
     const sid = "test-turn-duration-summary-normal";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "First question", timestamp: 1_000 }),
@@ -601,8 +601,8 @@ describe("MessageFeed - turn grouping", () => {
     const { rerender } = render(<MessageFeed sessionId={sid} />);
 
     const firstTurn = screen.getByText("First question").closest<HTMLElement>("[data-turn-id]")!;
-    expect(within(firstTurn).getByRole("button", { name: "Expand turn" })).toBeTruthy();
-    expect(within(firstTurn).queryByTestId("turn-summary-duration")).toBeNull();
+    expect(within(firstTurn).getByRole("button", { name: /Show turn activity/ })).toBeTruthy();
+    expect(within(firstTurn).getByTestId("turn-summary-duration").textContent).toBe("3m 12s");
 
     setStoreTurnOverrides(sid, [["u1", true]]);
     rerender(<MessageFeed sessionId={sid} />);
@@ -610,10 +610,9 @@ describe("MessageFeed - turn grouping", () => {
     expect(within(firstTurn).getByText("1 message")).toBeTruthy();
   });
 
-  it("shows orchestrator Main durations after expanding the unified footer", () => {
-    // q-941: Main leader chat is the full old-style stream, not the
-    // leader-private collapsed activity projection. Orchestrator Main should
-    // therefore show normal per-turn response durations for completed turns.
+  it("retains orchestrator Main durations across both disclosure states", () => {
+    // This legacy full-stream fixture keeps its normal response-duration
+    // accounting; collapsing now preserves those computed values.
     const sid = "test-turn-duration-summary-leader";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -645,8 +644,11 @@ describe("MessageFeed - turn grouping", () => {
     const { rerender } = render(<MessageFeed sessionId={sid} />);
 
     const firstTurn = screen.getByText("Coordinate").closest<HTMLElement>("[data-turn-id]")!;
-    expect(within(firstTurn).getByRole("button", { name: "Expand turn · 1 tool" })).toBeTruthy();
-    expect(screen.getAllByTestId("turn-summary-duration").map((duration) => duration.textContent)).toEqual(["3m 3s"]);
+    expect(within(firstTurn).getByRole("button", { name: /Show turn activity.*1 tool/ })).toBeTruthy();
+    expect(screen.getAllByTestId("turn-summary-duration").map((duration) => duration.textContent)).toEqual([
+      "2m 0s",
+      "3m 3s",
+    ]);
 
     setStoreTurnOverrides(sid, [["u1", true]]);
     rerender(<MessageFeed sessionId={sid} />);
@@ -673,6 +675,11 @@ describe("MessageFeed - turn grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.queryByTestId("turn-summary-duration")).toBeNull();
+    // Only the unfinished first turn lacks a duration; the completed later turn
+    // keeps its valid value even though it has no hidden assistant messages.
+    const firstTurn = screen.getByText("First question").closest<HTMLElement>("[data-turn-id]")!;
+    const secondTurn = screen.getByText("Second question").closest<HTMLElement>("[data-turn-id]")!;
+    expect(within(firstTurn).queryByTestId("turn-summary-duration")).toBeNull();
+    expect(within(secondTurn).getByTestId("turn-summary-duration").textContent).toBe("5s");
   });
 });

@@ -871,7 +871,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByText("The worker resumed after recovery and is finishing closure.")).toBeNull();
     expect(screen.getByText("The screenshot-shaped regression is fixed.")).toBeTruthy();
     const turn = screen.getByText("Resume q-1799").closest<HTMLElement>("[data-turn-id]")!;
-    expect(within(turn).getAllByRole("button", { name: "Expand turn" })).toHaveLength(1);
+    expect(within(turn).getAllByRole("button", { name: /Show turn activity/ })).toHaveLength(1);
     expect(screen.queryByText("3 worker events")).toBeNull();
     expect(screen.queryByText("2 worker events")).toBeNull();
     expect(screen.queryByText("#2455")).toBeNull();
@@ -962,7 +962,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     expect(screen.getByText(/Recover lost Responses API state/)).toBeTruthy();
     expect(screen.getByLabelText("Thread Ready for thread:q-1874: shareable reviewer table ready")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Expand turn/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Show turn activity/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/formatting the reviewer assignments/)).toBeNull();
     expect(screen.queryByText("Marking quest readiness")).toBeNull();
     expect(screen.queryByText("Unrelated cache preparation detail")).toBeNull();
@@ -1040,7 +1040,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-1814" />);
 
     expect(screen.getByText(/use the failure-inclusive average-score table/)).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Expand turn/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Show turn activity/i }).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Thread Ready for thread:q-1814: revised Slack draft ready")).toBeTruthy();
     expect(screen.queryByText(/use failure-inclusive average score in the main post/)).toBeNull();
   });
@@ -1094,11 +1094,11 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     expect(screen.getByText(/\[q-1636\]\(quest:q-1636\) is complete and off the board/)).toBeTruthy();
     expect(screen.getByLabelText("Thread Ready for thread:q-1636: Copilot feedback and CI resolved")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Expand turn/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Show turn activity/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/checking final status metadata/)).toBeNull();
     expect(screen.queryByText("quest status q-1636")).toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Expand turn/i })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Show turn activity/i })[0]!);
     expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", false);
   });
 
@@ -1149,14 +1149,16 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByLabelText("Thread Ready for Main: Main response complete")).toBeTruthy();
     expect(screen.queryByText("Main coordination detail")).toBeNull();
     expect(screen.queryByText("quest status q-2041")).toBeNull();
-    expect(screen.getByRole("button", { name: "Expand turn · 1 tool" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: /Show turn activity.*1 tool/ }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
 
     main.unmount();
     setStoreTurnOverrides(sid, [["u-main", true]]);
     const manuallyExpanded = render(<MessageFeed sessionId={sid} threadKey="main" />);
     expect(screen.getByText("Main coordination detail")).toBeTruthy();
     expect(screen.getByText("quest status q-2041")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse turn" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /Hide turn activity/ }).getAttribute("aria-expanded")).toBe("true");
 
     manuallyExpanded.unmount();
     setStoreTurnOverrides(sid, []);
@@ -1192,12 +1194,12 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
 
     expect(screen.getByText("Still finalizing details.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Expand turn/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show turn activity/i })).toBeNull();
 
     mockStoreValues.sessionStatus = new Map([[sid, "idle"]]);
     view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
     expect(screen.queryByText("Still finalizing details.")).toBeNull();
-    expect(screen.getByRole("button", { name: "Expand turn" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: /Show turn activity/ }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("does not auto-collapse the latest selected leader turn for Waiting status", () => {

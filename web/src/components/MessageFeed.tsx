@@ -4,7 +4,8 @@ import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
-import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
+import { FeedFooter } from "./MessageFeedEntries.js";
+import { TurnEntries } from "./MessageFeedTurns.js";
 import { MessageFeedTopControls } from "./MessageFeedTopControls.js";
 import { type FeedViewportPosition, getFeedViewportKey } from "../utils/thread-viewport.js";
 import {

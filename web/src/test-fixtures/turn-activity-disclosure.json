@@ -1,0 +1,443 @@
+{
+  "sessionId": "playground-turn-activity",
+  "threadKey": "q-42",
+  "history": [
+    {
+      "type": "user_message",
+      "id": "activity-request",
+      "content": "Keep the search filters when I return to the list.",
+      "timestamp": 1788955200000,
+      "leaderUserMessageId": "u1",
+      "leaderResponseCoverageVersion": 1,
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955201000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "commentary",
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "activity-before",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "I’ll check how the list restores its filters and reading position."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955203000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "commentary",
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "activity-first-tools",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "activity-first-tools-0",
+            "name": "Bash",
+            "input": {
+              "command": "inspect list state"
+            }
+          },
+          {
+            "type": "tool_use",
+            "id": "activity-first-tools-1",
+            "name": "Bash",
+            "input": {
+              "command": "inspect filter restoration"
+            }
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "tool_result_preview",
+      "previews": [
+        {
+          "tool_use_id": "activity-first-tools-0",
+          "content": "Completed: inspect list state",
+          "is_error": false,
+          "total_size": 29,
+          "is_truncated": false,
+          "duration_seconds": 1
+        },
+        {
+          "tool_use_id": "activity-first-tools-1",
+          "content": "Completed: inspect filter restoration",
+          "is_error": false,
+          "total_size": 37,
+          "is_truncated": false,
+          "duration_seconds": 1
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955220000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "final_answer",
+      "leaderThreadRole": "answer",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit",
+          "attachedAt": 1788955220000
+        }
+      ],
+      "message": {
+        "id": "activity-answer-first",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "The list now keeps your filters and scroll position when you return from an item.\n\nBack takes you to the same results, so you can continue where you left off."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "leaderAnswerUserMessageIds": ["u1"],
+      "leaderAnswerObservedHistoryLength": 4,
+      "threadAnswer": {
+        "version": 2,
+        "answerUserMessageIds": ["u1"],
+        "observedHistoryLength": 4,
+        "authoredThreadKey": "q-42",
+        "ownerGroups": [
+          {
+            "threadKey": "q-42",
+            "userMessageIds": ["u1"]
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955223000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "commentary",
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "activity-between",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "I’m also checking that each list keeps its own filters."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955230000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "commentary",
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "activity-middle-tools",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "activity-middle-tools-0",
+            "name": "Bash",
+            "input": {
+              "command": "inspect browser navigation"
+            }
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "tool_result_preview",
+      "previews": [
+        {
+          "tool_use_id": "activity-middle-tools-0",
+          "content": "Completed: inspect browser navigation",
+          "is_error": false,
+          "total_size": 37,
+          "is_truncated": false,
+          "duration_seconds": 1
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955241000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "final_answer",
+      "leaderThreadRole": "answer",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit",
+          "attachedAt": 1788955241000
+        }
+      ],
+      "message": {
+        "id": "activity-answer-second",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "One additional detail: filters are saved separately for each list. Returning to the project list will not apply the filters from the activity list."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "leaderAnswerUserMessageIds": ["u1"],
+      "leaderAnswerObservedHistoryLength": 8,
+      "threadAnswer": {
+        "version": 2,
+        "answerUserMessageIds": ["u1"],
+        "observedHistoryLength": 8,
+        "authoredThreadKey": "q-42",
+        "ownerGroups": [
+          {
+            "threadKey": "q-42",
+            "userMessageIds": ["u1"]
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1788955252000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "commentary",
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "activity-last-tools",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "activity-last-tools-0",
+            "name": "Bash",
+            "input": {
+              "command": "inspect regression cases"
+            }
+          },
+          {
+            "type": "tool_use",
+            "id": "activity-last-tools-1",
+            "name": "Bash",
+            "input": {
+              "command": "inspect final layout"
+            }
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "tool_result_preview",
+      "previews": [
+        {
+          "tool_use_id": "activity-last-tools-0",
+          "content": "Completed: inspect regression cases",
+          "is_error": false,
+          "total_size": 35,
+          "is_truncated": false,
+          "duration_seconds": 1
+        },
+        {
+          "tool_use_id": "activity-last-tools-1",
+          "content": "Completed: inspect final layout",
+          "is_error": false,
+          "total_size": 31,
+          "is_truncated": false,
+          "duration_seconds": 1
+        }
+      ]
+    },
+    {
+      "type": "user_message",
+      "id": "activity-next-request",
+      "content": "Does that also work when I open an item in a new tab?",
+      "timestamp": 1788955273000,
+      "leaderUserMessageId": "u2",
+      "leaderResponseCoverageVersion": 1,
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ]
+    }
+  ],
+  "projection": {
+    "version": 2,
+    "threadKey": "q-42",
+    "cutoverHistoryIndex": 0,
+    "pendingMessageCount": 1,
+    "pendingMessages": [
+      {
+        "userMessageId": "u2",
+        "historyMessageId": "activity-next-request",
+        "historyIndex": 11,
+        "askedAt": 1788955273000
+      }
+    ],
+    "currentAnswers": [
+      {
+        "version": 2,
+        "threadKey": "q-42",
+        "questId": "q-42",
+        "answerUserMessageIds": ["u1"],
+        "referencedUserMessageIds": ["activity-request"],
+        "coveredAnswerUserMessageIds": [],
+        "coveredUserMessageIds": [],
+        "currentMessageId": "activity-answer-first",
+        "currentHistoryIndex": 4,
+        "createdAt": 1788955220000,
+        "updatedAt": 1788955220000,
+        "source": "explicit"
+      },
+      {
+        "version": 2,
+        "threadKey": "q-42",
+        "questId": "q-42",
+        "answerUserMessageIds": ["u1"],
+        "referencedUserMessageIds": ["activity-request"],
+        "coveredAnswerUserMessageIds": ["u1"],
+        "coveredUserMessageIds": ["activity-request"],
+        "currentMessageId": "activity-answer-second",
+        "currentHistoryIndex": 8,
+        "createdAt": 1788955241000,
+        "updatedAt": 1788955241000,
+        "source": "explicit"
+      }
+    ],
+    "ready": false
+  }
+}

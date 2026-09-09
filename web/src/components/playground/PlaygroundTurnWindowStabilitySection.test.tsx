@@ -30,7 +30,7 @@ describe("PlaygroundTurnWindowStabilitySection", () => {
     const socket = vi.spyOn(globalThis, "WebSocket");
     const view = render(<PlaygroundTurnWindowStabilitySection />);
     const fixture = within(screen.getByTestId("playground-turn-window-stability"));
-    await fixture.findByRole("button", { name: "Collapse turn" });
+    await fixture.findByRole("button", { name: /Hide turn activity/ });
     const sessionId = "playground-turn-window-stability";
     const selectedWindow = () => useStore.getState().threadWindows.get(sessionId)!.get("q-1")!;
     const previousHistoryLength = selectedWindow().source_history_length;
@@ -71,7 +71,7 @@ describe("PlaygroundTurnWindowStabilitySection", () => {
     const view = render(<PlaygroundTurnWindowStabilitySection />);
     const fixture = within(screen.getByTestId("playground-turn-window-stability"));
 
-    fireEvent.click(await fixture.findByRole("button", { name: "Collapse turn" }));
+    fireEvent.click(await fixture.findByRole("button", { name: /Hide turn activity/ }));
     const feed = fixture.getByTestId("message-feed-scroll-container");
     for (const scale of [0.9, 1, 1.25]) {
       const scaleButton = fixture.getByRole("button", { name: `${scale * 100}%` });
@@ -84,13 +84,13 @@ describe("PlaygroundTurnWindowStabilitySection", () => {
       expect(scaledFeed).toHaveStyle({ transform: `scale(${scale})`, transformOrigin: "top left" });
       for (const label of ["Older window", "Newer window", "Complete turn", "Latest window"]) {
         fireEvent.click(fixture.getByRole("button", { name: label }));
-        expect(fixture.getByRole("button", { name: /^Expand turn/ })).toHaveAttribute("aria-expanded", "false");
-        expect(fixture.queryByRole("button", { name: "Collapse turn" })).not.toBeInTheDocument();
+        expect(fixture.getByRole("button", { name: /^Show turn activity/ })).toHaveAttribute("aria-expanded", "false");
+        expect(fixture.queryByRole("button", { name: /Hide turn activity/ })).not.toBeInTheDocument();
       }
     }
 
-    fireEvent.click(fixture.getByRole("button", { name: /^Expand turn/ }));
-    expect(fixture.getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(fixture.getByRole("button", { name: /^Show turn activity/ }));
+    expect(fixture.getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
     expect(fixture.getByText(/Audit update 12:/)).toBeVisible();
     view.unmount();
 

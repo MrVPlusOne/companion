@@ -144,7 +144,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
-import { FeedEntries, FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
+import { FeedEntries, FeedFooter } from "./MessageFeedEntries.js";
 import { formatActiveReasoningStatusText } from "./MessageFeedStatus.js";
 import { MessageBubble } from "./MessageBubble.js";
 
