@@ -6,6 +6,7 @@ export interface QuestFeedbackTargetRequest {
 export interface QuestLinkTarget {
   questId: string;
   feedbackIndex?: number;
+  delivery?: { id: string; sha: string };
 }
 
 const QUEST_ID_PATTERN = "(q-\\d+)";
@@ -25,6 +26,13 @@ export function parseQuestLinkTarget(href?: string): QuestLinkTarget | null {
     const match = trimmed.match(pattern);
     if (match) return { questId: match[1]!.toLowerCase() };
   }
+
+  const deliveryMatch = trimmed.match(/^quest:(q-\d+):delivery:([a-f0-9]{32}):commit:([a-f0-9]{40})$/i);
+  if (deliveryMatch)
+    return {
+      questId: deliveryMatch[1]!.toLowerCase(),
+      delivery: { id: deliveryMatch[2]!.toLowerCase(), sha: deliveryMatch[3]!.toLowerCase() },
+    };
 
   const feedbackMatch = trimmed.match(CANONICAL_FEEDBACK_PATTERN) ?? trimmed.match(LEGACY_FEEDBACK_PATTERN);
   if (!feedbackMatch) return null;

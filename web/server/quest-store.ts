@@ -3,6 +3,8 @@ import { readdir, readFile, writeFile, unlink, mkdir, rm, stat, rename } from "n
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
+import type { QuestCodeDelivery } from "../shared/quest-delivery.js";
+import { appendCodeEvidence } from "./quest-delivery-evidence.js";
 import {
   hasQuestReviewMetadata,
   type QuestmasterTask,
@@ -1356,6 +1358,7 @@ export async function appendQuestCodeCommitEvidenceForOwner(
   questId: string,
   owner: QuestOwnerRef,
   commitShas: unknown[],
+  delivery?: QuestCodeDelivery,
 ): Promise<QuestmasterTask | null> {
   const normalizedOwner = normalizeQuestOwnerRef(owner);
   if (!normalizedOwner) throw new Error("A valid quest owner is required");
@@ -1364,29 +1367,8 @@ export async function appendQuestCodeCommitEvidenceForOwner(
     throw new Error("At least one code commit SHA is required");
   }
 
-  const appendEvidence = (current: QuestmasterTask): QuestmasterTask => {
-    if (current.status !== "in_progress") {
-      throw new Error("Code commit evidence can only be attached to an in-progress quest");
-    }
-    const activeOwner = getQuestOwner(current);
-    if (!activeOwner || !sameQuestOwner(activeOwner, normalizedOwner)) {
-      throw new Error("Only the exact active quest owner may attach in-progress code commit evidence");
-    }
-    const commitFields = commitShaField("commitShas", current.commitShas, normalizedCommitShas);
-    const nextCommitShas = commitFields.commitShas ?? [];
-    const currentCommitShas = current.commitShas ?? [];
-    if (
-      nextCommitShas.length === currentCommitShas.length &&
-      nextCommitShas.every((sha, index) => sha === currentCommitShas[index])
-    ) {
-      return current;
-    }
-    return {
-      ...current,
-      ...commitFields,
-      updatedAt: Date.now(),
-    } as QuestmasterTask;
-  };
+  const appendEvidence = (current: QuestmasterTask): QuestmasterTask =>
+    appendCodeEvidence(current, normalizedOwner, normalizedCommitShas, delivery);
 
   const liveStore = await readLiveQuestStore();
   if (liveStore) {

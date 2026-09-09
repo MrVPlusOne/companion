@@ -117,4 +117,22 @@ describe("appendQuestCodeCommitEvidenceForOwner", () => {
     const persisted = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
     expect(persisted.quests[0].commitShas).toEqual(["abc1234", "deadbeef"]);
   });
+  it("persists fixed delivery provenance through quest normalization and completion", async () => {
+    // The isolated store must keep the descriptor together with its code SHAs and separate memory evidence.
+    const { deliveryFixture } = await import("../src/test-fixtures/commit-delivery-fixture.js");
+    await questStore.createQuest({ title: "Retain delivery", description: "Ready", status: "refined" });
+    await questStore.claimQuest("q-1", "fixture-worker");
+    const shas = deliveryFixture.commits.map((commit) => commit.sha);
+    await questStore.appendQuestCodeCommitEvidenceForOwner(
+      "q-1",
+      { kind: "takode", sessionId: "fixture-worker" },
+      shas,
+      deliveryFixture,
+    );
+    await questStore.completeQuest("q-1", [], { memoryCommitShas: ["deadbeef"] });
+    const stored = await questStore.getQuest("q-1");
+    expect(stored?.codeDeliveries).toEqual([deliveryFixture]);
+    expect(stored?.commitShas).toEqual(shas);
+    expect(stored?.memoryCommitShas).toEqual(["deadbeef"]);
+  });
 });

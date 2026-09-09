@@ -4,6 +4,7 @@
  * Server-authoritative orchestration commands.
  */
 
+import { handlePort } from "./takode-port.js";
 import { handleBoard } from "./takode-board.js";
 import {
   apiDelete,
@@ -105,6 +106,7 @@ try {
     ["worker-stream", {}],
     ["phases", {}],
     ["board", {}],
+    ["port", {}],
     ["timer", {}],
     ["todo", {}],
     ["lease", {}],
@@ -243,6 +245,9 @@ try {
       break;
     case "phases":
       await handlePhases(base, args);
+      break;
+    case "port":
+      await handlePort(base, args);
       break;
     case "board":
       await handleBoard(base, args);

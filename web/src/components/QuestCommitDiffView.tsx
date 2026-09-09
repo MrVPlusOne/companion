@@ -183,10 +183,16 @@ export function useQuestCommitDiffState({
   questId,
   storedEntries,
   autoOpenFirst = false,
+  initialSha,
+  lookup,
+  preserveOrder = false,
 }: {
   questId: string | null | undefined;
   storedEntries: QuestCommitEntry[];
   autoOpenFirst?: boolean;
+  initialSha?: string;
+  lookup?: (entry: QuestCommitEntry, includeDiff: boolean) => Promise<QuestCommitLookup>;
+  preserveOrder?: boolean;
 }): QuestCommitDiffState {
   const [activeCommitKey, setActiveCommitKey] = useState<string | null>(null);
   const [commitLookupByKey, setCommitLookupByKey] = useState<Record<string, QuestCommitLookup>>({});
@@ -209,19 +215,19 @@ export function useQuestCommitDiffState({
   }, [questId]);
 
   const commitEntries = useMemo(
-    () => sortedCommitEntries(storedEntries, commitLookupByKey),
-    [storedEntries, commitLookupByKey],
+    () => (preserveOrder ? storedEntries : sortedCommitEntries(storedEntries, commitLookupByKey)),
+    [storedEntries, commitLookupByKey, preserveOrder],
   );
 
   useEffect(() => {
     const validKeys = new Set(storedEntries.map((entry) => commitLookupKey(entry.kind, entry.sha)));
     setActiveCommitKey((current) => {
       if (current && validKeys.has(current)) return current;
-      if (!autoOpenFirst) return null;
-      const first = storedEntries[0];
+      if (!autoOpenFirst && !initialSha) return null;
+      const first = initialSha ? storedEntries.find((entry) => entry.sha === initialSha) : storedEntries[0];
       return first ? commitLookupKey(first.kind, first.sha) : null;
     });
-  }, [autoOpenFirst, storedEntries]);
+  }, [autoOpenFirst, initialSha, storedEntries]);
 
   const openCommit = useCallback((entry: QuestCommitEntry) => {
     setActiveCommitKey(commitLookupKey(entry.kind, entry.sha));
@@ -245,20 +251,21 @@ export function useQuestCommitDiffState({
     const activeEntry = commitEntries.find((entry) => commitLookupKey(entry.kind, entry.sha) === activeCommitKey);
     if (!activeEntry) return;
     const cached = commitLookupByKey[activeCommitKey];
-    if (cached && (!cached.available || cached.diff)) return;
+    if (cached && (!cached.available || typeof cached.diff === "string")) return;
     if (fullDiffLookupInFlightKeysRef.current.has(activeCommitKey)) return;
 
     const lookupGeneration = lookupGenerationRef.current;
     fullDiffLookupInFlightKeysRef.current.add(activeCommitKey);
     setCommitLookupLoadingKey(activeCommitKey);
     setCommitLookupError("");
-    const lookup =
-      activeEntry.kind === "memory"
+    const request = lookup
+      ? lookup(activeEntry, true)
+      : activeEntry.kind === "memory"
         ? api.getQuestMemoryCommit(questId, activeEntry.sha)
         : api.getQuestCommit(questId, activeEntry.sha);
     const isCurrentRequest = () =>
       lookupGeneration === lookupGenerationRef.current && activeCommitKeyRef.current === requestCommitKey;
-    lookup
+    request
       .then((details) => {
         if (!isCurrentRequest()) return;
         setCommitLookupByKey((prev) => ({ ...prev, [requestCommitKey]: details }));
@@ -268,11 +275,12 @@ export function useQuestCommitDiffState({
         setCommitLookupError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
+        if (lookupGeneration !== lookupGenerationRef.current) return;
         fullDiffLookupInFlightKeysRef.current.delete(requestCommitKey);
         if (!isCurrentRequest()) return;
         setCommitLookupLoadingKey((prev) => (prev === requestCommitKey ? null : prev));
       });
-  }, [questId, activeCommitKey, commitEntries, commitLookupByKey]);
+  }, [questId, activeCommitKey, commitEntries, commitLookupByKey, lookup]);
 
   useEffect(() => {
     if (!questId || storedEntries.length === 0) return;
@@ -296,25 +304,26 @@ export function useQuestCommitDiffState({
     for (const entry of metadataEntries) {
       const key = commitLookupKey(entry.kind, entry.sha);
       metadataLookupInFlightKeysRef.current.add(key);
-      const lookup =
-        entry.kind === "memory"
+      const request = lookup
+        ? lookup(entry, false)
+        : entry.kind === "memory"
           ? api.getQuestMemoryCommit(questId, entry.sha, { includeDiff: false })
           : api.getQuestCommit(questId, entry.sha, { includeDiff: false });
-      lookup
+      request
         .then((details) => {
-          metadataLookupInFlightKeysRef.current.delete(key);
           if (lookupGeneration !== lookupGenerationRef.current) return;
+          metadataLookupInFlightKeysRef.current.delete(key);
           setCommitLookupByKey((prev) => (prev[key] ? prev : { ...prev, [key]: details }));
         })
         .catch(() => {
-          metadataLookupInFlightKeysRef.current.delete(key);
           if (lookupGeneration !== lookupGenerationRef.current) return;
+          metadataLookupInFlightKeysRef.current.delete(key);
           setCommitLookupByKey((prev) =>
             prev[key] ? prev : { ...prev, [key]: { sha: entry.sha, available: false, reason: "commit_not_available" } },
           );
         });
     }
-  }, [questId, autoOpenFirst, activeCommitKey, storedEntries, commitLookupByKey]);
+  }, [questId, autoOpenFirst, activeCommitKey, storedEntries, commitLookupByKey, lookup]);
 
   return {
     commitEntries,
@@ -334,11 +343,13 @@ export function useQuestCommitDiffState({
 export function QuestCommitDiffView({
   state,
   onClose,
+  commitLabel,
   emptyTitle = "No recorded commits yet",
   emptyMessage = "This quest does not have any recorded code commits yet.",
 }: {
   state: QuestCommitDiffState;
   onClose?: () => void;
+  commitLabel?: string;
   emptyTitle?: string;
   emptyMessage?: string;
 }) {
@@ -380,7 +391,7 @@ export function QuestCommitDiffView({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">
-              {activeCommitEntry.kind === "memory" ? "Memory Commit" : "Code Commit"}
+              {commitLabel ?? (activeCommitEntry.kind === "memory" ? "Memory Commit" : "Code Commit")}
             </span>
             <span className="text-sm font-semibold text-cc-fg">
               {commitTitle(activeCommitEntry, activeCommitDetails)}
@@ -470,7 +481,7 @@ export function QuestCommitDiffView({
 
       <div className="quest-commit-diff-scroll min-h-0 flex-1 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0">
         {commitLookupLoadingKey === activeCommitKey &&
-        (!activeCommitDetails || (activeCommitDetails.available && !activeCommitDetails.diff)) ? (
+        (!activeCommitDetails || (activeCommitDetails.available && typeof activeCommitDetails.diff !== "string")) ? (
           <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
             Loading commit diff...
           </div>

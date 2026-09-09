@@ -11,6 +11,8 @@ import {
   parseIntegerFlag,
   readOptionTextFile,
 } from "./takode-core.js";
+import { handleRecordDelivery } from "./takode-record-delivery.js";
+import type { QuestDeliveryView } from "../shared/quest-delivery.js";
 import { parseCommitShas } from "./quest-commit-flags.js";
 import {
   MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS,
@@ -142,7 +144,7 @@ Advance a quest through non-Work Quest Journey boundaries. Advancing from the fi
 Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note, the concrete skip condition has been satisfied, and the resulting transition is not Work -> Memory. The reason is recorded on the board row.
 `;
 
-export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --no-code) [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
+export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --no-code) [--preparation <id>] [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
 
 Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint. Provide synchronized target-repository code SHAs with --commit/--commits, or use --no-code only when this Work occurrence made no tracked project changes. When one planned optional User Checkpoint sits directly between the current Work occurrence and Memory, use --skip-optional-checkpoint only after its approved optional condition is satisfied. Required or taken checkpoints must continue into a later Work occurrence before the guarded transition.
 `;
@@ -540,6 +542,7 @@ function formatBoardOutput(
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     proposalReview?: BoardProposalReviewPayload;
+    delivery?: { id: string; commitShas: string[] };
     workerSlotUsage?: { used: number; limit: number };
   },
 ): string {
@@ -551,6 +554,7 @@ function formatBoardOutput(
     queueWarnings,
     phaseNoteRebaseWarnings,
     proposalReview,
+    delivery,
     workerSlotUsage,
   } = opts ?? {};
   return JSON.stringify(
@@ -561,6 +565,7 @@ function formatBoardOutput(
       ...(queueWarnings ? { queueWarnings } : {}),
       ...(phaseNoteRebaseWarnings ? { phaseNoteRebaseWarnings } : {}),
       ...(proposalReview ? { proposalReview } : {}),
+      ...(delivery ? { delivery } : {}),
       ...(workerSlotUsage ? { workerSlotUsage } : {}),
       ...(operation ? { operation } : {}),
       ...(completedCount != null ? { completedCount } : {}),
@@ -651,6 +656,7 @@ function outputBoard(
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     proposalReview?: BoardProposalReviewPayload;
+    delivery?: { id: string; commitShas: string[] };
     workerSlotUsage?: { used: number; limit: number };
     includeDetails?: boolean;
     includeCompletedSummary?: boolean;
@@ -665,6 +671,7 @@ function outputBoard(
     queueWarnings,
     phaseNoteRebaseWarnings,
     proposalReview,
+    delivery,
     workerSlotUsage,
     includeDetails,
     includeCompletedSummary,
@@ -679,6 +686,7 @@ function outputBoard(
         queueWarnings,
         phaseNoteRebaseWarnings,
         proposalReview,
+        delivery,
         workerSlotUsage,
       }),
     );
@@ -723,6 +731,7 @@ function outputBoardMutation(
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     proposalReview?: BoardProposalReviewPayload;
+    delivery?: { id: string; commitShas: string[] };
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
@@ -735,6 +744,7 @@ function outputBoardMutation(
       queueWarnings: opts.queueWarnings,
       phaseNoteRebaseWarnings: opts.phaseNoteRebaseWarnings,
       proposalReview: opts.proposalReview,
+      delivery: opts.delivery,
       workerSlotUsage: opts.workerSlotUsage,
       includeDetails: true,
     });
@@ -1113,6 +1123,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       queueWarnings?: BoardQueueWarning[];
       phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
       proposalReview?: BoardProposalReviewPayload;
+      delivery?: { id: string; commitShas: string[] };
       workerSlotUsage?: { used: number; limit: number };
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
@@ -1277,6 +1288,11 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === "record-work-delivery") {
+    await handleRecordDelivery(base, args.slice(1));
+    return;
+  }
+
   if (sub === "work-to-memory") {
     const questId = args[1];
     const usage = BOARD_WORK_TO_MEMORY_HELP.trim();
@@ -1285,6 +1301,8 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const flags = parseFlags(args.slice(2));
     const workFeedbackIndex = parseIntegerFlag(flags, "work-note", "Work feedback index");
     if (workFeedbackIndex !== undefined && workFeedbackIndex < 0) err("--work-note must be a non-negative integer.");
+    if (flags.preparation === true) err("--preparation requires an exact preparation ID.");
+    if (flags["no-code"] === true && flags.preparation) err("--preparation requires commit evidence.");
     if (flags.commit === true) err("--commit requires a commit SHA.");
     if (flags.commits === true) err("--commits requires a comma-separated commit SHA list.");
     const noCode = flags["no-code"] === true;
@@ -1313,18 +1331,24 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       ...(workFeedbackIndex !== undefined ? { workFeedbackIndex } : {}),
       ...(commitShas.length > 0 ? { commitShas } : { noCode: true }),
       ...(skipOptionalUserCheckpointReason ? { skipOptionalUserCheckpointReason } : {}),
+      ...(typeof flags.preparation === "string" ? { preparationId: flags.preparation } : {}),
     })) as {
       ok: true;
       questId: string;
       previousState?: string;
       newState: string;
       workFeedbackIndex: number;
+      delivery?: QuestDeliveryView;
       board: BoardRow[];
       resolvedSessionDeps?: string[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       queueWarnings?: BoardQueueWarning[];
       workerSlotUsage?: { used: number; limit: number };
     };
+    if (result.delivery && flags.json !== true)
+      console.log(
+        `Delivery ${result.delivery.id}. Author links: quest commit-links ${questId} --delivery ${result.delivery.id}`,
+      );
     const evidence =
       commitShas.length > 0
         ? `${commitShas.length} code commit${commitShas.length === 1 ? "" : "s"}`
@@ -1338,6 +1362,9 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
       workerSlotUsage: result.workerSlotUsage,
+      delivery: result.delivery
+        ? { id: result.delivery.id, commitShas: result.delivery.commits.map((commit) => commit.sha) }
+        : undefined,
     });
     return;
   }

@@ -53,14 +53,16 @@ If the selected target has uncommitted changes, **stop and tell the user** -- an
 
 Read any new commits briefly to understand what changed since your branch diverged.
 
+Before rewriting new private Work, read [port-tracking.md](references/port-tracking.md). Use `takode port prepare` to retain reviewed increments and verify the private boundary; the helper records exact source/squashed/target relationships and flags partial or uncertain ports. Keep already-landed history and independent meaningful changes intact.
+
 ### 2. Rebase in the worktree
 
 Rebase your worktree branch onto the port target branch. Since all worktrees share the same git object store, the target branch is directly visible as a ref -- no fetch needed after the target mode check:
 ```bash
-git rebase <BASE_BRANCH>
+git rebase --onto <BASE_BRANCH> <VERIFIED_PRIVATE_BASE_SHA>
 ```
 
-Resolve all merge conflicts here in the worktree -- this is the safe place to do it.
+Resolve all merge conflicts here in the worktree -- this is the safe place to do it. Review integration changes, refresh retained review when the base/SHAs changed, then squash cohesive private groups and run `takode port seal` as described in the tracking reference. The helper verifies resulting trees and parents; it does not replace review or run Git rewriting commands for you.
 
 ### 3. Cherry-pick clean commits to the selected target
 
@@ -76,7 +78,7 @@ For a worktree target:
 git -C <PORT_TARGET_WORKTREE> cherry-pick <commit-hash>
 ```
 
-Cherry-pick one at a time in chronological order.
+Cherry-pick one at a time in chronological order. Immediately run `takode port landed` for each exact worker/target SHA pair, including partial ports. Do not infer a private range from missing quest metadata or rewrite an already-landed prefix.
 
 Track the resulting **target SHAs** in the same order as you cherry-pick them. These synced SHAs are the ones that matter for quest verification metadata. Do not reuse the worktree-only pre-port SHAs when the target now has different cherry-picked copies.
 
@@ -121,7 +123,7 @@ For a worktree target, do not push by default. The port has landed in the leader
 
 ### 7. Sync the worker worktree
 
-Reset this worker worktree branch to match the target branch: `git reset --hard <BASE_BRANCH>`.
+Confirm `takode port status` reports the preparation landed and that no additional worker changes would be discarded. Preserve/reconcile any uncertain or partial state before cleanup. Reset this worker worktree branch to match the target branch: `git reset --hard <BASE_BRANCH>`.
 
 For remote-backed targets, if the base repo was the selected target and is already on `<BASE_BRANCH>`, fast-forward from origin after push with:
 ```bash
@@ -159,7 +161,7 @@ For a quest that produced genuinely zero git-tracked changes, use the explicit z
 takode board work-to-memory q-N --work-note <feedback-index> --no-code
 ```
 
-Supply exactly one mode. Documentation, skill, prompt, template, and other tracked text edits are commit-producing Work and must use `--commit` / `--commits`, not `--no-code`. Use merged/cherry-picked selected-target SHAs rather than worktree-only pre-port SHAs. On rework, pass the current Work occurrence's new synchronized target SHAs even when older commits are already attached; old metadata does not replace fresh transition evidence.
+For tracked preparations, pass `--preparation <id>` to attach retained review provenance. The guarded response includes the exact delivery ID for leader-authored `quest commit-links` chips. Supply exactly one mode. Documentation, skill, prompt, template, and other tracked text edits are commit-producing Work and must use `--commit` / `--commits`, not `--no-code`. Use merged/cherry-picked selected-target SHAs rather than worktree-only pre-port SHAs. On rework, pass the current Work occurrence's new synchronized target SHAs even when older commits are already attached; old metadata does not replace fresh transition evidence.
 
 The guarded transition persists code commit metadata before the board enters `MEMORY`, so commit counts and diff controls are available immediately while final Memory runs. Final Memory must not be the first phase to attach accepted Work code SHAs. If code evidence is missing or only present in prose, route back to Work. Memory may later attach only separate file-based memory-repository commits with `--memory-commit` / `--memory-commits`.
 

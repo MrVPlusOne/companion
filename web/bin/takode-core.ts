@@ -561,7 +561,6 @@ export type TakodeSessionInfo = {
   lastReadAt?: number;
   taskHistory?: Array<{ title: string; startedAt: number }>;
   keywords?: string[];
-  tools?: string[];
   injectedSystemPrompt?: string;
   codexInternetAccess?: boolean;
   codexSandbox?: string;
@@ -690,7 +689,7 @@ const SESSION_INFO_INCLUDE_FIELD_SET = new Set<string>(SESSION_INFO_INCLUDE_FIEL
 
 export function parseSessionInfoIncludeFlag(raw: string | boolean | undefined): string[] {
   if (raw === undefined) return [];
-  if (raw === true) err("--include requires one or more comma-separated field names.");
+  if (typeof raw !== "string") err("--include requires one or more comma-separated field names.");
 
   const fields = raw
     .split(",")

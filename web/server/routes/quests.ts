@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import * as questStore from "../quest-store.js";
+import { registerQuestDeliveryRoutes } from "./quest-deliveries.js";
 import type {
   QuestAutocompleteCandidate,
   QuestCreateInput,
@@ -466,6 +467,7 @@ function validateV2CompletionCodeCommitSubmission(
 
 export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
+  registerQuestDeliveryRoutes(api);
   const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync, resolveId } =
     ctx;
   const bridgeAny = wsBridge as any;

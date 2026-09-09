@@ -7,6 +7,8 @@ import {
   LEASE_WAIT_HELP,
 } from "./takode-lease.js";
 import { stripHelpFlags, TIMER_CREATE_GUIDANCE } from "./takode-core.js";
+import { RECORD_DELIVERY_HELP } from "./takode-record-delivery.js";
+import { PORT_HELP } from "./takode-port.js";
 import { FILE_RESOLVE_HELP } from "./takode-file-resolve.js";
 import { THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import {
@@ -447,6 +449,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "phases":
       console.log(PHASES_HELP);
       return true;
+    case "port":
+      console.log(PORT_HELP);
+      return true;
     case "board": {
       const sub = args[0];
       if (!sub || sub === "show") {
@@ -465,6 +470,8 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_PROMOTE_HELP);
       } else if (sub === "note") {
         console.log(BOARD_NOTE_HELP);
+      } else if (sub === "record-work-delivery") {
+        console.log(RECORD_DELIVERY_HELP);
       } else if (sub === "work-to-memory") {
         console.log(BOARD_WORK_TO_MEMORY_HELP);
       } else if (sub === "replace-work-evidence") {
@@ -578,6 +585,7 @@ Commands:
   unherd   Release a session from your herd (e.g. takode unherd 5)
   interrupt  Interrupt a worker's current turn (e.g. takode interrupt 5)
   archive  Archive a herded session (e.g. takode archive 5)
+  port             Track private review, squashed commits, and exact port receipts
   worktree-cleanup  List or retry archived worktree cleanup
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan

@@ -10,6 +10,7 @@ Commands:
   grep   <pattern> [--count N] [--json]                  Search inside quest title, description, debrief, and feedback/comments with snippets
   show   <id> [--sections <list>] [--full] [--json]       Show compact quest detail; reveal sections on demand
   status <id> [--json]                                   Show compact action-oriented quest status
+  commit-links <id> --delivery <id> [--commits <sha,...>] [--json]  Author exact recorded delivery chips
   history <id> [--json]                                  Show quest history
   tags   [--json]                                        List all existing tags with counts
   create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json]

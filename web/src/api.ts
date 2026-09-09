@@ -1713,6 +1713,18 @@ export const api = {
     put<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/quiz`, { quizItems }),
   getQuestHistory: (id: string) =>
     get<import("./types.js").QuestHistoryView>(`/quests/${encodeURIComponent(id)}/history`),
+  getQuestDelivery: (questId: string, deliveryId: string) =>
+    get<import("../shared/quest-delivery.js").QuestDeliveryView>(
+      `/quests/${encodeURIComponent(questId)}/deliveries/${encodeURIComponent(deliveryId)}`,
+    ),
+  getQuestDeliveryReview: (questId: string, deliveryId: string, sha: string, snapshot = 0) =>
+    get<{ snapshots: Array<{ index: number; count: number; label: string }>; commitShas: string[] }>(
+      `/quests/${encodeURIComponent(questId)}/deliveries/${encodeURIComponent(deliveryId)}/review/${encodeURIComponent(sha)}?snapshot=${snapshot}`,
+    ),
+  getQuestDeliveryCommit: (questId: string, deliveryId: string, sha: string, review = false, includeDiff = true) =>
+    get<QuestCommitLookup>(
+      `/quests/${encodeURIComponent(questId)}/deliveries/${encodeURIComponent(deliveryId)}/commits/${encodeURIComponent(sha)}?review=${review}&includeDiff=${includeDiff}`,
+    ),
   getQuestCommit: (id: string, sha: string, options?: { includeDiff?: boolean }) => {
     const qs = options?.includeDiff === false ? "?includeDiff=false" : "";
     return get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}${qs}`);

@@ -50,7 +50,16 @@ import type { QuestmasterTask } from "../quest-types.js";
 import { normalizeCommitShas } from "../quest-store-helpers.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import { getQuestDisplayOwner, getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
-import { indexedLiveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
+import {
+  hasUnaddressedHumanFeedback,
+  resolveActiveWorkPhaseContext,
+  resolveCurrentWorkFeedback,
+  findAssignedBoardRowsForWorker,
+  type ActiveWorkPhaseContext,
+} from "./work-evidence-context.js";
+import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
+import { buildCodeDelivery } from "../quest-code-deliveries.js";
+import { projectQuestDelivery } from "../../shared/quest-delivery.js";
 
 interface PhaseNoteEdit {
   index: number;
@@ -70,44 +79,6 @@ interface BoardProposalReviewPayload {
 function isDirectCodexOwnedQuest(quest: QuestmasterTask): boolean {
   if (quest.status !== "in_progress" && quest.status !== "done") return false;
   return getQuestDisplayOwner(quest)?.kind === "codex";
-}
-
-function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
-  return indexedLiveQuestFeedbackEntries(quest.feedback).some(
-    (entry) => entry.author === "human" && entry.addressed !== true,
-  );
-}
-
-interface ActiveWorkPhaseContext {
-  currentJourney: QuestJourneyPlanState;
-  phaseIds: QuestJourneyPhaseId[];
-  currentPhaseIndex: number;
-  journeyRunId: string;
-  phaseOccurrenceId: string;
-}
-
-function resolveActiveWorkPhaseContext(
-  leaderSessionId: string,
-  row: BoardRow,
-  quest: QuestmasterTask,
-): ActiveWorkPhaseContext | { error: string } {
-  const currentJourney = normalizeQuestJourneyPlan(row.journey, row.status);
-  const phaseIds = [...currentJourney.phaseIds];
-  const currentPhaseIndex = getQuestJourneyCurrentPhaseIndex({ ...currentJourney, phaseIds }, row.status);
-  if (currentPhaseIndex === undefined || phaseIds[currentPhaseIndex] !== "work") {
-    return { error: "Work -> Memory requires an unambiguous current Work phase occurrence." };
-  }
-  const journeyRunId = `board-${leaderSessionId.slice(0, 8)}-${row.createdAt}`;
-  const snapshottedOccurrenceId = quest.journeyRuns
-    ?.find((run) => run.runId === journeyRunId)
-    ?.phaseOccurrences.find((occurrence) => occurrence.phaseIndex === currentPhaseIndex)?.occurrenceId;
-  return {
-    currentJourney,
-    phaseIds,
-    currentPhaseIndex,
-    journeyRunId,
-    phaseOccurrenceId: snapshottedOccurrenceId ?? `${journeyRunId}:p${currentPhaseIndex + 1}`,
-  };
 }
 
 interface WorkToMemoryTarget {
@@ -163,82 +134,6 @@ function resolveWorkToMemoryTarget(
       `Cannot enter Memory because planned phase occurrence(s) remain after the current Work occurrence: ` +
       `${interveningIndices.map(({ phaseId }) => phaseId).join(", ")}. Advance or settle those occurrences first.`,
   };
-}
-
-function resolveCurrentWorkFeedback(args: {
-  quest: QuestmasterTask;
-  authorSessionId: string;
-  activeScope: Pick<ActiveWorkPhaseContext, "journeyRunId" | "phaseOccurrenceId">;
-  requestedIndex?: number;
-}): { index: number } | { error: string } {
-  const hasCurrentRunSnapshot = (args.quest.journeyRuns ?? []).some(
-    (run) => run.runId === args.activeScope.journeyRunId,
-  );
-  const candidateEntries = indexedLiveQuestFeedbackEntries(args.quest.feedback).filter(({ index, ...entry }) => {
-    if (args.requestedIndex !== undefined && index !== args.requestedIndex) return false;
-    const isEligibleWorkNote =
-      entry.author === "agent" &&
-      entry.authorSessionId === args.authorSessionId &&
-      entry.phaseId === "work" &&
-      (entry.kind === "phase_summary" || entry.kind === undefined) &&
-      entry.text.trim().length >= 80;
-    if (!isEligibleWorkNote) return false;
-
-    const matchesActiveScope =
-      entry.journeyRunId === args.activeScope.journeyRunId &&
-      entry.phaseOccurrenceId === args.activeScope.phaseOccurrenceId;
-    if (matchesActiveScope) return true;
-    if (hasCurrentRunSnapshot) return false;
-
-    // Compatibility for phase notes created before board-backed run snapshots existed.
-    return (
-      entry.journeyRunId === undefined &&
-      entry.phaseOccurrenceId === undefined &&
-      entry.phaseIndex === undefined &&
-      entry.phasePosition === undefined &&
-      entry.phaseOccurrence === undefined
-    );
-  });
-  const latest = candidateEntries.at(-1);
-  if (latest) return { index: latest.index };
-  if (args.requestedIndex !== undefined) {
-    return { error: `Feedback #${args.requestedIndex} is not the current Work phase note by this worker.` };
-  }
-  return {
-    error:
-      "A Work phase note for the active Journey run and phase occurrence is required before Work can transition to Memory.",
-  };
-}
-
-function findAssignedBoardRowsForWorker(args: {
-  wsBridge: RouteContext["wsBridge"];
-  launcher: RouteContext["launcher"];
-  workerSessionId: string;
-  questId: string;
-}): Array<{ leaderSessionId: string; row: BoardRow }> {
-  const normalizedQuestId = args.questId.toLowerCase();
-  const bridgeCompat = args.wsBridge as {
-    findAssignedBoardRowsForWorker?: (
-      workerSessionId: string,
-      questId: string,
-    ) => Array<{ leaderSessionId: string; row: BoardRow }>;
-  };
-  if (typeof bridgeCompat.findAssignedBoardRowsForWorker === "function") {
-    return bridgeCompat.findAssignedBoardRowsForWorker(args.workerSessionId, args.questId);
-  }
-  const matches: Array<{ leaderSessionId: string; row: BoardRow }> = [];
-  for (const launcherSession of args.launcher.listSessions?.() ?? []) {
-    const sessionId = launcherSession.sessionId ?? (launcherSession as { id?: string }).id;
-    if (!sessionId) continue;
-    const bridgeSession = args.wsBridge.getSession(sessionId);
-    if (!bridgeSession?.board) continue;
-    const row = [...bridgeSession.board.values()].find(
-      (candidate: BoardRow) =>
-        candidate.questId.toLowerCase() === normalizedQuestId && candidate.worker === args.workerSessionId,
-    );
-    if (row) matches.push({ leaderSessionId: bridgeSession.id, row });
-  }
-  return matches;
 }
 
 function normalizeJourneyMode(value: unknown): QuestJourneyLifecycleMode | undefined {
@@ -430,6 +325,8 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     return () => workEvidenceMutationLocks.delete(key);
   };
 
+  registerWorkDeliveryRoutes(api, { launcher, wsBridge, authenticateTakodeCaller, acquireWorkEvidenceMutationLock });
+
   function syncDoneQuestBoardState(questId: string): void {
     const boardBridge = wsBridge as {
       completeDoneBoardRowsForQuest?: (questId: string) => string[];
@@ -487,6 +384,12 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       return c.json({ error: "noCode must be true when provided." }, 400);
     }
     const hasNoCodeMode = body.noCode === true;
+    if (
+      body.preparationId !== undefined &&
+      (typeof body.preparationId !== "string" || !/^[a-f0-9]{32}$/.test(body.preparationId) || hasNoCodeMode)
+    ) {
+      return c.json({ error: "preparationId requires an exact preparation ID and code commit evidence." }, 400);
+    }
     if (hasCommitMode === hasNoCodeMode) {
       return c.json({ error: "Work -> Memory requires exactly one code evidence mode: commitShas or noCode." }, 400);
     }
@@ -569,12 +472,36 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       const initialTarget = resolveWorkToMemoryTarget(initialWorkContext, skipOptionalUserCheckpointReason);
       if ("error" in initialTarget) return c.json({ error: initialTarget.error }, 409);
 
+      if (
+        hasNoCodeMode &&
+        quest.codeDeliveries?.some((delivery) => delivery.phaseOccurrenceId === initialWorkContext.phaseOccurrenceId)
+      ) {
+        return c.json(
+          {
+            error:
+              "This Work occurrence already recorded tracked changes; supply its synchronized commit evidence instead of no-code.",
+          },
+          409,
+        );
+      }
+
       if (commitShas) {
         try {
+          const delivery = await buildCodeDelivery({
+            questId,
+            actorSessionId: auth.callerId,
+            phaseOccurrenceId: initialWorkContext.phaseOccurrenceId,
+            caller: auth.caller,
+            commitShas,
+            existing: quest,
+            ...(typeof body.preparationId === "string" ? { preparationId: body.preparationId } : {}),
+          });
+          commitShas = delivery.commits.map((commit) => commit.sha);
           const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
             questId,
             { kind: "takode", sessionId: auth.callerId },
             commitShas,
+            delivery,
           );
           if (!updated) return c.json({ error: `Quest not found: ${questId}` }, 404);
         } catch (error) {
@@ -683,6 +610,16 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         previousState: row.status,
         newState: "MEMORY",
         workFeedbackIndex: workNote.index,
+        delivery: evidenceQuest.codeDeliveries
+          ?.filter((item) => item.phaseOccurrenceId === activeWorkContext.phaseOccurrenceId)
+          .at(-1)
+          ? projectQuestDelivery(
+              questId,
+              evidenceQuest
+                .codeDeliveries!.filter((item) => item.phaseOccurrenceId === activeWorkContext.phaseOccurrenceId)
+                .at(-1)!,
+            )
+          : undefined,
         board,
         rowSessionStatuses: await buildBoardRowSessionStatuses(board),
         queueWarnings: getBoardQueueWarningsController(leaderSession, boardWatchdogDeps),

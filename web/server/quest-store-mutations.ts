@@ -180,6 +180,7 @@ export function buildTransitionedQuest(
     ...(current.images?.length ? { images: current.images } : {}),
     ...(leaderSessionId ? { leaderSessionId } : {}),
     ...currentCommitShaFields(current),
+    ...(current.codeDeliveries?.length ? { codeDeliveries: current.codeDeliveries } : {}),
     ...(relationships ? { relationships } : {}),
     ...(ownershipEvents?.length ? { ownershipEvents } : {}),
     ...(recoveryEvents?.length ? { recoveryEvents } : {}),
@@ -358,6 +359,7 @@ export function buildCancelledQuest(
       ? { relationships: normalizeQuestRelationships(current.relationships, current.questId) }
       : {}),
     ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
+    ...(current.codeDeliveries?.length ? { codeDeliveries: current.codeDeliveries } : {}),
     ...(cancelJourneyRuns?.length ? { journeyRuns: cancelJourneyRuns } : {}),
     ...(cancelQuizItems ? { quizItems: cancelQuizItems } : {}),
     ...(Object.prototype.hasOwnProperty.call(current, "outcome") ? { outcome: current.outcome } : {}),

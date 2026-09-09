@@ -4,6 +4,7 @@ import { registerTakodeBoardRoutes } from "./routes/takode-board.js";
 import type { BoardRow } from "./session-types.js";
 import * as questStore from "./quest-store.js";
 import * as gitUtils from "./git-utils.js";
+import * as deliveries from "./quest-code-deliveries.js";
 
 interface TestSession {
   id: string;
@@ -140,6 +141,29 @@ describe("Takode board Journey metadata route", () => {
     vi.spyOn(questStore, "replaceQuestCodeCommitEvidenceForOwner").mockResolvedValue(null);
     vi.spyOn(gitUtils, "getRepoInfoAsync").mockResolvedValue(null);
     vi.spyOn(gitUtils, "gitAsync").mockRejectedValue(new Error("unexpected git command"));
+    // This suite isolates owner/phase/race guards. Real target and retention verification lives in port-tracking.test.ts.
+    vi.spyOn(deliveries, "buildCodeDelivery").mockImplementation(async (input) => ({
+      id: "d".repeat(32),
+      recordedAt: 100,
+      actorSessionId: input.actorSessionId,
+      phaseOccurrenceId: input.phaseOccurrenceId,
+      targetHeadSha: "f".repeat(40),
+      target: {
+        repoRoot: "/fixture/repo",
+        checkoutPath: "/fixture/repo",
+        branch: "integration",
+        mode: "remote-backed",
+      },
+      commits: input.commitShas.map((sha) => ({
+        sha,
+        shortSha: sha.slice(0, 7),
+        message: "Verified fixture commit",
+        timestamp: 100,
+        additions: 1,
+        deletions: 0,
+        binaryFiles: 0,
+      })),
+    }));
     setupTakodeSessions();
   });
 
@@ -321,6 +345,7 @@ describe("Takode board Journey metadata route", () => {
       "q-9",
       { kind: "takode", sessionId: "worker-1" },
       ["abc1234", "deadbeef"],
+      expect.objectContaining({ actorSessionId: "worker-1" }),
     );
     expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
     expect(broadcastGlobal.mock.invocationCallOrder[0]).toBeLessThan(broadcastBoard.mock.invocationCallOrder[0]);

@@ -1,3 +1,4 @@
+import type { QuestCodeDelivery } from "../shared/quest-delivery.js";
 // ─── Questmaster Types ───────────────────────────────────────────────────────
 //
 // Progressive types: each stage extends the previous, strictly adding fields
@@ -262,6 +263,8 @@ interface QuestBase {
   codeCommitEvidenceReplacementEvents?: QuestCodeCommitEvidenceReplacementEvent[];
   /** Current/relevant orchestrating leader session for feedback routing, when known. */
   leaderSessionId?: string;
+  /** Fixed delivery targets and retained review evidence; omitted from list/preview payloads. */
+  codeDeliveries?: QuestCodeDelivery[];
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */
   commitShas?: string[];
   /** Ordered memory repo commit SHAs associated with this quest's Memory handoff. */

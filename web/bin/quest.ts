@@ -86,6 +86,7 @@ import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js
 import { runHistoryCommand } from "./quest-history-command.js";
 import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
+import { runCommitLinksCommand } from "./quest-commit-links.js";
 import { runShowCommand } from "./quest-show-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { runQuizCommand } from "./quest-quiz.js";
@@ -1826,6 +1827,15 @@ async function main(): Promise<void> {
       return cmdMine();
     case "grep":
       return cmdGrep();
+    case "commit-links":
+      validateFlags(["delivery", "commits", "json"]);
+      await runCommitLinksCommand({
+        questId: positionalArgs[0] ?? "",
+        deliveryId: option("delivery") ?? "",
+        commitShas: option("commits")?.split(","),
+        json: jsonOutput,
+      });
+      break;
     case "show":
       return runShowCommand({
         validateFlags,

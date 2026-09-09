@@ -1,4 +1,4 @@
-const READ_ONLY_COMMANDS = new Set(["list", "mine", "grep", "show", "status", "history", "tags"]);
+const READ_ONLY_COMMANDS = new Set(["list", "mine", "grep", "show", "status", "history", "tags", "commit-links"]);
 const STDIN_FILE_FLAGS = new Set([
   "--title-file",
   "--desc-file",
@@ -14,6 +14,7 @@ const VALUE_FLAGS = new Set([
   "--author",
   "--commit",
   "--commits",
+  "--delivery",
   "--count",
   "--debrief",
   "--debrief-file",

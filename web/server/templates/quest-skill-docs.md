@@ -125,6 +125,12 @@ TLDR metadata is for human scanning, but it must not hide major parts of the ful
 
 Use `[q-42](quest:q-42)` for a whole quest. When referring to one exact indexed feedback entry, use the canonical form `[q-42 feedback #3](quest:q-42:feedback:3)`. Feedback indices are stable and zero-based; read them from `quest feedback list/show` and never guess. When a phase handoff names its feedback index in rendered Markdown, make that pointer an exact canonical feedback link.
 
+## Delivery Commit Chips
+
+For new recorded deliveries, `quest commit-links q-N --delivery <id> [--commits <sha,...>] [--json]` produces fixed commit chips for a normal leader response. It is read-only and does not publish messages or evidence. Use only returned delivery IDs; historical quests are not backfilled. Chips keep their exact target commits when later deliveries arrive.
+
+For worker retention, private squash boundaries, and partial-port tracking, follow the existing `/port-changes` skill and its port-tracking reference. Include the preparation ID with guarded delivery recording or Work-to-Memory to preserve incremental Review history separately from normal target commit SHAs.
+
 ## File Link Guidance
 
 When quest feedback, comments, summaries, notes, or phase documentation refer to repository files, prefer Takode custom file-link syntax with a short label and repo-root-relative target, for example `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`. Custom `file:` links are preferred because they preserve richer location metadata such as line ranges. Standard Markdown file links to repo files may be opened best-effort by Questmaster when clicked, but they are only a fallback. Keep plain paths literal inside shell commands, code snippets, copied logs, or when the path is intentionally not a clickable repo-file reference.

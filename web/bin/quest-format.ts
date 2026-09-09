@@ -202,6 +202,7 @@ function formatMetadataLines(
     lines.push(`Memory Commits: ${q.memoryCommitShas.length}`);
     for (const sha of q.memoryCommitShas) lines.push(`  ${sha}`);
   }
+  lines.push(...deliverySummaryLines(q, false));
   if (q.quizItems?.length) {
     lines.push(`Quiz Items: ${q.quizItems.length}`);
     lines.push(`  Full: quest quiz show ${q.questId}`);
@@ -564,6 +565,7 @@ function formatQuestDetailFull(
       lines.push(`  ${sha}`);
     }
   }
+  lines.push(...deliverySummaryLines(q, true));
   if (q.quizItems?.length) {
     lines.push(`Quiz Items: ${q.quizItems.length}`);
     lines.push(`  Full: quest quiz show ${q.questId}`);
@@ -644,4 +646,15 @@ function formatQuestDetailFull(
     lines.push(`Status:      ${timeAgo(q.statusChangedAt)}`);
   }
   return lines.join("\n");
+}
+
+function deliverySummaryLines(quest: QuestmasterTask, full: boolean): string[] {
+  const deliveries = quest.codeDeliveries ?? [];
+  if (!deliveries.length) return [];
+  const visible = full ? deliveries : deliveries.slice(-5);
+  return [
+    `Code Deliveries: ${deliveries.length}${visible.length < deliveries.length ? " (latest 5; --full reveals all IDs)" : ""}`,
+    ...visible.map((delivery) => `  ${delivery.id}: ${delivery.commits.length} commits -> ${delivery.target.branch}`),
+    `  Author: quest commit-links ${quest.questId} --delivery <id>`,
+  ];
 }

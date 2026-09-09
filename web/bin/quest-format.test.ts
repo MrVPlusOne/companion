@@ -33,6 +33,17 @@ describe("quest formatting", () => {
     expect(detail).toContain("Metadata:");
   });
 
+  it("reveals compact delivery IDs for authoring without dumping retained review provenance", async () => {
+    const { deliveryFixture } = await import("../src/test-fixtures/commit-delivery-fixture.js");
+    const withDelivery = { ...quest, codeDeliveries: [deliveryFixture] };
+    expect(formatQuestDetail(withDelivery, sessionMetadata)).not.toContain(deliveryFixture.id);
+    const metadata = formatQuestDetail(withDelivery, sessionMetadata, { sections: "metadata" });
+    expect(metadata).toContain(deliveryFixture.id);
+    expect(metadata).toContain("quest commit-links q-1 --delivery <id>");
+    expect(metadata).not.toContain("refs/takode");
+    expect(metadata).not.toContain("/fixture/repo");
+  });
+
   it("shows compact leader attribution in quest list output", () => {
     const line = formatQuestLine(quest, sessionMetadata);
 

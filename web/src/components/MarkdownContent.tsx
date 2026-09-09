@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
+import { QuestCommitChip } from "./QuestCommitChip.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
@@ -763,6 +764,17 @@ export const MarkdownContent = memo(function MarkdownContent({
           ),
           a: ({ href, children }) => {
             const questTarget = parseQuestLinkTarget(href);
+            if (questTarget?.delivery) {
+              return (
+                <QuestCommitChip
+                  questId={questTarget.questId}
+                  deliveryId={questTarget.delivery.id}
+                  sha={questTarget.delivery.sha}
+                >
+                  {children}
+                </QuestCommitChip>
+              );
+            }
             if (questTarget) {
               return (
                 <QuestMarkdownLink
