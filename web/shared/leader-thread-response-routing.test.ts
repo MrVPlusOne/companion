@@ -4,12 +4,22 @@ import {
   leaderResponseAssociatedThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseMessageIsAssociatedWithThread,
+  leaderResponseOriginalThreadKey,
   leaderResponseOwnerThreadKey,
   leaderResponseProvenCurrentOwnerThreadKey,
   leaderResponseStableOwnerThreadKeyForRepair,
 } from "./leader-thread-response-routing.js";
 
 describe("leader answer ownership routing", () => {
+  it("requires coherent direct evidence for the original thread instead of borrowing an association", () => {
+    // Old or conflicting origin metadata must not manufacture source visibility.
+    expect(leaderResponseOriginalThreadKey({ threadKey: "main" })).toBe("main");
+    expect(leaderResponseOriginalThreadKey({ threadKey: "q-1", questId: "q-1" })).toBe("q-1");
+    expect(leaderResponseOriginalThreadKey({ threadKey: "q-1", questId: "q-2" })).toBeNull();
+    expect(leaderResponseOriginalThreadKey({ threadKey: "invalid", questId: "q-1" })).toBeNull();
+    expect(leaderResponseOriginalThreadKey({ threadRefs: [{ threadKey: "main", source: "backfill" }] })).toBeNull();
+  });
+
   it("requires complete owner proof for mixed user requests and timer firings", () => {
     // Owner partitions retain one answer identity across both target types.
     const ownerGroups = [
@@ -122,7 +132,7 @@ describe("leader answer ownership routing", () => {
     ).toBe("main");
   });
 
-  it("projects q-only backfill membership alongside the current owner without reviving older assignments", () => {
+  it("retains the original route and q-only backfills without reviving intermediate ownership", () => {
     expect(
       leaderResponseAssociatedThreadKeys({
         threadKey: "main",
@@ -143,8 +153,8 @@ describe("leader answer ownership routing", () => {
         { threadKey: "main", source: "backfill" as const, attachedAt: 30 },
       ],
     };
-    expect(leaderResponseAssociatedThreadKeys(reassigned)).toEqual(["q-2", "q-3"]);
-    expect(leaderResponseMessageIsAssociatedWithThread(reassigned, "main")).toBe(false);
+    expect(leaderResponseAssociatedThreadKeys(reassigned)).toEqual(["q-2", "main", "q-3"]);
+    expect(leaderResponseMessageIsAssociatedWithThread(reassigned, "main")).toBe(true);
     expect(leaderResponseMessageIsAssociatedWithThread(reassigned, "q-1")).toBe(false);
     expect(leaderResponseMessageIsAssociatedWithThread(reassigned, "q-2")).toBe(true);
     expect(leaderResponseMessageIsAssociatedWithThread(reassigned, "q-3")).toBe(true);

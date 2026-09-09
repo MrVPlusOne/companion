@@ -64,6 +64,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Messages",
     "Inline Quest Preview",
     "Routed Answers",
+    "Original Thread Visibility",
     "Copy Features",
     "Markdown Math",
     "File Link Context Menu",

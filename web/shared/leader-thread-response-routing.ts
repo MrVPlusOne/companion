@@ -23,6 +23,16 @@ function routeThreadKey(threadKey: string | undefined, questId: string | undefin
   return directThread ?? directQuest;
 }
 
+/** Decode the direct route without inferring it from associations. For requests, it retains the original thread. */
+export function leaderResponseOriginalThreadKey(fields: LeaderResponseThreadRouteFields): string | null {
+  if (
+    (fields.threadKey !== undefined && !validThreadKey(fields.threadKey)) ||
+    (fields.questId !== undefined && !validThreadKey(fields.questId))
+  )
+    return null;
+  return routeThreadKey(fields.threadKey, fields.questId);
+}
+
 /**
  * Resolve the single current thread that owns answer coverage for a direct
  * human message. The newest explicit/inferred attachment transfers ownership;
@@ -157,19 +167,21 @@ export function leaderResponseAnswerOwnerThreadKeys(
 /**
  * Resolve every thread where a direct human message is currently visible for
  * answer presentation. The owning route is always included. Backfill refs add
- * visibility without transferring ownership; a newer authoritative assignment
- * replaces the original direct route through `leaderResponseOwnerThreadKey`.
+ * visibility without transferring ownership. The preserved original route
+ * remains visible after a newer authoritative assignment changes the owner.
  */
 export function leaderResponseAssociatedThreadKeys(fields: LeaderResponseThreadRouteFields): string[] {
   const keys = new Set<string>();
   const ownerThreadKey = leaderResponseOwnerThreadKey(fields);
   if (ownerThreadKey) keys.add(ownerThreadKey);
+  const originalThreadKey = leaderResponseOriginalThreadKey(fields);
+  if (originalThreadKey) keys.add(originalThreadKey);
 
   for (const ref of fields.threadRefs ?? []) {
     if (ref.source !== "backfill") continue;
     const threadKey = routeThreadKey(ref.threadKey, ref.questId);
     // Backfill is the visibility-only mechanism used to attach a Main-owned
-    // request to a quest. Main visibility is already governed by ownership;
+    // request to a quest. Main visibility needs original-route or owner proof;
     // accepting a persisted/corrupt Main backfill would incorrectly leak a
     // quest-owned request back into Main.
     if (threadKey && /^q-\d+$/.test(threadKey)) keys.add(threadKey);

@@ -210,8 +210,9 @@ Interpretation:
 
 Preserve these invariants unless a product decision explicitly changes them:
 
-- Main keeps messages that originally belonged to Main/source visible after they
-  are attached to a destination quest thread.
+- Original Main and quest threads retain their messages after supported
+  attachments or responsibility handoffs. Original-thread visibility does not
+  transfer current ownership, pending work, decisions, or Ready authority.
 - Destination quest threads receive the attached context.
 - Source-side `thread_attachment_marker` rows remain hidden in normal Main feed
   projection.

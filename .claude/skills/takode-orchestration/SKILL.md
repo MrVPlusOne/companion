@@ -316,7 +316,7 @@ Once a quest is active, transfer its unfinished Main requests explicitly:
 3. After success, publish one brief `[thread:main:C]` notice linking the active quest. Continue quest discussion, progress, waiting, and `needs-input` in `[thread:q-N:C]`. Existing decisions retain their original prompt and notification; a handoff does not copy or recreate them. New blocking questions still require their own visible decision text and `takode notify needs-input`.
 4. Mark Main Ready only when its existing guards permit it. Transferred requests remain unanswered obligations of the destination quest; unrelated pending Main requests and decisions remain protected. A context attachment, dispatch announcement, or fabricated answer cannot satisfy this transfer. Never move queued inputs.
 
-Original raw source history, message identity, and answer prose remain intact; thread associations can change their presentation. Preserve cross-thread answer routing: write each answer once using its exact user IDs, without repeating it in Main or another quest.
+Original source messages remain visible in their original Main or quest thread and the destination, with the same identity, content, timestamps, chronology, and existing gray origin tag. This source visibility does not return transferred responsibility, decisions, or waiting to the original thread. Preserve cross-thread answer routing: write each answer once using its exact user IDs, without repeating it in Main or another quest.
 
 ```bash
 takode thread handoff q-941 --user u1 u2 --notification n-1

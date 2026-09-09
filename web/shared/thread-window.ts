@@ -10,6 +10,7 @@ import {
   leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseMessageIsAssociatedWithThread,
+  leaderResponseOriginalThreadKey,
   leaderResponseOwnerThreadKey,
   leaderResponseProvenCurrentOwnerThreadKey,
 } from "./leader-thread-response-routing.js";
@@ -624,7 +625,7 @@ function mainResponseSourceBoundarySupportItems(
     if (
       !message ||
       !isConversationStartingUserMessage(message) ||
-      leaderResponseOwnerThreadKey(message) !== MAIN_THREAD_KEY
+      !leaderResponseMessageIsAssociatedWithThread(message, MAIN_THREAD_KEY)
     ) {
       continue;
     }
@@ -1539,6 +1540,7 @@ function messageHasThreadRef(message: BrowserIncomingMessage, threadKey: string)
 }
 
 function hasExplicitNonMainRoute(message: BrowserIncomingMessage): boolean {
+  if (leaderResponseOriginalThreadKey(message) === MAIN_THREAD_KEY) return false;
   return normalizedRouteKeys(message, false).size > 0;
 }
 

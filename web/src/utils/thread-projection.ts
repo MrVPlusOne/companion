@@ -13,6 +13,7 @@ import {
   normalizeThreadTarget,
 } from "../../shared/thread-routing.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
+import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
@@ -299,6 +300,7 @@ function threadSystemMarkerVisibleInQuestThread(
 
 function hasExplicitNonMainRoute(message: ChatMessage): boolean {
   if (isThreadAttachmentMarkerMessage(message) || isThreadTransitionMarkerMessage(message)) return false;
+  if (message.metadata && leaderResponseOriginalThreadKey(message.metadata) === MAIN_THREAD_KEY) return false;
   const inferred = inferredHerdEventRoute(message);
   if (inferred) return true;
   const metadata = message.metadata;

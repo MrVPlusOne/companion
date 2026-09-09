@@ -6,6 +6,7 @@ import { PlaygroundInteractiveSections } from "./playground/sections-interactive
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 import { PlaygroundInlineQuestPreviewSection } from "./playground/PlaygroundInlineQuestPreviewSection.js";
 import { PlaygroundThreadResponseSection } from "./playground/PlaygroundThreadResponseSection.js";
+import { PlaygroundOriginalThreadSection } from "./playground/PlaygroundOriginalThreadSection.js";
 import { PlaygroundStateSections } from "./playground/sections-states.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
 
@@ -93,6 +94,7 @@ export function Playground() {
           <PlaygroundOverviewSections />
           <PlaygroundInlineQuestPreviewSection />
           <PlaygroundThreadResponseSection />
+          <PlaygroundOriginalThreadSection />
           <PlaygroundInteractiveSections />
           <PlaygroundStateSections />
         </main>
