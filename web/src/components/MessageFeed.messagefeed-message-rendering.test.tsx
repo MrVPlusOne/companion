@@ -1288,7 +1288,7 @@ describe("MessageFeed - message rendering", () => {
     const feedEndSlack = document.querySelector("[data-feed-end-slack]");
 
     expect(screen.getByText("Main is clear; the notification-bell bug is now tracked as q-1307.")).toBeTruthy();
-    expect(routingMarker.textContent).toContain("Work continued from Main to thread:q-1306");
+    expect(routingMarker.textContent).toContain("Work continued from current thread to thread:q-1306");
     expect(routingMarker.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(laterItem.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusFooter.textContent).toContain("Thread Ready");

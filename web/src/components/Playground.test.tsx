@@ -952,15 +952,16 @@ describe("Playground", () => {
     ).toBeNull();
 
     const questProjection = screen.getByTestId("playground-quest-thread-projection");
-    expect(questProjection).toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
+    expect(questProjection).toHaveTextContent("Work continued from current thread to thread:q-9002");
     expect(questProjection).not.toHaveTextContent("Work continued from thread:q-9002 to thread:q-9001");
 
     const allProjection = screen.getByTestId("playground-all-thread-projection");
     expect(allProjection).toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
     expect(allProjection).toHaveTextContent("Work continued from thread:q-9002 to thread:q-9001");
+    expect(within(allProjection).queryByRole("button", { name: "current thread" })).toBeNull();
 
     const mainProjection = screen.getByTestId("playground-main-thread-projection");
-    expect(mainProjection).toHaveTextContent("Work continued from Main to thread:q-9002");
+    expect(mainProjection).toHaveTextContent("Work continued from current thread to thread:q-9002");
     expect(mainProjection).not.toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
   });
 

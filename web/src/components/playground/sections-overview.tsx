@@ -655,7 +655,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Thread Projections"
-        description="Main keeps its existing handoff view; All Threads preserves the global audit; quest projections keep outbound handoffs while suppressing redundant inbound transitions."
+        description="Continuation links matching the viewed thread say current thread. Main and quest views preserve their handoff visibility; All Threads keeps identifying labels and both directions."
       >
         <div className="grid gap-4 xl:grid-cols-4">
           <Card label="Main">

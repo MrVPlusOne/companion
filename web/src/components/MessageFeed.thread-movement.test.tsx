@@ -523,7 +523,7 @@ describe("MessageFeed - thread movement rows", () => {
       render(<MessageFeed sessionId={sid} threadKey="q-910" />);
 
       expect(screen.getByTestId("thread-transition-marker").textContent).toContain(
-        "Work continued from thread:q-910 to thread:q-911",
+        "Work continued from current thread to thread:q-911",
       );
       expect(
         consoleError.mock.calls.some((args) =>

@@ -186,6 +186,7 @@ vi.mock("../store.js", () => {
 });
 
 import { MessageFeed } from "./MessageFeed.js";
+import { FeedEntries } from "./MessageFeedEntries.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -618,7 +619,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
     const marker = screen.getByTestId("thread-system-marker-cluster");
-    expect(marker.textContent).toContain("Work continued from Main to thread:q-941");
+    expect(marker.textContent).toContain("Work continued from current thread to thread:q-941");
     expect(marker.textContent).toContain("1 activity in thread:q-941");
     expect(within(marker).getAllByRole("button", { name: "thread:q-941" }).length).toBeGreaterThan(0);
   });
@@ -684,15 +685,75 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     ]);
     const onSelectThread = vi.fn();
 
-    render(<MessageFeed sessionId={sid} threadKey="q-1752" onSelectThread={onSelectThread} />);
+    const view = render(<MessageFeed sessionId={sid} threadKey="q-1752" onSelectThread={onSelectThread} />);
 
     const marker = screen.getByTestId("thread-system-marker-cluster");
-    expect(marker.textContent).toContain("Work continued from thread:q-1752 to thread:q-1742");
+    expect(marker.textContent).toContain("Work continued from current thread to thread:q-1742");
     expect(marker.textContent).not.toContain("Work continued from thread:q-1742 to thread:q-1752");
     expect(marker.textContent).toContain("1 activity in thread:q-1752");
     expect(screen.queryByText("1 message moved to q-1752")).toBeNull();
+    fireEvent.click(within(marker).getByRole("button", { name: "current thread" }));
+    expect(onSelectThread).toHaveBeenLastCalledWith("q-1752");
     fireEvent.click(within(marker).getByRole("button", { name: "thread:q-1742" }));
     expect(onSelectThread).toHaveBeenCalledWith("q-1742");
+
+    // Switching the actual view recomputes labels without changing the shared
+    // marker objects, directional visibility, or mixed activity details.
+    view.rerender(<MessageFeed sessionId={sid} threadKey="q-1742" onSelectThread={onSelectThread} />);
+    expect(screen.getByTestId("thread-transition-marker").textContent).toBe(
+      "Work continued from current thread to thread:q-1752",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "current thread" }));
+    expect(onSelectThread).toHaveBeenLastCalledWith("q-1742");
+
+    view.rerender(<MessageFeed sessionId={sid} threadKey="all" onSelectThread={onSelectThread} />);
+    const audit = screen.getByTestId("thread-system-marker-cluster");
+    expect(audit.textContent).toContain("Work continued from thread:q-1752 to thread:q-1742");
+    expect(audit.textContent).toContain("Work continued from thread:q-1742 to thread:q-1752");
+    expect(within(audit).queryByRole("button", { name: "current thread" })).toBeNull();
+    fireEvent.click(within(audit).getByRole("button", { name: "Details" }));
+    expect(screen.getByTestId("thread-marker-cluster-details").textContent).toContain("Useful activity detail");
+    const stored = (mockStoreValues.messages as Map<string, ChatMessage[]>).get(sid)!;
+    expect(stored.find((message) => message.id === outbound.id)?.content).toBe(
+      "Work continued from thread:q-1752 to thread:q-1742",
+    );
+  });
+
+  it.each([
+    ["main", "current thread", "thread:q-941"],
+    [" Q-941 ", "Main", "current thread"],
+    ["all", "Main", "thread:q-941"],
+    [undefined, "Main", "thread:q-941"],
+  ])("labels only a matching continuation endpoint in view %s", (currentThreadKey, source, destination) => {
+    // Exercise the renderer independently of visibility projection: either
+    // endpoint may match, while an aggregate or absent view supplies no match.
+    const marker = transitionMarker({ id: "continuation", sourceThreadKey: "main", threadKey: "q-941" });
+    const message = makeMessage({
+      id: marker.id,
+      role: "system",
+      content: "Work continued from Main to thread:q-941",
+      metadata: { threadTransitionMarker: marker },
+    });
+    const onSelectThread = vi.fn();
+    render(
+      <FeedEntries
+        entries={[{ kind: "message", msg: message }]}
+        sessionId="test-continuation-endpoint-label"
+        currentThreadKey={currentThreadKey}
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={vi.fn()}
+        onSelectThread={onSelectThread}
+      />,
+    );
+    const row = screen.getByTestId("thread-transition-marker");
+    expect(row.textContent).toBe(`Work continued from ${source} to ${destination}`);
+    fireEvent.click(within(row).getByRole("button", { name: source }));
+    expect(onSelectThread).toHaveBeenLastCalledWith("main");
+    fireEvent.click(within(row).getByRole("button", { name: destination }));
+    expect(onSelectThread).toHaveBeenLastCalledWith("q-941");
+    expect(within(row).queryByRole("button", { name: "Details" })).toBeNull();
+    expect(message.content).toBe("Work continued from Main to thread:q-941");
   });
 
   it("hides approval and Journey lifecycle notice rows when a turn is collapsed", () => {

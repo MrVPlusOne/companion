@@ -823,11 +823,11 @@ describe("MessageFeed - collapsed turns", () => {
 
     const sourceView = render(<MessageFeed sessionId={sid} threadKey="q-940" onSelectThread={onSelectThread} />);
     const transition = screen.getByTestId("thread-transition-marker");
-    expectTextContent(transition, "Work continued from thread:q-940 to thread:q-941");
+    expectTextContent(transition, "Work continued from current thread to thread:q-941");
     expect(transition.textContent).not.toContain("messages moved");
     // Continuation markers expose both endpoints as thread-switch controls, but
     // omit Details when the detail body would only repeat the same handoff text.
-    fireEvent.click(within(transition).getByRole("button", { name: "thread:q-940" }));
+    fireEvent.click(within(transition).getByRole("button", { name: "current thread" }));
     expect(onSelectThread).toHaveBeenCalledWith("q-940");
     expect(within(transition).queryByRole("button", { name: "Details" })).toBeNull();
     expect(screen.queryByText("Destination quest dispatch")).toBeNull();

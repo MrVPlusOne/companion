@@ -48,6 +48,7 @@ import {
   isCrossThreadActivityMarkerMessage,
   isThreadAttachmentMarkerMessage,
   isThreadTransitionMarkerMessage,
+  normalizeThreadKey,
 } from "../utils/thread-projection.js";
 import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
@@ -344,14 +345,16 @@ function HerdEventBatchGroup({ messages, sessionId }: { messages: ChatMessage[];
 
 function ThreadMarkerClusterRow({
   messages,
+  currentThreadKey,
   onSelectThread,
 }: {
   messages: ChatMessage[];
+  currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const moveSummary = summarizeThreadAttachmentMarkers(messages);
-  const transitionSummary = summarizeThreadTransitionMarkers(messages);
+  const transitionSummary = summarizeThreadTransitionMarkers(messages, currentThreadKey);
   const activitySummary = summarizeCrossThreadActivityMarkers(messages);
   if (!moveSummary && !transitionSummary && !activitySummary) return null;
   const firstMessage = messages[0];
@@ -592,10 +595,15 @@ type ThreadTransitionDestinationSummary = {
   destination: ThreadMarkerDestinationSummary;
 };
 
-function summarizeThreadTransitionMarkers(messages: ChatMessage[]): {
+function summarizeThreadTransitionMarkers(
+  messages: ChatMessage[],
+  currentThreadKey?: string,
+): {
   transitions: ThreadTransitionDestinationSummary[];
   destinations: ThreadMarkerDestinationSummary[];
 } | null {
+  const selectedThreadKey =
+    currentThreadKey && !isAllThreadsKey(currentThreadKey) ? normalizeThreadKey(currentThreadKey) : undefined;
   const transitions: ThreadTransitionDestinationSummary[] = [];
   for (const message of messages) {
     const marker = message.metadata?.threadTransitionMarker;
@@ -606,12 +614,12 @@ function summarizeThreadTransitionMarkers(messages: ChatMessage[]): {
       markerId: marker.id,
       source: {
         threadKey: marker.sourceThreadKey,
-        label: formatThreadLabel(source),
+        label: marker.sourceThreadKey === selectedThreadKey ? "current thread" : formatThreadLabel(source),
         count: 1,
       },
       destination: {
         threadKey: marker.threadKey,
-        label: formatThreadLabel(destination),
+        label: marker.threadKey === selectedThreadKey ? "current thread" : formatThreadLabel(destination),
         count: 1,
       },
     });
@@ -848,7 +856,14 @@ export const FeedEntries = memo(function FeedEntries({
           j++;
         }
         if (!suppressThreadSystemMarkers) {
-          result.push(<ThreadMarkerClusterRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />);
+          result.push(
+            <ThreadMarkerClusterRow
+              key={entry.msg.id}
+              messages={batch}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />,
+          );
         }
         i = j;
         continue;
