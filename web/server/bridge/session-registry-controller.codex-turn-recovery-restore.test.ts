@@ -192,14 +192,18 @@ describe("restored Codex interrupted-turn recovery", () => {
     expect(sessions.get("session-recovery").attentionReason).toBeNull();
   });
 
-  it("preserves exact recycle-transfer ownership across restart and injection", async () => {
+  it.each([
+    "manual_compact",
+    "manual_recycle",
+  ] as const)("preserves exact %s recycle-transfer ownership across restart and injection", async (trigger) => {
+    // Preserve both old persisted command records and the dedicated recycle command.
     const sessions = new Map<string, any>();
     await restorePersistedSessions(
       sessions,
       [
         persisted({
           codexLeaderRecycleContinuation: {
-            trigger: "manual_compact",
+            trigger,
             requestedAt: 30,
             content: "inspect retained work before continuing",
             recoveryId: "original-owner",
@@ -215,7 +219,7 @@ describe("restored Codex interrupted-turn recovery", () => {
       status: "continuation_pending",
       recoveryId: "original-owner",
     });
-    expect(restored.codexLeaderRecycleContinuation).toMatchObject({ recoveryId: "original-owner" });
+    expect(restored.codexLeaderRecycleContinuation).toMatchObject({ trigger, recoveryId: "original-owner" });
 
     const injectUserMessage = vi.fn();
     injectCompactionRecovery(restored, {

@@ -35,7 +35,8 @@ export type CodexCompactionCause = "unknown" | "context_pressure" | "manual" | "
 
 export type CodexCompactionCauseSource = "producer" | "takode_manual_request" | "takode_model_switch_guard";
 
-export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact" | "context_window_exhausted";
+// Keep manual_compact readable for persisted events from the former command routing.
+export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact" | "manual_recycle" | "context_window_exhausted";
 
 export interface CodexLeaderRecycleContinuation {
   trigger: CodexLeaderRecycleTrigger;

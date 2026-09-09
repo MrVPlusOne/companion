@@ -632,21 +632,21 @@ describe("Codex /compact passthrough", () => {
     }
   });
 
-  it("recycles Codex leaders on /compact instead of forwarding to the adapter", async () => {
+  it.each(["recycle", "compact"] as const)("recycles Codex leaders on /recycle in %s mode", async (mode) => {
+    // The explicit command bypasses only automatic policy; recovery and history
+    // continue through the existing bridge path, without a live Codex process.
     const browser = makeBrowserSocket("leader-compact");
     const adapter = makeCodexAdapterMock();
+    const launcherSession = {
+      sessionId: "leader-compact",
+      backendType: "codex",
+      isOrchestrator: true,
+      cliSessionId: "thread-leader",
+      codexLeaderCompactionMode: mode,
+      codexLeaderRecyclePending: null,
+    };
     const launcher = {
-      getSession: vi.fn((sessionId: string) =>
-        sessionId === "leader-compact"
-          ? {
-              sessionId,
-              backendType: "codex",
-              isOrchestrator: true,
-              cliSessionId: "thread-leader",
-              codexLeaderRecyclePending: null,
-            }
-          : null,
-      ),
+      getSession: vi.fn((sessionId: string) => (sessionId === "leader-compact" ? launcherSession : null)),
       prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
       relaunch: vi.fn(async () => ({ ok: true })),
       completeCodexLeaderRecycle: vi.fn(),
@@ -662,21 +662,26 @@ describe("Codex /compact passthrough", () => {
       browser,
       JSON.stringify({
         type: "user_message",
-        content: "/compact",
+        content: " /ReCyClE ",
+        client_msg_id: "recycle-client",
+        threadKey: "main",
       }),
     );
 
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
     expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
       "leader-compact",
-      expect.objectContaining({ trigger: "manual_compact" }),
+      expect.objectContaining({ trigger: "manual_recycle" }),
     );
     expect(launcher.relaunch).toHaveBeenCalledWith("leader-compact");
 
     const session = bridge.getSession("leader-compact")!;
     const userMsgs = session.messageHistory.filter((m: any) => m.type === "user_message");
     expect(userMsgs).toHaveLength(1);
-    expect((userMsgs[0] as any).content).toBe("/compact");
+    expect(userMsgs[0]).toMatchObject({ content: " /ReCyClE ", client_msg_id: "recycle-client", threadKey: "main" });
+    expect(launcherSession.codexLeaderCompactionMode).toBe(mode);
+    expect(session.messageHistory).toContainEqual(expect.objectContaining({ markerKind: "session_recycled" }));
+    expect(session.codexLeaderRecycleContinuation?.trigger).toBe("manual_recycle");
   });
 
   it("fails an exact interrupted-turn recycle closed when relaunch fails", async () => {
@@ -719,7 +724,7 @@ describe("Codex /compact passthrough", () => {
       updatedAt: 2,
     };
 
-    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "/compact" }));
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "/recycle" }));
 
     expect(launcher.completeCodexLeaderRecycle).toHaveBeenCalledWith(sid);
     expect(session.state.codex_turn_recovery).toMatchObject({
@@ -731,7 +736,8 @@ describe("Codex /compact passthrough", () => {
     expect(session.attentionReason).toBeNull();
   });
 
-  it("forwards /compact to Codex for leaders in compaction mode", async () => {
+  it.each(["recycle", "compact"] as const)("forwards /compact to Codex for leaders in %s mode", async (mode) => {
+    // Manual compaction must never invoke recycling, including the default mode.
     const browser = makeBrowserSocket("leader-compact-mode");
     const adapter = makeCodexAdapterMock();
     const launcher = {
@@ -742,7 +748,7 @@ describe("Codex /compact passthrough", () => {
               backendType: "codex",
               isOrchestrator: true,
               cliSessionId: "thread-leader",
-              codexLeaderCompactionMode: "compact",
+              codexLeaderCompactionMode: mode,
               codexLeaderRecyclePending: null,
             }
           : null,
@@ -771,6 +777,41 @@ describe("Codex /compact passthrough", () => {
     expect(adapter.sendBrowserMessage).toHaveBeenCalled();
     const adapterMsg = (adapter.sendBrowserMessage.mock.calls as any[])[0]?.[0] as any;
     expect(getCodexStartPendingInputs(adapterMsg)[0]?.content).toContain("/compact");
+    expect(launcher.getSession("leader-compact-mode")?.codexLeaderCompactionMode).toBe(mode);
+  });
+
+  it.each([
+    ["codex", false],
+    ["claude", true],
+    ["claude-sdk", true],
+  ] as const)("rejects /recycle for backend %s with leader=%s", async (backendType, isOrchestrator) => {
+    // Manually typed commands enforce the same role/backend boundary as autocomplete.
+    const sid = "unsupported-recycle";
+    const browser = makeBrowserSocket(sid);
+    const launcher = {
+      getSession: vi.fn(() => ({ sessionId: sid, backendType, isOrchestrator })),
+      prepareCodexLeaderRecycle: vi.fn(),
+      relaunch: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    const session = bridge.getOrCreateSession(sid);
+    session.backendType = backendType;
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "/recycle" }));
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+    expect(session.pendingMessages).toHaveLength(0);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(browser.send.mock.calls.map(([value]: [string]) => JSON.parse(value))).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: "/recycle is only supported for Codex leaders",
+      }),
+    );
   });
 
   it("recycles Codex leaders when tracked context tokens cross the threshold", async () => {

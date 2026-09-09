@@ -110,6 +110,7 @@ export function appendLocalSlashCommandHistory(
     AdapterBrowserRoutingDeps,
     "broadcastToBrowsers" | "nextUserMessageId" | "touchUserMessage" | "emitTakodeEvent"
   >,
+  origin: Pick<BrowserUserMessage, "client_msg_id" | "threadKey" | "questId"> = {},
 ): Extract<BrowserIncomingMessage, { type: "user_message" }> {
   const ts = Date.now();
   const wasGenerating = session.isGenerating;
@@ -118,6 +119,7 @@ export function appendLocalSlashCommandHistory(
     content: command,
     timestamp: ts,
     id: deps.nextUserMessageId(ts),
+    ...origin,
   };
   session.messageHistory.push(userHistoryEntry);
   session.lastUserMessage = command;

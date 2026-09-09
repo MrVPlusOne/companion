@@ -1464,8 +1464,11 @@ export class CliLauncher {
     if (!session) return { ok: false, error: "Session not found" };
     if (session.backendType !== "codex") return { ok: false, error: "Session is not a Codex session" };
     if (!session.isOrchestrator) return { ok: false, error: "Session is not a Codex leader" };
-    if (normalizeCodexLeaderCompactionMode(session.codexLeaderCompactionMode) !== "recycle") {
-      return { ok: false, error: "Codex leader recycling is disabled for this session" };
+    if (
+      options.trigger !== "manual_recycle" &&
+      normalizeCodexLeaderCompactionMode(session.codexLeaderCompactionMode) !== "recycle"
+    ) {
+      return { ok: false, error: "Automatic Codex leader recycling is disabled for this session" };
     }
     if (session.codexLeaderRecyclePending) return { ok: true };
 

@@ -76,7 +76,6 @@ import {
   recordMemoryCatalogSeenAfterDelivery,
   type MemoryCatalogInjectionBundle,
 } from "../memory-catalog-injection-utils.js";
-import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 import { rejectOversizedCodexPendingInput } from "./codex-pending-input-rejection.js";
 import { handleCodexPendingInputAction } from "./codex-pending-input-actions.js";
 import type {
@@ -532,27 +531,40 @@ export async function routeBrowserMessage(
   if (
     msg.type === "user_message" &&
     typeof msg.content === "string" &&
-    msg.content.trim().toLowerCase() === "/compact" &&
+    msg.content.trim().toLowerCase() === "/recycle" &&
     !msg.imageRefs?.length
   ) {
-    if (session.backendType === "codex") {
-      const launcherInfo = deps.getLauncherSessionInfo(session.id);
-      if (launcherInfo?.isOrchestrator && isCodexLeaderRecycleMode(launcherInfo.codexLeaderCompactionMode)) {
-        appendLocalSlashCommandHistory(session, "/compact", deps);
-        const recycle = await deps.requestCodexLeaderRecycle(session, "manual_compact");
-        if (!recycle.ok) {
-          deps.broadcastToBrowsers(session, {
-            type: "error",
-            message: recycle.error || "Failed to recycle Codex leader session",
-          });
-        }
-        deps.persistSession(session);
-        return;
-      }
-    } else {
-      handleForceCompact(session, deps);
+    const launcherInfo = deps.getLauncherSessionInfo(session.id);
+    // Match the composer's pending owner and retain where the command was sent.
+    appendLocalSlashCommandHistory(session, msg.content, deps, {
+      ...(msg.client_msg_id ? { client_msg_id: msg.client_msg_id } : {}),
+      ...browserMessageRoute(msg),
+    });
+    if (session.backendType !== "codex" || !launcherInfo?.isOrchestrator) {
+      deps.broadcastToBrowsers(session, { type: "error", message: "/recycle is only supported for Codex leaders" });
+      deps.persistSession(session);
       return;
     }
+    const recycle = await deps.requestCodexLeaderRecycle(session, "manual_recycle");
+    if (!recycle.ok) {
+      deps.broadcastToBrowsers(session, {
+        type: "error",
+        message: recycle.error || "Failed to recycle Codex leader session",
+      });
+    }
+    deps.persistSession(session);
+    return;
+  }
+
+  if (
+    msg.type === "user_message" &&
+    typeof msg.content === "string" &&
+    msg.content.trim().toLowerCase() === "/compact" &&
+    !msg.imageRefs?.length &&
+    session.backendType !== "codex"
+  ) {
+    handleForceCompact(session, deps);
+    return;
   }
 
   if (

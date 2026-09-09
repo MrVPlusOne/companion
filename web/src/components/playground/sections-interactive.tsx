@@ -18,6 +18,7 @@ import {
 import { getSyncedProjectionValue } from "../../store-synced-projections.js";
 import { PlaygroundNotificationInboxSection } from "./PlaygroundNotificationInboxSection.js";
 import { PlaygroundQuestSessionAutocompletePreview } from "./PlaygroundComposerAutocompletePreview.js";
+import { PlaygroundContextCommands } from "./PlaygroundContextCommands.js";
 import {
   PlaygroundNeedsInputRecordingPreview,
   PlaygroundNeedsInputTranscriptionFailurePreview,
@@ -802,6 +803,8 @@ export function PlaygroundInteractiveSections() {
           </Card>
           <div className="mt-4" />
           <PlaygroundQuestSessionAutocompletePreview />
+          <div className="mt-4" />
+          <PlaygroundContextCommands />
           <div className="mt-4" />
           <Card label="Send pressed — paw morph">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">

@@ -536,6 +536,7 @@ function normalizePersistedCodexLeaderRecycleContinuation(value: unknown): Codex
   const trigger =
     record.trigger === "threshold" ||
     record.trigger === "manual_compact" ||
+    record.trigger === "manual_recycle" ||
     record.trigger === "context_window_exhausted"
       ? record.trigger
       : null;

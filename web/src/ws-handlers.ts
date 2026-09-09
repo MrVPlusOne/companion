@@ -1059,7 +1059,7 @@ function handleParsedMessage(
         // auto-recover by killing the CLI and relaunching with --resume.
         // The SDK protocol doesn't intercept slash commands from user messages,
         // so /compact gets treated as a regular prompt and overflows again.
-        if (isContextLimit) {
+        if (isContextLimit && !isCodexSession(sessionId)) {
           const msgs = store.messages.get(sessionId) || [];
           const lastUserMsg = [...msgs].reverse().find((m) => m.role === "user");
           if (lastUserMsg?.content.trim().toLowerCase() === "/compact") {

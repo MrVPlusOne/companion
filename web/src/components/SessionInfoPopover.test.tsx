@@ -144,14 +144,14 @@ interface MockStoreState {
     codexLeaderRecycleLineage?: {
       cliSessionIds: string[];
       recycleEvents: Array<{
-        trigger: "threshold" | "manual_compact" | "context_window_exhausted";
+        trigger: "threshold" | "manual_compact" | "manual_recycle" | "context_window_exhausted";
         requestedAt: number;
         tokenUsage?: { contextTokensUsed?: number };
       }>;
     };
     codexLeaderRecyclePending?: {
       eventIndex: number;
-      trigger: "threshold" | "manual_compact" | "context_window_exhausted";
+      trigger: "threshold" | "manual_compact" | "manual_recycle" | "context_window_exhausted";
       requestedAt: number;
     } | null;
     sessionNum?: number | null;
@@ -1242,7 +1242,9 @@ describe("SessionInfoPopover", () => {
     expect(api.listSessions).not.toHaveBeenCalled();
   });
 
-  it("shows Codex leader recycle lineage and pending recycle state", () => {
+  it.each(["manual_compact", "manual_recycle"] as const)("shows %s lineage and pending state", (trigger) => {
+    // New events use /recycle; historical /compact events retain their actual origin.
+    const command = trigger === "manual_compact" ? "/compact" : "/recycle";
     resetStore([]);
     storeState.sdkSessions = [
       {
@@ -1252,7 +1254,7 @@ describe("SessionInfoPopover", () => {
         isOrchestrator: true,
         codexLeaderRecyclePending: {
           eventIndex: 1,
-          trigger: "manual_compact",
+          trigger,
           requestedAt: 1_746_000_000_000,
         },
         codexLeaderRecycleLineage: {
@@ -1264,7 +1266,7 @@ describe("SessionInfoPopover", () => {
               tokenUsage: { contextTokensUsed: 270_000 },
             },
             {
-              trigger: "manual_compact",
+              trigger,
               requestedAt: 1_746_000_000_000,
               tokenUsage: { contextTokensUsed: 180_000 },
             },
@@ -1280,15 +1282,15 @@ describe("SessionInfoPopover", () => {
       "aria-expanded",
       "false",
     );
-    expect(within(section).queryByText("Pending manual /compact recycle")).not.toBeInTheDocument();
+    expect(within(section).queryByText(`Pending manual ${command} recycle`)).not.toBeInTheDocument();
 
     fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
 
-    expect(within(section).getByText("Pending manual /compact recycle")).toBeInTheDocument();
+    expect(within(section).getByText(`Pending manual ${command} recycle`)).toBeInTheDocument();
     expect(within(section).getByText("thread-a")).toBeInTheDocument();
     expect(within(section).getByText("thread-b")).toBeInTheDocument();
     expect(within(section).getByText("Threshold recycle")).toBeInTheDocument();
-    expect(within(section).getByText("Manual /compact recycle")).toBeInTheDocument();
+    expect(within(section).getByText(`Manual ${command} recycle`)).toBeInTheDocument();
     expect(within(section).getByText(/270K context/)).toBeInTheDocument();
     expect(within(section).getByText(/180K context/)).toBeInTheDocument();
   });

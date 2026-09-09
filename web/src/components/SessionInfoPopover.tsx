@@ -1042,6 +1042,7 @@ function formatRecycleTimestamp(timestamp: number): string {
 }
 
 function formatCodexLeaderRecycleTrigger(trigger: string): string {
+  if (trigger === "manual_recycle") return "Manual /recycle";
   if (trigger === "manual_compact") return "Manual /compact";
   if (trigger === "context_window_exhausted") return "Context exhausted";
   return "Threshold";

@@ -538,6 +538,17 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("POST /api/sessions/:id/relaunch", () => {
+  it.each([true, false])("refuses legacy force-compact for Codex with leader=%s", async (isOrchestrator) => {
+    // A failed /compact must never become an implicit leader recycle via REST.
+    launcher.getSession.mockReturnValue({ sessionId: "s1", backendType: "codex", isOrchestrator });
+    const res = await app.request("/api/sessions/s1/force-compact", { method: "POST" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Use /compact for Codex compaction or /recycle for Codex leader recycling",
+    });
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+  });
+
   it("returns ok when session is relaunched", async () => {
     launcher.getSession.mockReturnValue({ sessionId: "s1", state: "exited", cwd: "/test" });
     launcher.relaunch.mockResolvedValue({ ok: true });

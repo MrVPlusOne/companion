@@ -126,6 +126,40 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("handleMessage: result", () => {
+  it.each(["codex", "claude-sdk"] as const)("keeps force-compact recovery specific to Claude: %s", (backend_type) => {
+    // Exercise the actual failed-command result path: Codex errors must remain
+    // errors, while Claude's existing resume-and-compact fallback stays available.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type } });
+    useStore.getState().appendMessage("s1", { id: "compact", role: "user", content: "/compact", timestamp: 1 });
+    fireMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "prompt is too long",
+        errors: ["prompt is too long"],
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "failed",
+        uuid: "compact-failure",
+        session_id: "s1",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    if (backend_type === "codex") {
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(useStore.getState().messages.get("s1")).toContainEqual(expect.objectContaining({ variant: "error" }));
+    } else {
+      expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/force-compact", { method: "POST" });
+    }
+  });
+
   it("updates cost/turns, clears streaming, sets idle", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

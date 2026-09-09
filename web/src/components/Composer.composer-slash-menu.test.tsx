@@ -659,6 +659,40 @@ describe("Composer slash menu", () => {
     expect(screen.queryByText("/status")).toBeNull();
   });
 
+  it.each(["recycle", "compact"] as const)("offers /recycle to Codex leaders in %s mode", (mode) => {
+    // Discovery depends on the leader role, never the configured automatic policy.
+    setupMockStore({
+      session: { backend_type: "codex", isOrchestrator: true, codex_leader_compaction_mode: mode },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "/rec" } });
+    fireEvent.click(screen.getByText("/recycle"));
+    expect(textarea.value).toBe("/recycle ");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "/recycle",
+      }),
+    );
+    expect(mockUpdateSettings).not.toHaveBeenCalled();
+    expect(mockRefreshSessionSkills).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["codex", false],
+    ["claude", true],
+    ["claude-sdk", true],
+  ] as const)("hides /recycle for backend %s with leader=%s", (backend_type, isOrchestrator) => {
+    setupMockStore({ session: { backend_type, isOrchestrator, slash_commands: ["compact", "recycle"] } });
+    const { container } = render(<Composer sessionId="s1" />);
+    fireEvent.change(container.querySelector("textarea")!, { target: { value: "/" } });
+    expect(screen.queryByText("/recycle")).toBeNull();
+    expect(screen.getByText("/compact")).toBeTruthy();
+  });
+
   it("treats /goal as normal input instead of opening Session Info", () => {
     setupMockStore({
       session: {

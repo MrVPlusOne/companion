@@ -1131,7 +1131,8 @@ export function SettingsPage({
                 </div>
                 <p className="mt-1.5 text-xs text-cc-muted">
                   Default for new Codex leaders. Recycling keeps Takode-owned leader recovery; compacting lets Codex use
-                  built-in compaction.
+                  built-in compaction. Manual /compact always compacts; /recycle recycles a leader once. Neither command
+                  changes this automatic mode.
                 </p>
               </div>
 

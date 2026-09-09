@@ -51,6 +51,7 @@ import {
 type MentionResult = { relativePath: string; absolutePath: string; fileName: string };
 
 interface AutocompleteSessionView {
+  isLeaderSession: boolean;
   cwd?: string | null;
   repoRoot?: string | null;
   slashCommands: string[];
@@ -253,17 +254,19 @@ export function useComposerAutocomplete({
     };
     if (isCodex) {
       for (const cmd of CODEX_LOCAL_SLASH_COMMANDS) pushCommand(cmd, "command");
+      if (sessionView.isLeaderSession) pushCommand("recycle", "command");
     }
     for (const cmd of sessionView.slashCommands) {
       // Existing sessions may retain commands published by an older Takode
       // build. Keep removed browser-only shortcuts out of autocomplete even
       // until that stale server-authored session projection is refreshed.
       if (isCodex && isRemovedCodexBrowserSlashCommand(cmd)) continue;
+      if (cmd === "recycle" && (!isCodex || !sessionView.isLeaderSession)) continue;
       pushCommand(cmd, "command");
     }
     for (const skill of sessionView.skills) pushCommand(skill, "skill");
     return cmds;
-  }, [isCodex, sessionView.skills, sessionView.slashCommands]);
+  }, [isCodex, sessionView.isLeaderSession, sessionView.skills, sessionView.slashCommands]);
 
   const dollarCommands = useMemo<CommandItem[]>(() => {
     if (!isCodex) return [];

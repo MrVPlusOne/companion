@@ -1649,14 +1649,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
     if (info.backendType === "codex") {
-      if (!info.isOrchestrator) {
-        return c.json({ error: "Force compact is only supported for Codex leaders" }, 400);
-      }
-      const recycle = await wsBridge.recycleCodexLeaderSession(id, "manual_compact");
-      if (!recycle.ok) {
-        return c.json({ error: recycle.error || "Failed to recycle Codex leader session" }, 503);
-      }
-      return c.json({ ok: true });
+      return c.json({ error: "Use /compact for Codex compaction or /recycle for Codex leader recycling" }, 400);
     }
     if (!info.cliSessionId) return c.json({ error: "No CLI session to resume" }, 400);
 
