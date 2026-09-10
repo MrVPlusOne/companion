@@ -177,7 +177,7 @@ vi.mock("./workstream-memory-service.js", () => ({
 }));
 
 import { Hono } from "hono";
-import { execSync } from "node:child_process";
+import { execSync, exec } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -603,6 +603,39 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("GET /api/quests/:questId/commits/:sha", () => {
+  it.each([
+    true,
+    false,
+  ])("uses the immutable delivery repository when its objects are available=%s", async (available) => {
+    // The ordinary quest viewer must work for an independent clone after a session target changes,
+    // and must honestly report lost evidence instead of substituting the current session repository.
+    const sha = "a".repeat(40);
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      questId: "q-1",
+      status: "done",
+      sessionId: "session-1",
+      commitShas: [sha],
+      codeDeliveries: [{ target: { repoRoot: "/independent/published" }, commits: [{ sha }] }],
+    } as any);
+    launcher.getSession.mockReturnValue({ sessionId: "session-1", repoRoot: "/unrelated/current" } as any);
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (!available) throw new Error("Retained objects unavailable");
+      if (cmd.includes("rev-parse")) return sha;
+      if (cmd.includes("show -s")) return [sha, sha.slice(0, 7), "Independent delivery", "1713292534"].join("\0");
+      throw new Error(`Unexpected command: ${cmd}`);
+    });
+    const res = await app.request(`/api/quests/q-1/commits/${sha}?includeDiff=false`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject(
+      available
+        ? { available: true, message: "Independent delivery" }
+        : { available: false, reason: "commit_not_available" },
+    );
+    const reads = vi.mocked(exec).mock.calls.filter(([cmd]) => cmd.includes("rev-parse") || cmd.includes("show -s"));
+    expect(reads).toHaveLength(available ? 2 : 1);
+    for (const [, options] of reads) expect(options).toMatchObject({ cwd: "/independent/published" });
+  });
+
   it("returns git-backed commit details for a SHA attached to the quest", async () => {
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v4",

@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
+import { isAbsolute } from "node:path";
 import * as questStore from "../quest-store.js";
 import { registerQuestDeliveryRoutes } from "./quest-deliveries.js";
 import type {
@@ -285,7 +286,14 @@ function feedbackEntryWithoutTldr(entry: QuestFeedbackEntry): QuestFeedbackEntry
   return rest;
 }
 
-function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"]): string[] {
+function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"], sha: string): string[] {
+  // Recorded delivery provenance remains authoritative after session cleanup or a target change.
+  // Missing retained objects must not silently redirect the viewer to today's session checkout.
+  const delivery = quest.codeDeliveries?.find((item) => item.commits.some((commit) => commit.sha === sha));
+  if (delivery) {
+    const path = delivery.target.repoRoot;
+    return typeof path === "string" && isAbsolute(path) ? [path] : [];
+  }
   const activeTakodeOwner = getTakodeQuestOwnerSessionId(quest);
   const sessionIds = [
     ...(activeTakodeOwner ? [activeTakodeOwner] : []),
@@ -1069,7 +1077,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       return c.json({ error: "Commit not attached to this quest" }, 404);
     }
 
-    const repoCandidates = questRepoCandidates(quest, launcher);
+    const repoCandidates = questRepoCandidates(quest, launcher, sha);
     if (repoCandidates.length === 0) {
       return c.json({ sha, available: false, reason: "repo_unavailable" });
     }
