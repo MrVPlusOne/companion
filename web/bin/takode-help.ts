@@ -8,6 +8,7 @@ import {
 } from "./takode-lease.js";
 import { stripHelpFlags, TIMER_CREATE_GUIDANCE } from "./takode-core.js";
 import { RECORD_DELIVERY_HELP } from "./takode-record-delivery.js";
+import { DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
 import { PORT_HELP } from "./takode-port.js";
 import { FILE_RESOLVE_HELP } from "./takode-file-resolve.js";
 import { THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
@@ -472,6 +473,8 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_NOTE_HELP);
       } else if (sub === "record-work-delivery") {
         console.log(RECORD_DELIVERY_HELP);
+      } else if (sub === "approve-delivery-target" || sub === "delivery-targets") {
+        console.log(DELIVERY_TARGET_HELP);
       } else if (sub === "work-to-memory") {
         console.log(BOARD_WORK_TO_MEMORY_HELP);
       } else if (sub === "replace-work-evidence") {

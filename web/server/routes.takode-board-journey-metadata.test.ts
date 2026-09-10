@@ -326,11 +326,11 @@ describe("Takode board Journey metadata route", () => {
         },
       ],
     } as any;
-    vi.mocked(questStore.getQuest)
-      .mockResolvedValueOnce(claimedQuest)
-      .mockResolvedValueOnce({ ...claimedQuest, commitShas: ["abc1234", "deadbeef"] });
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
     vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+      // Tie changed reads to persistence, not to a fragile number of preflight reads.
       expect(session.board.get("q-9")?.status).toBe("WORKING");
+      vi.mocked(questStore.getQuest).mockResolvedValue({ ...claimedQuest, commitShas: ["abc1234", "deadbeef"] });
       return { ...claimedQuest, commitShas: ["abc1234", "deadbeef"] };
     });
 
@@ -708,12 +708,15 @@ describe("Takode board Journey metadata route", () => {
         },
       ],
     } as any;
-    vi.mocked(questStore.getQuest)
-      .mockResolvedValueOnce(claimedQuest)
-      .mockResolvedValueOnce({ ...claimedQuest, sessionId: "worker-2", commitShas: ["abc1234"] });
-    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockResolvedValueOnce({
-      ...claimedQuest,
-      commitShas: ["abc1234"],
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
+    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+      // Ownership changes at the asynchronous write boundary, after all preflight reads.
+      vi.mocked(questStore.getQuest).mockResolvedValue({
+        ...claimedQuest,
+        sessionId: "worker-2",
+        commitShas: ["abc1234"],
+      });
+      return { ...claimedQuest, commitShas: ["abc1234"] };
     });
 
     const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
@@ -750,9 +753,10 @@ describe("Takode board Journey metadata route", () => {
         },
       ],
     } as any;
-    vi.mocked(questStore.getQuest)
-      .mockResolvedValueOnce(claimedQuest)
-      .mockResolvedValueOnce({
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
+    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+      // Pending feedback arrives during persistence, not on an arbitrary read count.
+      vi.mocked(questStore.getQuest).mockResolvedValue({
         ...claimedQuest,
         commitShas: ["abc1234"],
         feedback: [
@@ -760,9 +764,7 @@ describe("Takode board Journey metadata route", () => {
           { author: "human", text: "New feedback arrived during the handoff.", addressed: false, ts: 2 },
         ],
       });
-    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockResolvedValueOnce({
-      ...claimedQuest,
-      commitShas: ["abc1234"],
+      return { ...claimedQuest, commitShas: ["abc1234"] };
     });
 
     const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
@@ -800,11 +802,11 @@ describe("Takode board Journey metadata route", () => {
         },
       ],
     } as any;
-    vi.mocked(questStore.getQuest)
-      .mockResolvedValueOnce(claimedQuest)
-      .mockResolvedValueOnce({ ...claimedQuest, commitShas: ["abc1234"] });
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
     vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+      // The board changes exactly at persistence, independently of preflight read count.
       session.board.get("q-9")!.waitForInput = ["n-7"];
+      vi.mocked(questStore.getQuest).mockResolvedValue({ ...claimedQuest, commitShas: ["abc1234"] });
       return { ...claimedQuest, commitShas: ["abc1234"] };
     });
 

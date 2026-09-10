@@ -106,3 +106,9 @@ The authenticated assigned worker may run it only on the active `WORKING` occurr
 ## Historical Rows
 
 Existing legacy rows are preserved as stored for compatibility: their phase IDs, notes, timings, statuses, and ownership remain readable and can finish their recorded Journey. New or materially revised rows must use active v2 phases only.
+
+## Independent delivery targets
+
+`takode board approve-delivery-target q-N --target-file <path>` records an already-authorized independent published target, scoped to the assigned leader, worker and active Work occurrence. `takode board delivery-targets q-N` lists saved IDs; `--target <id>` reveals the full descriptor. The worker supplies `--delivery-target <id>` with the exact approved commits on `record-work-delivery` or `work-to-memory`, without `--preparation` or `--no-code`.
+
+Follow the independent-target recipe in the `/port-changes` [port-tracking reference](../worktree-rules/references/port-tracking.md) for JSON fields, remote verification, recovery and retention limits. A configured-target mismatch is distinct from failed publication; do not republish, move unrelated branches, bypass evidence guards, or repair other live quest records without authority.

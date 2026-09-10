@@ -60,6 +60,7 @@ import {
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
 import { buildCodeDelivery } from "../quest-code-deliveries.js";
 import { projectQuestDelivery } from "../../shared/quest-delivery.js";
+import { DeliveryEvidenceError } from "../published-delivery-target.js";
 
 interface PhaseNoteEdit {
   index: number;
@@ -384,6 +385,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       return c.json({ error: "noCode must be true when provided." }, 400);
     }
     const hasNoCodeMode = body.noCode === true;
+    if (body.target !== undefined)
+      return c.json({ error: "Use a leader-approved deliveryTargetId, not a target override." }, 400);
+    if (
+      body.deliveryTargetId !== undefined &&
+      (typeof body.deliveryTargetId !== "string" || !/^[a-f0-9]{32}$/.test(body.deliveryTargetId) || hasNoCodeMode)
+    )
+      return c.json({ error: "deliveryTargetId requires an exact approved target ID and code commit evidence." }, 400);
     if (
       body.preparationId !== undefined &&
       (typeof body.preparationId !== "string" || !/^[a-f0-9]{32}$/.test(body.preparationId) || hasNoCodeMode)
@@ -494,9 +502,70 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
             caller: auth.caller,
             commitShas,
             existing: quest,
+            leaderSessionId: initialMatch.leaderSessionId,
+            deliveryTargetId: body.deliveryTargetId,
             ...(typeof body.preparationId === "string" ? { preparationId: body.preparationId } : {}),
           });
+          const latestRecorded = quest.codeDeliveries
+            ?.filter(
+              (item) =>
+                item.actorSessionId === auth.callerId &&
+                item.phaseOccurrenceId === initialWorkContext.phaseOccurrenceId,
+            )
+            .at(-1);
+          if (
+            latestRecorded &&
+            latestRecorded.id !== delivery.id &&
+            quest.codeDeliveries?.some((item) => item.id === delivery.id)
+          )
+            return c.json(
+              {
+                error:
+                  "This Work occurrence has a later recorded delivery; use its current commits and approved target before entering Memory.",
+              },
+              409,
+            );
           commitShas = delivery.commits.map((commit) => commit.sha);
+          // Remote verification may yield while the leader changes Work. Do not attach
+          // evidence to a reassigned or later occurrence, even if the old owner remains claimed.
+          const currentQuest = await questStore.getQuest(questId);
+          const currentAssignments = findAssignedBoardRowsForWorker({
+            wsBridge,
+            launcher,
+            workerSessionId: auth.callerId,
+            questId,
+          });
+          const currentAssignment = currentAssignments.length === 1 ? currentAssignments[0] : undefined;
+          if (
+            !currentQuest ||
+            currentAssignment?.leaderSessionId !== initialMatch.leaderSessionId ||
+            currentAssignment.row.status !== "WORKING" ||
+            currentAssignment.row.waitForInput?.length ||
+            hasUnaddressedHumanFeedback(currentQuest)
+          )
+            return c.json(
+              {
+                error: "Work assignment or acceptance changed during verification; refresh before recording evidence.",
+              },
+              409,
+            );
+          const currentScope = resolveActiveWorkPhaseContext(
+            currentAssignment.leaderSessionId,
+            currentAssignment.row,
+            currentQuest,
+          );
+          if ("error" in currentScope || currentScope.phaseOccurrenceId !== initialWorkContext.phaseOccurrenceId)
+            return c.json(
+              { error: "Work occurrence changed during verification; refresh before recording evidence." },
+              409,
+            );
+          const currentNote = resolveCurrentWorkFeedback({
+            quest: currentQuest,
+            authorSessionId: auth.callerId,
+            activeScope: currentScope,
+            requestedIndex: initialWorkNote.index,
+          });
+          if ("error" in currentNote) return c.json({ error: currentNote.error }, 409);
           const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
             questId,
             { kind: "takode", sessionId: auth.callerId },
@@ -505,6 +574,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
           );
           if (!updated) return c.json({ error: `Quest not found: ${questId}` }, 404);
         } catch (error) {
+          if (error instanceof DeliveryEvidenceError) return c.json({ error: error.message }, error.status);
           const message = error instanceof Error ? error.message : "Cannot attach code commit evidence.";
           if (
             message.includes("in-progress quest") ||
@@ -568,6 +638,11 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       if (!leaderSession) return c.json({ error: "Leader board session is unavailable." }, 409);
       const activeWorkContext = resolveActiveWorkPhaseContext(leaderSessionId, row, evidenceQuest);
       if ("error" in activeWorkContext) return c.json({ error: activeWorkContext.error }, 409);
+      if (activeWorkContext.phaseOccurrenceId !== initialWorkContext.phaseOccurrenceId)
+        return c.json(
+          { error: "Work occurrence changed while recording evidence; refresh before entering Memory." },
+          409,
+        );
       const workNote = resolveCurrentWorkFeedback({
         quest: evidenceQuest,
         authorSessionId: auth.callerId,

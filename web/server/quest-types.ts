@@ -1,4 +1,4 @@
-import type { QuestCodeDelivery } from "../shared/quest-delivery.js";
+import type { QuestCodeDelivery, QuestDeliveryTargetApproval } from "../shared/quest-delivery.js";
 // ─── Questmaster Types ───────────────────────────────────────────────────────
 //
 // Progressive types: each stage extends the previous, strictly adding fields
@@ -265,6 +265,7 @@ interface QuestBase {
   leaderSessionId?: string;
   /** Fixed delivery targets and retained review evidence; omitted from list/preview payloads. */
   codeDeliveries?: QuestCodeDelivery[];
+  deliveryTargetApprovals?: QuestDeliveryTargetApproval[];
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */
   commitShas?: string[];
   /** Ordered memory repo commit SHAs associated with this quest's Memory handoff. */

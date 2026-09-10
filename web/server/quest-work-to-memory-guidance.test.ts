@@ -38,6 +38,23 @@ describe("Work-to-Memory code evidence guidance", () => {
     expect(boardUsage).toContain("does not advance the Journey");
   });
 
+  it("makes independent targets discoverable from loaded guidance without replacing the normal port contract", () => {
+    // These are the canonical installed/generated sources, not a quest-local handoff.
+    for (const source of [
+      "web/shared/quest-journey-phases/work/leader.md",
+      "web/shared/quest-journey-phases/work/assignee.md",
+      "web/server/templates/quest-skill-docs.md",
+      ".claude/skills/takode-orchestration/board-usage.md",
+    ]) {
+      expect(read(source)).toContain("delivery-target");
+    }
+    const recipe = read(".claude/skills/worktree-rules/references/port-tracking.md");
+    expect(recipe).toContain("approve-delivery-target");
+    expect(recipe).toContain("does not grant permission for new external operations");
+    expect(recipe).toContain("--preparation");
+    expect(recipe).toContain("Missing objects remain honestly unavailable");
+  });
+
   it("keeps Memory deltas and completion guidance from first-attaching Work commits", () => {
     const handoffs = read(".claude/skills/leader-dispatch/references/phase-handoff-examples.md");
     const edgeCases = read(".claude/skills/leader-dispatch/references/edge-cases.md");

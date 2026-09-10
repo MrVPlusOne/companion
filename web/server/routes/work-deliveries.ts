@@ -8,6 +8,8 @@ import { buildCodeDelivery, portContext } from "../quest-code-deliveries.js";
 import { preparePort, sealPort, recordLandedCommit, inspectPort } from "../port-tracking.js";
 import { projectQuestDelivery } from "../../shared/quest-delivery.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
+import { registerWorkDeliveryTargetRoutes } from "./work-delivery-targets.js";
+import { DeliveryEvidenceError } from "../published-delivery-target.js";
 import {
   findAssignedBoardRowsForWorker,
   hasUnaddressedHumanFeedback,
@@ -15,7 +17,7 @@ import {
   resolveCurrentWorkFeedback,
 } from "./work-evidence-context.js";
 
-interface WorkDeliveryRoutesDeps {
+export interface WorkDeliveryRoutesDeps {
   launcher: RouteContext["launcher"];
   wsBridge: RouteContext["wsBridge"];
   authenticateTakodeCaller: RouteContext["authenticateTakodeCaller"];
@@ -24,6 +26,7 @@ interface WorkDeliveryRoutesDeps {
 
 /** Tracking changes refs/receipts only; recording uses the same lock as Work -> Memory. */
 export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDeps): void {
+  registerWorkDeliveryTargetRoutes(api, deps);
   async function resolveWorker(c: Context, questId: string, publication = false, workNote?: number) {
     const auth = deps.authenticateTakodeCaller(c);
     if ("response" in auth) throw new WorkRouteError("Worker authentication required.", 403);
@@ -123,6 +126,13 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
       const body = await c.req.json();
       const questId = typeof body.questId === "string" ? body.questId : "";
       const workNote = body.workFeedbackIndex;
+      if (
+        body.deliveryTargetId !== undefined &&
+        (typeof body.deliveryTargetId !== "string" || !/^[a-f0-9]{32}$/.test(body.deliveryTargetId))
+      )
+        throw new WorkRouteError("deliveryTargetId requires an exact approved target ID.", 400);
+      if (body.target !== undefined)
+        throw new WorkRouteError("Use a leader-approved deliveryTargetId, not a target override.", 400);
       if (workNote !== undefined && (!Number.isInteger(workNote) || workNote < 0))
         throw new WorkRouteError("Invalid Work note index.", 400);
       const worker = await resolveWorker(c, questId, true, workNote);
@@ -134,6 +144,8 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
         phaseOccurrenceId: worker.scope.phaseOccurrenceId,
         caller: worker.auth.caller,
         existing: worker.quest,
+        leaderSessionId: worker.match.leaderSessionId,
+        deliveryTargetId: body.deliveryTargetId,
         commitShas: normalizeCommitShas(body.commitShas),
         preparationId: typeof body.preparationId === "string" ? body.preparationId : undefined,
       });
@@ -183,5 +195,8 @@ class WorkRouteError extends Error {
 function workError(c: Context, error: unknown): Response {
   const message = error instanceof Error ? error.message : "Work delivery operation failed.";
   if (!(error instanceof WorkRouteError)) console.warn("[work-delivery] Operation rejected:", message);
-  return c.json({ error: message }, error instanceof WorkRouteError ? error.status : 409);
+  return c.json(
+    { error: message },
+    error instanceof WorkRouteError || error instanceof DeliveryEvidenceError ? error.status : 409,
+  );
 }

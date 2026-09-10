@@ -3,6 +3,7 @@
 Use this phase after approving Alignment and authorizing the assigned worker's Work and Memory envelope.
 
 Leader responsibilities:
+- For an already-authorized independent publication outside a worker's inherited target, use `takode board approve-delivery-target` to bind the exact repository, published refs and SHAs to the current worker/Work occurrence. Follow `/port-changes` and its port-tracking reference; this records existing authority and never authorizes new publication or live-quest repair.
 - Keep the board row in `WORKING` while the worker performs the authorized work.
 - Alignment approval confirms the worker's understanding of the authorized scope and the intended Journey routing; by itself it does not promote worker findings, leader paraphrases, or proposed approaches into requirements. Follow the complete worker-context authority rule in the preloaded `leader-dispatch` skill.
 - Name the Work assignee brief. When there is no new context, a short natural Work authorization is sufficient. When context is needed, add only genuinely useful facts the worker cannot already access and write them naturally rather than requiring a dedicated heading or empty marker. Do not restate generic phase duties, worker-derived findings, or likely implementation approaches. Avoid reintroducing phase-by-phase v1 routing.

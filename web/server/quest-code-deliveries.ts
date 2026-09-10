@@ -3,6 +3,12 @@ import type { QuestCodeDelivery, QuestDeliveredCommit, RetainedReviewRange } fro
 import { readCommitSummary, readGit } from "./git-commit-reader.js";
 import { verifyReplacementWorkEvidence, type WorkEvidenceTargetCaller } from "./work-evidence-replacement.js";
 import { inspectPort, ownedPlan, verifyReview, type PortTrackingContext } from "./port-tracking.js";
+import {
+  DeliveryEvidenceError,
+  resolveDeliveryTargetApproval,
+  verifyPublishedDeliveryTarget,
+} from "./published-delivery-target.js";
+import type { QuestmasterTask } from "./quest-types.js";
 
 /** Verify one stable selected target before publishing any new delivery. */
 export async function buildCodeDelivery(input: {
@@ -12,16 +18,45 @@ export async function buildCodeDelivery(input: {
   caller: WorkEvidenceTargetCaller;
   commitShas: string[];
   preparationId?: string;
-  existing?: { commitShas?: string[]; codeDeliveries?: QuestCodeDelivery[] };
+  deliveryTargetId?: string;
+  leaderSessionId?: string;
+  existing?: Pick<QuestmasterTask, "commitShas" | "codeDeliveries" | "deliveryTargetApprovals">;
 }): Promise<QuestCodeDelivery> {
-  const verified = await verifyReplacementWorkEvidence(input.caller, input.commitShas);
-  if ("error" in verified) throw new Error(verified.error);
+  if (input.deliveryTargetId && input.preparationId)
+    throw new DeliveryEvidenceError(
+      "Independent published targets cannot use inherited-target port preparations. Keep original review receipts separately.",
+      400,
+    );
+  const approval = input.deliveryTargetId
+    ? resolveDeliveryTargetApproval({ ...input, deliveryTargetId: input.deliveryTargetId })
+    : undefined;
+  if (approval) await verifyPublishedDeliveryTarget(approval.target);
+  const lastRef = approval?.target.refs.at(-1);
+  const verified =
+    approval && lastRef
+      ? {
+          repoRoot: approval.target.checkoutPath,
+          checkoutPath: approval.target.checkoutPath,
+          branch: lastRef.ref.slice("refs/heads/".length),
+          mode: "published" as const,
+          headSha: lastRef.sha,
+          commitShas: [...new Set(approval.target.refs.map((entry) => entry.sha))],
+        }
+      : await verifyReplacementWorkEvidence(input.caller, input.commitShas);
+  if ("error" in verified) {
+    const selected = input.caller.worktreePortTarget;
+    throw new DeliveryEvidenceError(
+      `${verified.error} Configured target: ${selected?.worktreePath ?? selected?.repoRoot ?? input.caller.cwd ?? "unknown"} (${selected?.branch ?? input.caller.actualBranch ?? input.caller.branch ?? "unknown"}). If approved publication used another target, ask the assigned leader to use approve-delivery-target, then supply --delivery-target. Do not repeat a push to repair evidence metadata.`,
+      verified.status,
+    );
+  }
   if (verified.commitShas.length === 0) throw new Error("A delivery requires at least one synchronized commit.");
   const target = {
     repoRoot: verified.repoRoot ?? verified.checkoutPath,
     checkoutPath: verified.checkoutPath,
     branch: verified.branch,
     mode: verified.mode,
+    ...(approval ? { publication: { ...approval.target, approvalId: approval.id } } : {}),
   };
   const freshShas = verified.commitShas.filter(
     (sha) => !input.existing?.commitShas?.some((old) => sha.startsWith(old.toLowerCase())),
@@ -36,6 +71,7 @@ export async function buildCodeDelivery(input: {
         delivery.target.branch === target.branch &&
         delivery.target.checkoutPath === target.checkoutPath &&
         delivery.target.mode === target.mode &&
+        delivery.target.publication?.approvalId === target.publication?.approvalId &&
         delivery.commits.every((commit) => requested.has(commit.sha)),
     );
     if (!existing)
@@ -107,6 +143,12 @@ export async function buildCodeDelivery(input: {
 }
 
 async function assertDeliveryHead(target: QuestCodeDelivery["target"], expected: string): Promise<void> {
+  if (target.mode === "published") {
+    if (!target.publication)
+      throw new DeliveryEvidenceError("Published delivery lacks its approved target descriptor.");
+    await verifyPublishedDeliveryTarget(target.publication);
+    return;
+  }
   const [branch, head] = await Promise.all([
     readGit(target.checkoutPath, ["symbolic-ref", "--short", "HEAD"]),
     readGit(target.checkoutPath, ["rev-parse", `refs/heads/${target.branch}`]),
@@ -135,6 +177,8 @@ export async function portContext(
         }
       : null);
   if (!selected) throw new Error("Cannot resolve selected target.");
+  if (selected.mode === "published")
+    throw new Error("Independent published targets do not use inherited-target port tracking.");
   const branch = input.caller.actualBranch ?? input.caller.branch;
   if (!branch || branch === selected.branch)
     throw new Error("Private worker branch must differ from the delivery target.");

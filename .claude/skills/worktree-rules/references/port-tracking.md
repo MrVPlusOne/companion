@@ -94,3 +94,41 @@ quest commit-links q-N --delivery <delivery-id>
 The optional `--commits` subset selects only commits inside that recorded delivery. The command only authors links; it never sends a message, mutates evidence, or displays today's whole mutable commit list in an old response. Never fabricate delivery IDs or backfill historical provenance.
 
 Review and sealed refs survive worker reset/removal. They consume local disk, are not backed up by ordinary push, and have no new automatic expiry. Viewing unavailable evidence must remain honest. Never use the invalid-evidence replacement command as a normal many-to-one squash mechanism.
+
+## Independent published targets
+
+An explicitly approved publication may use a separate checkout and remote branches instead of the session's inherited integration target. Do not move that publication onto an unrelated leader branch or push it again to fix internal recording. Keep the publication receipts and original review history. The inherited-target preparation workflow above remains for actual ports; do not manufacture preparation receipts for an independent publication.
+
+The assigned leader can record an already-authorized target for the current worker and Work occurrence:
+
+```bash
+takode board approve-delivery-target q-N --target-file /tmp/delivery-target.json
+```
+
+The JSON names the exact local clone, configured remote URL, and published branch heads in delivery order:
+
+```json
+{
+  "checkoutPath": "/absolute/independent-checkout",
+  "remote": "origin",
+  "repositoryUrl": "https://example.com/team/project.git",
+  "refs": [
+    { "ref": "refs/heads/user/runtime", "sha": "<full lowercase commit SHA>" },
+    { "ref": "refs/heads/user/consumer", "sha": "<full lowercase commit SHA>" }
+  ]
+}
+```
+
+This command records existing approval; it does not grant permission for new external operations. It reads the configured remote and verifies every exact published head and local commit object without fetching, pushing, switching branches, or changing session targets. Only the leader owning the unique active assignment can approve. Approval alone does not attach code evidence.
+
+The worker supplies the returned approval ID and the exact unique SHAs in the same order:
+
+```bash
+takode board work-to-memory q-N --work-note <index> --commits <sha1>,<sha2> --delivery-target <approval-id>
+```
+
+A specifically authorized earlier delivery can use the same flags with `record-work-delivery`. Do not combine `--delivery-target` with `--preparation` or `--no-code`. Worker ownership, current Work note, checkpoint, feedback and transition guards still apply; published refs are reverified before evidence is recorded. The descriptor preserves every approved ref/head, with the final listed branch as the delivery's primary branch. An existing session can use this path immediately without rebinding its inherited target.
+
+Recover approval IDs with `takode board delivery-targets q-N`; use `--target <approval-id>` for the complete persisted descriptor. Approvals are immutable and scoped to their leader, worker and Work occurrence. A changed assignment, new Work occurrence, different repository or changed refs requires a fresh leader approval within the existing authorized scope. Historical deliveries and their fixed links remain unchanged; old approvals do not authorize unrelated Work. This path does not repair terminal Journey routing or old live quest records automatically.
+
+A target mismatch requires reconciling the intended repository/refs; a remote-read failure requires restoring access and repeating read-only verification. Neither means successful publication was undone. Retain the independent checkout/objects for later diffs; this path does not import, retain, or backfill private port-review refs into a separate clone. Missing objects remain honestly unavailable.

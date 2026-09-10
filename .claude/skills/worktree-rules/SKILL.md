@@ -23,6 +23,8 @@ Follow this workflow **exactly** when asked to port, sync, or push commits:
 
 ### 1. Resolve and check the port target
 
+For an explicitly approved independent publication outside the inherited target, use the "Independent published targets" section in [port-tracking.md](references/port-tracking.md). Record its approved delivery target instead of moving unrelated branches. The following port workflow applies when code actually needs to land in the inherited target.
+
 There are two valid target modes:
 
 - **Remote-backed target**: no "Port target worktree" is injected. Port into the **Base repo checkout** on **Base branch / port target**, then push `origin <BASE_BRANCH>`.

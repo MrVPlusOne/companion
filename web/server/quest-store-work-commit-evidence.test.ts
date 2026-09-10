@@ -117,6 +117,48 @@ describe("appendQuestCodeCommitEvidenceForOwner", () => {
     const persisted = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
     expect(persisted.quests[0].commitShas).toEqual(["abc1234", "deadbeef"]);
   });
+  it.each([
+    "legacy",
+    "live",
+  ])("retains immutable target approval across %s storage reload and completion", async (mode) => {
+    // The special leader route owns authorization; ordinary patches cannot write this durable field.
+    if (mode === "live")
+      writeLiveStoreFixture({
+        format: "mutable_current_record",
+        version: 1,
+        nextQuestNumber: 1,
+        quests: [],
+        updatedAt: 1,
+      });
+    await questStore.createQuest({ title: "Persist approved target", description: "Ready", status: "refined" });
+    await questStore.claimQuest("q-1", "worker");
+    const approval = {
+      id: "e".repeat(32),
+      approvedAt: 1,
+      leaderSessionId: "leader",
+      workerSessionId: "worker",
+      phaseOccurrenceId: "work-occurrence",
+      target: {
+        checkoutPath: "/fixture/source",
+        remote: "origin",
+        repositoryUrl: "https://example.com/team/repo.git",
+        refs: [{ ref: "refs/heads/user/change", sha: "a".repeat(40) }],
+      },
+    };
+    await questStore.appendQuestDeliveryTargetApproval("q-1", approval);
+    await questStore.appendQuestDeliveryTargetApproval("q-1", { ...approval, approvedAt: 2 });
+    await questStore.patchQuest("q-1", { deliveryTargetApprovals: [] } as never);
+    await expect(
+      questStore.appendQuestDeliveryTargetApproval("q-1", { ...approval, leaderSessionId: "other" }),
+    ).rejects.toThrow("cannot be changed");
+    vi.resetModules();
+    questStore = await import("./quest-store.js");
+    expect((await questStore.getQuest("q-1"))?.deliveryTargetApprovals).toEqual([approval]);
+    expect((await questStore.getQuest("q-1"))?.commitShas).toBeUndefined();
+    await questStore.completeQuest("q-1", []);
+    expect((await questStore.getQuest("q-1"))?.deliveryTargetApprovals).toEqual([approval]);
+  });
+
   it("persists fixed delivery provenance through quest normalization and completion", async () => {
     // The isolated store must keep the descriptor together with its code SHAs and separate memory evidence.
     const { deliveryFixture } = await import("../src/test-fixtures/commit-delivery-fixture.js");

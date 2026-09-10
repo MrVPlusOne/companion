@@ -12,6 +12,7 @@ import {
   readOptionTextFile,
 } from "./takode-core.js";
 import { handleRecordDelivery } from "./takode-record-delivery.js";
+import { handleDeliveryTarget, deliveryTargetFlag, DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
 import type { QuestDeliveryView } from "../shared/quest-delivery.js";
 import { parseCommitShas } from "./quest-commit-flags.js";
 import {
@@ -56,6 +57,10 @@ Subcommands:
   note <quest-id>         Add or clear a per-phase Journey note
   work-to-memory <quest-id>
                           Worker-owned transition from Work to Memory
+  approve-delivery-target <quest-id>
+                          Assigned leader records an independent published target
+  delivery-targets <quest-id>
+                          Inspect immutable target approvals; --target reveals detail
   replace-work-evidence <quest-id>
                           Audited correction of invalid Work commit evidence
   advance <quest-id>      Move through non-Work Journey boundaries
@@ -144,7 +149,11 @@ Advance a quest through non-Work Quest Journey boundaries. Advancing from the fi
 Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note, the concrete skip condition has been satisfied, and the resulting transition is not Work -> Memory. The reason is recorded on the board row.
 `;
 
-export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --no-code) [--preparation <id>] [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
+export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --no-code) [--preparation <id> | --delivery-target <approval-id>] [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
+
+Independent publication: the assigned leader first uses approve-delivery-target;
+the worker supplies --delivery-target with its exact approved commits. This is
+read-only publication verification, not a push retry or session-target mutation.
 
 Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint. Provide synchronized target-repository code SHAs with --commit/--commits, or use --no-code only when this Work occurrence made no tracked project changes. When one planned optional User Checkpoint sits directly between the current Work occurrence and Memory, use --skip-optional-checkpoint only after its approved optional condition is satisfied. Required or taken checkpoints must continue into a later Work occurrence before the guarded transition.
 `;
@@ -1288,6 +1297,12 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === "approve-delivery-target" || sub === "delivery-targets") {
+    if (args.includes("--help")) console.log(DELIVERY_TARGET_HELP);
+    else await handleDeliveryTarget(base, sub, args.slice(1));
+    return;
+  }
+
   if (sub === "record-work-delivery") {
     await handleRecordDelivery(base, args.slice(1));
     return;
@@ -1299,6 +1314,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
+    const deliveryTargetId = deliveryTargetFlag(flags);
     const workFeedbackIndex = parseIntegerFlag(flags, "work-note", "Work feedback index");
     if (workFeedbackIndex !== undefined && workFeedbackIndex < 0) err("--work-note must be a non-negative integer.");
     if (flags.preparation === true) err("--preparation requires an exact preparation ID.");
@@ -1332,6 +1348,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       ...(commitShas.length > 0 ? { commitShas } : { noCode: true }),
       ...(skipOptionalUserCheckpointReason ? { skipOptionalUserCheckpointReason } : {}),
       ...(typeof flags.preparation === "string" ? { preparationId: flags.preparation } : {}),
+      ...(deliveryTargetId ? { deliveryTargetId } : {}),
     })) as {
       ok: true;
       questId: string;

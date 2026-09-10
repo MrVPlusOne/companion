@@ -22,7 +22,26 @@ export interface DeliveryTarget {
   repoRoot: string;
   checkoutPath: string;
   branch: string;
-  mode: "remote-backed" | "worktree" | "direct";
+  mode: "remote-backed" | "worktree" | "direct" | "published";
+  publication?: PublishedDeliveryTarget & { approvalId: string };
+}
+
+/** Exact published branch heads, ordered in delivery order, in an independent checkout. */
+export interface PublishedDeliveryTarget {
+  checkoutPath: string;
+  remote: string;
+  repositoryUrl: string;
+  refs: Array<{ ref: string; sha: string }>;
+}
+
+/** An immutable leader authorization scoped to one assigned worker and Work occurrence. */
+export interface QuestDeliveryTargetApproval {
+  id: string;
+  approvedAt: number;
+  leaderSessionId: string;
+  workerSessionId: string;
+  phaseOccurrenceId: string;
+  target: PublishedDeliveryTarget;
 }
 
 export interface QuestDeliveredCommit extends CommitSummary {

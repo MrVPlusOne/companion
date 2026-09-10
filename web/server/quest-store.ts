@@ -3,8 +3,8 @@ import { readdir, readFile, writeFile, unlink, mkdir, rm, stat, rename } from "n
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import type { QuestCodeDelivery } from "../shared/quest-delivery.js";
-import { appendCodeEvidence } from "./quest-delivery-evidence.js";
+import type { QuestCodeDelivery, QuestDeliveryTargetApproval } from "../shared/quest-delivery.js";
+import { appendCodeEvidence, appendDeliveryTargetApproval } from "./quest-delivery-evidence.js";
 import {
   hasQuestReviewMetadata,
   type QuestmasterTask,
@@ -1367,9 +1367,23 @@ export async function appendQuestCodeCommitEvidenceForOwner(
     throw new Error("At least one code commit SHA is required");
   }
 
-  const appendEvidence = (current: QuestmasterTask): QuestmasterTask =>
-    appendCodeEvidence(current, normalizedOwner, normalizedCommitShas, delivery);
+  return mutateQuestWorkEvidence(questId, (current) =>
+    appendCodeEvidence(current, normalizedOwner, normalizedCommitShas, delivery),
+  );
+}
 
+/** Called only by the authenticated assigned-leader target approval route. */
+export async function appendQuestDeliveryTargetApproval(
+  questId: string,
+  approval: QuestDeliveryTargetApproval,
+): Promise<QuestmasterTask | null> {
+  return mutateQuestWorkEvidence(questId, (current) => appendDeliveryTargetApproval(current, approval));
+}
+
+async function mutateQuestWorkEvidence(
+  questId: string,
+  appendEvidence: (current: QuestmasterTask) => QuestmasterTask,
+): Promise<QuestmasterTask | null> {
   const liveStore = await readLiveQuestStore();
   if (liveStore) {
     return mutateLiveQuestStore(async (store) => {
