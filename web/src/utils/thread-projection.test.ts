@@ -29,13 +29,13 @@ function transition(id: string, sourceThreadKey: string, threadKey: string): Cha
 }
 
 describe("thread transition projection", () => {
-  it("keeps outbound and suppresses inbound markers per selected quest thread", () => {
-    // This mirrors the reported bidirectional cluster: q-1752 should retain
-    // its outbound handoff while omitting the redundant inbound continuation.
+  it("clears an outbound notice when a later transition returns to its thread", () => {
+    // A return retires the earlier departure in the ordinary source feed;
+    // the other thread still has its current outgoing notice.
     const outbound = transition("outbound", "q-1752", "q-1742");
     const inbound = transition("inbound", "q-1742", "q-1752");
 
-    expect(filterMessagesForThread([outbound, inbound], "q-1752").map(({ id }) => id)).toEqual(["outbound"]);
+    expect(filterMessagesForThread([outbound, inbound], "q-1752").map(({ id }) => id)).toEqual([]);
     expect(filterMessagesForThread([outbound, inbound], "q-1742").map(({ id }) => id)).toEqual(["inbound"]);
   });
 
@@ -88,13 +88,14 @@ describe("thread transition projection", () => {
     ]);
   });
 
-  it("leaves Main transition behavior unchanged", () => {
+  it("also clears Main departures on a return without affecting raw markers", () => {
     const outboundFromMain = transition("main-outbound", "main", "q-1752");
     const inboundToMain = transition("main-inbound", "q-1752", "main");
     const questTransition = transition("quest-transition", "q-1752", "q-1742");
 
     expect(
       filterMessagesForThread([outboundFromMain, inboundToMain, questTransition], "main").map(({ id }) => id),
-    ).toEqual(["main-outbound"]);
+    ).toEqual([]);
+    expect(filterMessagesForThread([outboundFromMain, inboundToMain, questTransition], "all")).toHaveLength(3);
   });
 });

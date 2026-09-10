@@ -43,6 +43,7 @@ import {
   isThreadTransitionMarkerMessage,
   normalizeThreadKey,
   recoverRoutedNotificationSourceMessages,
+  retainCurrentThreadContinuation,
 } from "./thread-projection.js";
 import { composeSelectedFeedMessages } from "./thread-window-messages.js";
 import {
@@ -255,7 +256,11 @@ function filterProjectedMessagesForThread(
     liveMessages.push(message);
   }
 
-  return [...threadLocalMessages, ...filterMessagesForThread(liveMessages, threadKey)];
+  return retainCurrentThreadContinuation(
+    [...threadLocalMessages, ...filterMessagesForThread(liveMessages, threadKey)],
+    messages,
+    threadKey,
+  );
 }
 
 function isThreadSystemMarkerMessage(message: ChatMessage): boolean {

@@ -19,6 +19,7 @@ import { isCanonicalLeaderTimerMessageId, isLeaderTimerAnswerTarget } from "./le
 import { deriveWindowAvailability } from "./window-availability.js";
 import { isCodexLeaderRecoveryDiagnosticSourceId, isLeaderKickoffPrompt } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
+import { currentThreadContinuationId } from "./thread-continuation.js";
 import {
   inferThreadTargetFromTextContent,
   isQuestThreadKey,
@@ -835,7 +836,11 @@ function buildThreadConversationItems(
 ): FeedItem[] {
   const items = buildFeedItems(messages, threadKey, includeMessage);
   if (threadKey === ALL_THREADS_KEY) return items;
-  return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));
+  const continuationId = currentThreadContinuationId(messages, threadKey, includeMessage);
+  const visibleItems = items.filter(
+    ({ entry }) => entry.message.type !== "thread_transition_marker" || entry.message.id === continuationId,
+  );
+  return dedupeFeedItems(addTurnClosingResults(visibleItems, messages, includeMessage));
 }
 
 function buildFeedItems(

@@ -63,7 +63,7 @@ export function PlaygroundTurnActivitySection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Turn Activity"
-        description="The summary aligns with the guide. Continuation and background events stay inside each activity section; both answers remain separate."
+        description="The summary aligns with the guide. Returned-work notices have cleared, background activity stays together, and both answers remain separate."
       >
         <div
           className="max-h-[720px] max-w-4xl space-y-3 overflow-y-auto rounded-xl bg-cc-bg p-3 sm:p-6"

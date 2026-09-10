@@ -966,62 +966,6 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getAllByText("Ready for review")).toHaveLength(1);
   });
 
-  it("collapses command runs on both sides of a visible thread transition", () => {
-    // Thread routing chips remain meaningful boundaries, but harmless notify-list calls inside each run still compact.
-    const sid = "test-compact-tools-around-thread-marker";
-    mockStoreValues.compactToolActivity = true;
-    const timestamp = 1_700_000_000_000;
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Inspect both thread segments", timestamp }),
-      makeMessage({
-        id: "tools-before",
-        role: "assistant",
-        content: "",
-        timestamp: timestamp + 1,
-        contentBlocks: [
-          { type: "tool_use", id: "notify-list", name: "Bash", input: { command: "takode notify list" } },
-          { type: "tool_use", id: "board-detail", name: "Bash", input: { command: "takode board detail q-1777" } },
-        ],
-      }),
-      makeMessage({
-        id: "thread-transition",
-        role: "system",
-        content: "",
-        timestamp: timestamp + 2,
-        metadata: {
-          threadTransitionMarker: {
-            type: "thread_transition_marker",
-            id: "thread-transition",
-            timestamp: timestamp + 2,
-            markerKey: "thread-transition:main->q-1777",
-            sourceThreadKey: "main",
-            threadKey: "q-1777",
-            questId: "q-1777",
-            transitionedAt: timestamp + 2,
-            reason: "route_switch",
-          },
-        },
-      }),
-      makeMessage({
-        id: "tools-after",
-        role: "assistant",
-        content: "",
-        timestamp: timestamp + 3,
-        contentBlocks: [
-          { type: "tool_use", id: "takode-list", name: "Bash", input: { command: "takode list" } },
-          { type: "tool_use", id: "quest-status", name: "Bash", input: { command: "quest status q-1777" } },
-        ],
-      }),
-    ]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(2);
-    expect(screen.getAllByText("Ran 2 commands")).toHaveLength(2);
-    expect(screen.getByTestId("thread-transition-marker")).toBeTruthy();
-    expect(screen.queryByText("Terminal")).toBeNull();
-  });
-
   it("renders user and assistant messages", () => {
     const sid = "test-render-msgs";
     setStoreMessages(sid, [
@@ -1285,13 +1229,12 @@ describe("MessageFeed - message rendering", () => {
 
     const chip = screen.getByLabelText("Thread Ready for Main: q-1307 dispatched");
     const statusFooter = screen.getByTestId("turn-thread-status-footer");
-    const routingMarker = screen.getByTestId("thread-transition-marker");
+    // The later Main output clears the old notice without changing footer ownership.
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
     const laterItem = screen.getByText("Later visible turn-end item");
     const feedEndSlack = document.querySelector("[data-feed-end-slack]");
 
     expect(screen.getByText("Main is clear; the notification-bell bug is now tracked as q-1307.")).toBeTruthy();
-    expect(routingMarker.textContent).toContain("Work continued from current thread to thread:q-1306");
-    expect(routingMarker.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(laterItem.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusFooter.textContent).toContain("Thread Ready");
     expect(statusFooter.textContent?.startsWith("Status")).toBe(false);

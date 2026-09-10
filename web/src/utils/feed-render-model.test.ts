@@ -1564,7 +1564,7 @@ describe("feed render model builders", () => {
     expect(model.messages.map((message) => message.id)).toEqual(["completion", "quiz"]);
   });
 
-  it("keeps outbound and suppresses inbound selected-thread window transition markers", () => {
+  it("retires an outbound notice when its selected thread has received a return transition", () => {
     const sourceMarker = makeTransitionMarker({
       id: "transition-q1139-q1141",
       sourceThreadKey: "q-1139",
@@ -1595,11 +1595,8 @@ describe("feed render model builders", () => {
       sessionNotifications: [],
     });
 
-    expect(sync.entries.map((entry) => (entry.message as { id?: string }).id)).toEqual([
-      "transition-q1139-q1141",
-      "transition-q1141-q1139",
-    ]);
-    expect(model.messages.map((message) => message.id)).toEqual(["transition-q1139-q1141"]);
+    expect(sync.entries).toEqual([]);
+    expect(model.messages).toEqual([]);
   });
 
   it("projects producer-shaped Main-origin handoff markers in the Main selected window", () => {

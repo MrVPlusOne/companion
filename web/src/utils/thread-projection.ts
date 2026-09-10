@@ -14,6 +14,7 @@ import {
 } from "../../shared/thread-routing.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
 import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
+import { currentThreadContinuationId } from "../../shared/thread-continuation.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
@@ -484,8 +485,24 @@ export function formatThreadLabel(threadKey: string): string {
 
 export function filterMessagesForThread(messages: ChatMessage[], threadKey: string): ChatMessage[] {
   if (isAllThreadsKey(threadKey)) return messages;
-  if (isMainThreadKey(threadKey)) return filterMainThreadMessages(messages);
-  return filterQuestThreadMessages(messages, normalizeThreadKey(threadKey));
+  const projected = isMainThreadKey(threadKey)
+    ? filterMainThreadMessages(messages)
+    : filterQuestThreadMessages(messages, normalizeThreadKey(threadKey));
+  return retainCurrentThreadContinuation(projected, messages, threadKey);
+}
+
+/** Apply the same lifetime rule to a server window combined with live events. */
+export function retainCurrentThreadContinuation(
+  projected: ChatMessage[],
+  source: ChatMessage[],
+  threadKey: string,
+): ChatMessage[] {
+  if (isAllThreadsKey(threadKey)) return projected;
+  const currentId = currentThreadContinuationId(source, threadKey);
+  return projected.filter((message) => {
+    const marker = message.metadata?.threadTransitionMarker;
+    return !marker || marker.id === currentId;
+  });
 }
 
 function pendingCodexInputOwnerKeys(input: PendingCodexInput): { mapped: boolean; keys: Set<string> } {

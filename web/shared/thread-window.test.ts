@@ -822,15 +822,10 @@ describe("thread window hydration", () => {
       visibleItemCount: 2,
     });
 
-    // Thread-window payloads are server-owned. This regression keeps route
-    // transition rows local to the source/destination pair instead of letting
-    // sibling quest transitions accumulate in unrelated selected feeds.
+    // The window producer retains only each thread's current departure. Inbound
+    // markers and unrelated transitions remain in raw/All audit, not this view.
     expect(sourceSync.entries.map((entry) => entry.message)).toEqual([history[0], sourceToDestination]);
-    expect(destinationSync.entries.map((entry) => entry.message)).toEqual([
-      sourceToDestination,
-      unrelatedPair,
-      history[3],
-    ]);
+    expect(destinationSync.entries.map((entry) => entry.message)).toEqual([unrelatedPair, history[3]]);
     expect(thirdThreadSync.entries).toEqual([]);
   });
 
@@ -888,7 +883,7 @@ describe("thread window hydration", () => {
       history[2],
       mainToDestination,
     ]);
-    expect(destinationSync.entries.map((entry) => entry.message)).toEqual([mainToDestination, history[4]]);
+    expect(destinationSync.entries.map((entry) => entry.message)).toEqual([history[4]]);
     expect(thirdThreadSync.entries).toEqual([]);
   });
 
@@ -935,7 +930,7 @@ describe("thread window hydration", () => {
 
     expect(indexes(main)).toEqual([4, 5, 6]);
     expect(indexes(q2003)).toEqual([0, 1, 2, 3]);
-    expect(indexes(q2006)).toEqual([6, 7]);
+    expect(indexes(q2006)).toEqual([7]);
     expect(indexes(all)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(q2003.entries.filter((entry) => entry.message === q2003Event)).toHaveLength(1);
     expect(main.entries.some((entry) => entry.message === q2003Event)).toBe(false);

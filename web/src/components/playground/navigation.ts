@@ -66,6 +66,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Commit delivery chips",
     "Routed Answers",
     "Turn Activity",
+    "Temporary Continuation Notices",
     "Original Thread Visibility",
     "Copy Features",
     "Markdown Math",

@@ -8,6 +8,7 @@ import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 import { PlaygroundInlineQuestPreviewSection } from "./playground/PlaygroundInlineQuestPreviewSection.js";
 import { PlaygroundThreadResponseSection } from "./playground/PlaygroundThreadResponseSection.js";
 import { PlaygroundTurnActivitySection } from "./playground/PlaygroundTurnActivitySection.js";
+import { PlaygroundThreadContinuationSection } from "./playground/PlaygroundThreadContinuationSection.js";
 import { PlaygroundOriginalThreadSection } from "./playground/PlaygroundOriginalThreadSection.js";
 import { PlaygroundStateSections } from "./playground/sections-states.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
@@ -98,6 +99,7 @@ export function Playground() {
           <PlaygroundCommitDeliverySection />
           <PlaygroundThreadResponseSection />
           <PlaygroundTurnActivitySection />
+          <PlaygroundThreadContinuationSection />
           <PlaygroundOriginalThreadSection />
           <PlaygroundInteractiveSections />
           <PlaygroundStateSections />

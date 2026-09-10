@@ -609,17 +609,17 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
   });
 
-  it("shows thread-detail marker rows when the same turn is expanded", () => {
-    // Expanded inspection remains the audit path: the underlying markers are
-    // not deleted or rewritten, and their destination controls still render.
+  it("keeps other expanded thread details after work has retired a continuation notice", () => {
+    // Ordinary expansion does not resurrect the departure after Main work
+    // returns. Other details and the stored audit marker remain available.
     const sid = "test-expanded-thread-detail-markers-visible";
     seedThreadMarkerTurn(sid);
     setStoreTurnOverrides(sid, [["u1", true]]);
 
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
-    const marker = screen.getByTestId("thread-system-marker-cluster");
-    expect(marker.textContent).toContain("Work continued from current thread to thread:q-941");
+    const marker = screen.getByTestId("cross-thread-activity-marker");
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
     expect(marker.textContent).toContain("1 activity in thread:q-941");
     expect(within(marker).getAllByRole("button", { name: "thread:q-941" }).length).toBeGreaterThan(0);
   });
@@ -687,24 +687,21 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     const view = render(<MessageFeed sessionId={sid} threadKey="q-1752" onSelectThread={onSelectThread} />);
 
-    const marker = screen.getByTestId("thread-system-marker-cluster");
-    expect(marker.textContent).toContain("Work continued from current thread to thread:q-1742");
-    expect(marker.textContent).not.toContain("Work continued from thread:q-1742 to thread:q-1752");
+    const marker = screen.getByTestId("cross-thread-activity-marker");
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
     expect(marker.textContent).toContain("1 activity in thread:q-1752");
     expect(screen.queryByText("1 message moved to q-1752")).toBeNull();
-    fireEvent.click(within(marker).getByRole("button", { name: "current thread" }));
-    expect(onSelectThread).toHaveBeenLastCalledWith("q-1752");
-    fireEvent.click(within(marker).getByRole("button", { name: "thread:q-1742" }));
-    expect(onSelectThread).toHaveBeenCalledWith("q-1742");
 
     // Switching the actual view recomputes labels without changing the shared
-    // marker objects, directional visibility, or mixed activity details.
+    // marker objects or mixed activity details. The other thread is still away.
     view.rerender(<MessageFeed sessionId={sid} threadKey="q-1742" onSelectThread={onSelectThread} />);
     expect(screen.getByTestId("thread-transition-marker").textContent).toBe(
       "Work continued from current thread to thread:q-1752",
     );
     fireEvent.click(screen.getByRole("button", { name: "current thread" }));
     expect(onSelectThread).toHaveBeenLastCalledWith("q-1742");
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-1752" }));
+    expect(onSelectThread).toHaveBeenLastCalledWith("q-1752");
 
     view.rerender(<MessageFeed sessionId={sid} threadKey="all" onSelectThread={onSelectThread} />);
     const audit = screen.getByTestId("thread-system-marker-cluster");
@@ -1477,5 +1474,65 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     expect(screen.getByText("Codex metadata now selects the informative response.")).toBeTruthy();
     expect(screen.getByText("Checking one more internal detail after the response.")).toBeTruthy();
+  });
+  it("joins command runs after return while preserving the transition boundary in All Threads", () => {
+    // Later Main tool activity retires the notice, allowing adjacent command
+    // runs to compact together. The raw audit still keeps its original boundary.
+    const sid = "test-compact-tools-around-thread-marker";
+    mockStoreValues.compactToolActivity = true;
+    const timestamp = 1_700_000_000_000;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Inspect both thread segments", timestamp }),
+      makeMessage({
+        id: "tools-before",
+        role: "assistant",
+        content: "",
+        timestamp: timestamp + 1,
+        contentBlocks: [
+          { type: "tool_use", id: "notify-list", name: "Bash", input: { command: "takode notify list" } },
+          { type: "tool_use", id: "board-detail", name: "Bash", input: { command: "takode board detail q-1777" } },
+        ],
+      }),
+      makeMessage({
+        id: "thread-transition",
+        role: "system",
+        content: "",
+        timestamp: timestamp + 2,
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "thread-transition",
+            timestamp: timestamp + 2,
+            markerKey: "thread-transition:main->q-1777",
+            sourceThreadKey: "main",
+            threadKey: "q-1777",
+            questId: "q-1777",
+            transitionedAt: timestamp + 2,
+            reason: "route_switch",
+          },
+        },
+      }),
+      makeMessage({
+        id: "tools-after",
+        role: "assistant",
+        content: "",
+        timestamp: timestamp + 3,
+        contentBlocks: [
+          { type: "tool_use", id: "takode-list", name: "Bash", input: { command: "takode list" } },
+          { type: "tool_use", id: "quest-status", name: "Bash", input: { command: "quest status q-1777" } },
+        ],
+      }),
+    ]);
+
+    const view = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByText("Ran 4 commands")).toBeTruthy();
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+    view.rerender(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(2);
+    expect(screen.getAllByText("Ran 2 commands")).toHaveLength(2);
+    expect(screen.getByTestId("thread-transition-marker")).toBeTruthy();
+    expect(screen.queryByText("Terminal")).toBeNull();
   });
 });

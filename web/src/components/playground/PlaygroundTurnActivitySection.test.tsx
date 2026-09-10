@@ -92,12 +92,9 @@ function assertDisclosureFlow(container: HTMLElement) {
   expect(runs).toHaveLength(3);
   expect(within(runs[0]!).getByText(/I’ll check how the list restores/)).toBeVisible();
   expect(within(runs[1]!).getByText(/I’m also checking/)).toBeVisible();
-  // The producer-authored continuation markers stay inside
-  // the same guide as adjacent activity, rather than splitting it into five runs.
-  const transitions = view.getAllByTestId("thread-transition-marker");
-  expect(transitions).toHaveLength(2);
-  expect(transitions[0].closest("[data-turn-activity]")).toBe(runs[0]);
-  expect(transitions[1].closest("[data-turn-activity]")).toBe(runs[1]);
+  // Both departures have later same-thread work. Their raw markers remain in
+  // the fixture, but ordinary expansion cannot resurrect them or split the guide.
+  expect(view.queryAllByTestId("thread-transition-marker")).toHaveLength(0);
   // Provider final_answer on a leader commentary row does not make it an
   // explicit answer or justify a different visual level from other activity.
   expect(view.getByText(/The worker has confirmed filter restoration/).closest("[data-turn-activity]")).toBe(runs[0]);
@@ -184,11 +181,11 @@ describe("turn activity disclosure integration", () => {
     );
     assertDisclosureFlow(container);
     fireEvent.click(screen.getByRole("button", { name: /^Show turn activity/ }));
-    const marker = within(screen.getAllByTestId("thread-transition-marker")[0]);
-    fireEvent.click(marker.getByRole("button", { name: "current thread" }));
-    expect(onSelectThread).toHaveBeenLastCalledWith("q-42");
-    fireEvent.click(marker.getByRole("button", { name: "thread:q-43" }));
-    expect(onSelectThread).toHaveBeenLastCalledWith("q-43");
+    expect(screen.queryAllByTestId("thread-transition-marker")).toHaveLength(0);
+    expect(turnActivityFixture.history.filter((message) => message.type === "thread_transition_marker")).toHaveLength(
+      2,
+    );
+    expect(onSelectThread).not.toHaveBeenCalled();
   });
 
   it.each([
