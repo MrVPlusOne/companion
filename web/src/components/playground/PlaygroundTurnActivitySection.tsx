@@ -7,6 +7,7 @@ import { filterMessagesForThread } from "../../utils/thread-projection.js";
 import { buildFeedSections } from "../message-feed-sections.js";
 import { TurnEntries } from "../MessageFeedTurns.js";
 import { resolveThreadResponses } from "../thread-response-presentation.js";
+import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { PlaygroundSectionGroup, Section } from "./shared.js";
 
 const EMPTY_IDS = new Set<string>();
@@ -14,6 +15,7 @@ const NOOP = () => {};
 
 export function PlaygroundTurnActivitySection() {
   const [expanded, setExpanded] = useState(false);
+  const [longExpanded, setLongExpanded] = useState(false);
   const { sections, presentation } = useMemo(() => {
     const sync = buildTurnActivityFixtureWindow();
     const proof = sync.entries.flatMap((entry) =>
@@ -84,6 +86,16 @@ export function PlaygroundTurnActivitySection() {
             threadResponsePresentation={presentation}
             activeNeedsInputAnchorMessageIds={EMPTY_IDS}
             visibleThreadStatuses={[]}
+          />
+        </div>
+      </Section>
+      <Section title="Long Turn Duration" description="Hour-long summaries show hours and minutes in both states.">
+        <div data-testid="playground-turn-duration">
+          <TurnActivityDisclosure
+            stats={{ messageCount: 9, toolCount: 18, subagentCount: 0, herdEventCount: 5 }}
+            durationMs={62_024_000}
+            expanded={longExpanded}
+            onToggle={() => setLongExpanded((value) => !value)}
           />
         </div>
       </Section>

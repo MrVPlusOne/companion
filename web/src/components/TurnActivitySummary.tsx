@@ -64,7 +64,10 @@ export function TurnActivityDisclosure({
 
 function summaryLabels(stats: TurnStats, durationMs: number | null): string[] {
   const labels: string[] = [];
-  if (durationMs !== null) labels.push(formatElapsed(durationMs));
+  if (durationMs !== null) {
+    const minutes = Math.floor(durationMs / 60_000);
+    labels.push(minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : formatElapsed(durationMs));
+  }
   if (stats.messageCount > 0) labels.push(stats.messageCount + (stats.messageCount === 1 ? " message" : " messages"));
   if (stats.toolCount > 0) labels.push(stats.toolCount + (stats.toolCount === 1 ? " tool" : " tools"));
   if (stats.subagentCount > 0) labels.push(stats.subagentCount + (stats.subagentCount === 1 ? " agent" : " agents"));
