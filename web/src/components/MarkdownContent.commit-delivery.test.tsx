@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { Hono } from "hono";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -9,7 +9,12 @@ import { getQuest } from "../../server/quest-store.js";
 import { readCommitPatch, readCommitSummary } from "../../server/git-commit-reader.js";
 import { verifyReview } from "../../server/port-tracking.js";
 import { deliveryCommitHref } from "../../shared/quest-delivery.js";
-import { deliveryFixture, FIRST_DELIVERY_SHA, REVIEW_FIXTURE_SHA } from "../test-fixtures/commit-delivery-fixture.js";
+import {
+  deliveryFixture,
+  FIRST_DELIVERY_SHA,
+  SECOND_DELIVERY_SHA,
+  REVIEW_FIXTURE_SHA,
+} from "../test-fixtures/commit-delivery-fixture.js";
 
 vi.mock("../../server/quest-store.js", () => ({ getQuest: vi.fn() }));
 vi.mock("../../server/git-commit-reader.js", () => ({ readCommitSummary: vi.fn(), readCommitPatch: vi.fn() }));
@@ -81,4 +86,44 @@ it("renders exact Markdown delivery links through the real API/viewer path while
   fireEvent.click(screen.getByRole("button", { name: "Review history" }));
   expect(await screen.findByText("Retained original")).toBeVisible();
   expect(requests.every((request) => request.method === "GET")).toBe(true);
+});
+
+it("groups adjacent commit links without absorbing surrounding prose or changing the selected commit", async () => {
+  // The CLI emits one link per line; remark-breaks turns those separators into br nodes.
+  const first = "[First](" + deliveryCommitHref("q-9904", deliveryFixture.id, FIRST_DELIVERY_SHA) + ")";
+  // A visual group can include another quest's evidence; grouping must not borrow the first link's owner.
+  const second = "[Second](" + deliveryCommitHref("q-9905", deliveryFixture.id, SECOND_DELIVERY_SHA) + ")";
+  const { container } = render(<MarkdownContent text={"Before " + first + "\n" + second + " after.\n\n" + second} />);
+  await screen.findAllByRole("button", { name: /Open commit/ });
+  const groups = screen.getAllByRole("group", { name: "Commits" });
+  expect(groups).toHaveLength(2);
+  expect(within(groups[0]!).getAllByRole("button")).toHaveLength(2);
+  expect(within(groups[1]!).getAllByRole("button")).toHaveLength(1);
+  expect(groups[0]?.parentElement?.firstChild?.textContent).toBe("Before ");
+  expect(groups[0]?.parentElement?.lastChild?.textContent).toBe(" after.");
+  expect(container.querySelectorAll("p")).toHaveLength(2);
+
+  fireEvent.click(within(groups[0]!).getByRole("button", { name: /Update the loading illustration/ }));
+  await waitFor(() =>
+    expect(requests).toContainEqual({
+      path: `/quests/q-9905/deliveries/${deliveryFixture.id}/commits/${SECOND_DELIVERY_SHA}?review=false&includeDiff=true`,
+      method: "GET",
+    }),
+  );
+});
+
+it("ends groups at prose and paragraph boundaries and preserves incomplete or literal links while streaming", async () => {
+  // A trailing separator or unfinished link must terminate, not loop or join another semantic block.
+  const href = deliveryCommitHref("q-9904", deliveryFixture.id, FIRST_DELIVERY_SHA);
+  const link = "[Change](" + href + ")";
+  const view = render(<MarkdownContent text={link + "\n[unfinished"} />);
+  expect(screen.getAllByRole("group", { name: "Commits" })).toHaveLength(1);
+  expect(screen.getByText("[unfinished")).toBeVisible();
+
+  view.rerender(<MarkdownContent text={link + " text " + link + "\n\n`" + link + "`\n\n- " + link} />);
+  await screen.findAllByRole("button", { name: /Open commit/ });
+  expect(screen.getAllByRole("group", { name: "Commits" })).toHaveLength(3);
+  expect(view.container.querySelector("code")?.textContent).toBe(link);
+  expect(view.container.querySelectorAll("li")).toHaveLength(1);
+  expect(view.container.querySelector("li [role=group]")).toBeInTheDocument();
 });

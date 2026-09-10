@@ -100,8 +100,7 @@ export function QuestCommitChip({
       <button
         ref={triggerRef}
         type="button"
-        className="my-0.5 inline-grid max-w-full grid-cols-[8.5rem_minmax(0,1fr)] items-center gap-2 rounded-md border border-cc-border bg-cc-hover/60 px-2 py-1 align-middle text-left text-xs text-cc-fg hover:border-cc-primary/50 focus-visible:outline-2 focus-visible:outline-cc-primary"
-        style={{ width: "min(100%, 25rem)" }}
+        className="commit-chip my-0.5 inline-grid max-w-full grid-cols-[max-content_minmax(0,1fr)] items-center gap-2 rounded-md border border-cc-border bg-cc-hover/60 px-2 py-1 align-middle text-left text-xs text-cc-fg hover:border-cc-primary/50 focus-visible:outline-2 focus-visible:outline-cc-primary"
         title={title}
         aria-label={
           selected
@@ -118,12 +117,15 @@ export function QuestCommitChip({
           }
         }}
       >
-        <span className="flex min-w-0 flex-col font-mono-code tabular-nums" data-testid="commit-chip-stats">
+        <span
+          className="flex flex-col items-end whitespace-nowrap font-mono-code tabular-nums"
+          data-testid="commit-chip-stats"
+        >
           {selected ? (
             <>
-              <span className="grid grid-cols-2 gap-2">
-                <span className="text-right text-emerald-500">+{compactCount(selected.additions)}</span>
-                <span className="text-right text-red-400">−{compactCount(selected.deletions)}</span>
+              <span className="flex justify-end gap-1.5">
+                <span className="text-emerald-500">+{compactCount(selected.additions)}</span>
+                <span className="text-red-400">−{compactCount(selected.deletions)}</span>
               </span>
               {selected.binaryFiles > 0 && (
                 <span className="text-right text-[10px] text-cc-muted">{selected.binaryFiles} binary</span>

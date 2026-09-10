@@ -16,16 +16,17 @@ export function PlaygroundCommitDeliverySection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Commit delivery chips"
-        description="Exact delivery selection, stats-first bounded titles, binary changes, retained review, and unavailable repositories."
+        description="Content-sized groups with compact stats pairs, aligned titles, exact delivery selection, retained review, and unavailable repositories."
       >
         <Card label="Recorded delivery responses">
           <div className="space-y-3">
             <p className="text-sm text-cc-fg">
               The first change is synced. These chips retain this delivery’s exact commits.
             </p>
-            {deliveryFixture.commits.map((commit) => (
-              <div key={commit.sha} className="min-w-0">
+            <span className="commit-chip-group" role="group" aria-label="First delivery commits">
+              {deliveryFixture.commits.map((commit) => (
                 <QuestCommitChip
+                  key={commit.sha}
                   questId={DELIVERY_FIXTURE_QUEST}
                   deliveryId={deliveryFixture.id}
                   sha={commit.sha}
@@ -33,8 +34,21 @@ export function PlaygroundCommitDeliverySection() {
                 >
                   {commit.message}
                 </QuestCommitChip>
-              </div>
-            ))}
+              ))}
+            </span>
+            <div>
+              <p className="mb-2 text-sm text-cc-fg">A separate short commit sizes to its own content.</p>
+              <span className="commit-chip-group" role="group" aria-label="Single commit">
+                <QuestCommitChip
+                  questId={DELIVERY_FIXTURE_QUEST}
+                  deliveryId={laterDeliveryFixture.id}
+                  sha={laterDeliveryFixture.commits[0]!.sha}
+                  client={client}
+                >
+                  Later fix
+                </QuestCommitChip>
+              </span>
+            </div>
             {later && (
               <div className="border-t border-cc-border pt-3">
                 <p className="mb-2 text-sm text-cc-fg">Later response: the empty-state issue is fixed.</p>

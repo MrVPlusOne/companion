@@ -1139,6 +1139,23 @@ select {
   overflow-y: auto;
 }
 
+/* Shared intrinsic columns align titles without reserving a fixed width for every chip. */
+.commit-chip-group {
+  display: inline-grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 0.5rem;
+  width: max-content;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.commit-chip-group > .commit-chip {
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+.commit-chip-group > br {
+  display: none;
+}
+
 /* Hide hover card on touch-only devices */
 @media (hover: none) {
   .hidden-on-touch {

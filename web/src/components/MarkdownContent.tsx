@@ -17,6 +17,7 @@ import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { rehypeCommitGroups } from "../utils/markdown-commit-groups.js";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import { QuestCommitChip } from "./QuestCommitChip.js";
@@ -712,6 +713,7 @@ export const MarkdownContent = memo(function MarkdownContent({
           [remarkMathSourceCompatibility, preparedMath],
         ]}
         rehypePlugins={[
+          rehypeCommitGroups,
           [rehypeRestorePreparedMathMarkers, preparedMath],
           rehypeWrapMathSource,
           [rehypeKatex, KATEX_RENDER_OPTIONS],
