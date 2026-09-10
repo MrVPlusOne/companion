@@ -27,6 +27,7 @@ import { PlaygroundQuestDetailModalSection } from "./PlaygroundQuestDetailModalS
 import { PlaygroundAutoPauseBannerStates } from "./AutoPausePlaygroundStates.js";
 import { PlaygroundReasoningDetailStates } from "./ReasoningDetailStates.js";
 import { PlaygroundLeaderActivityStates } from "./LeaderActivityStates.js";
+import { PlaygroundJourneyProposal } from "./PlaygroundJourneyProposal.js";
 import { PlaygroundQuestJourneyPalette } from "./PlaygroundQuestJourneyPalette.js";
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import { PlaygroundTodoStates } from "./PlaygroundTodoStates.js";
@@ -1240,47 +1241,8 @@ export function PlaygroundInteractiveSections() {
           <Card label="Expanded board with raw inspection">
             <PlaygroundBoardWithOriginalCommand />
           </Card>
-          <Card label="Optional Journey proposal">
-            <BoardBlock
-              defaultOpen
-              operation="propose q-942"
-              proposalReview={{
-                questId: "q-942",
-                title: "Make proposed Journey drafting intentional",
-                status: "PROPOSED",
-                presentedAt: Date.now() - 30000,
-                summary:
-                  "Goal / Acceptance: approve a proposal flow with a preset checkpoint inside Work. Scheduling: wait for the current approval prompt, then promote the proposed row.",
-                journey: {
-                  mode: "proposed",
-                  presetId: "v2-work",
-                  phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
-                  phaseNotes: {
-                    "1": "Trace CLI, server, and UI paths during Work.",
-                    "2": "Pause for the preset decision before Work resumes.",
-                  },
-                  presentation: {
-                    state: "presented",
-                    presentedAt: Date.now() - 30000,
-                    signature: "playground",
-                  },
-                },
-              }}
-              board={[
-                {
-                  questId: "q-942",
-                  title: "Make proposed Journey drafting intentional",
-                  status: "PROPOSED",
-                  waitForInput: ["n-3"],
-                  journey: {
-                    mode: "proposed",
-                    presetId: "v2-work",
-                    phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
-                  },
-                  updatedAt: Date.now() - 30000,
-                },
-              ]}
-            />
+          <Card label="Markdown Journey proposal with raw inspection">
+            <PlaygroundJourneyProposal />
           </Card>
           <Card label="Journey phase summaries">
             <div className="p-3">

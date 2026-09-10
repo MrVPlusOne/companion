@@ -21,7 +21,7 @@ vi.mock("../api.js", () => ({ api: { markNotificationDone, getToolResult } }));
 const SESSION_ID = "leader-proposal-context";
 const THREAD_KEY = "q-310";
 const PROPOSAL_SUMMARY =
-  "Use one shared budget for each case. Preserve tool execution limits. Approve this definition?";
+  "## Goal / Acceptance\n\nUse **one shared budget** for each case.\n\n- Preserve tool execution limits.\n- Keep [source context](quest:q-309:feedback:2).\n\nApprove this definition?";
 const NOTIFICATION_SUMMARY = "Confirm the proposed budget";
 const route = {
   threadKey: THREAD_KEY,
@@ -206,7 +206,15 @@ describe("Source-owned proposal and notification presentation", () => {
       </FeedNotificationProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText(PROPOSAL_SUMMARY)).toBeInTheDocument());
+    // Real proposal markup must survive bounded delivery and collapsed source
+    // retention for both pending and resolved decisions, without rewriting data.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Goal / Acceptance" })).toBeInTheDocument());
+    expect(screen.getByText("one shared budget").tagName).toBe("STRONG");
+    expect(screen.getByText("Preserve tool execution limits.").closest("li")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "source context" }).getAttribute("href")).toContain(
+      "quest=q-309&feedback=2",
+    );
+    expect(screen.getAllByText("Approve this definition?")).toHaveLength(1);
     expect(screen.getAllByText(NOTIFICATION_SUMMARY)).toHaveLength(1);
     expect(view.container.querySelector('[data-notification-id="n-870"]')?.closest("[data-source]")).toHaveAttribute(
       "data-source",

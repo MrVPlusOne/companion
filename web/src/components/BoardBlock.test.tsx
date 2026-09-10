@@ -3,21 +3,11 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { BoardBlock } from "./BoardBlock.js";
+import { useStore } from "../store.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { BoardRowSessionStatus } from "../types.js";
 
 const liveRowSessionStatuses = new Map<string, Record<string, BoardRowSessionStatus>>();
-
-vi.mock("../store.js", () => ({
-  useStore: (
-    selector: (state: {
-      sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
-    }) => unknown,
-  ) =>
-    selector({
-      sessionBoardRowStatuses: liveRowSessionStatuses,
-    }),
-}));
 
 vi.mock("./BoardTable.js", () => ({
   BoardTable: ({
@@ -41,6 +31,8 @@ vi.mock("./CollapseFooter.js", () => ({
 describe("BoardBlock", () => {
   beforeEach(() => {
     liveRowSessionStatuses.clear();
+    useStore.getState().reset();
+    useStore.setState({ sessionBoardRowStatuses: liveRowSessionStatuses });
   });
 
   it("prefers explicit row session statuses over the live store snapshot", () => {
@@ -157,10 +149,13 @@ describe("BoardBlock", () => {
 
     expect(screen.getByTestId("quest-journey-proposal-review")).toBeInTheDocument();
     expect(screen.getByText("Journey Proposal")).toBeInTheDocument();
-    const summary = screen.getByText((_content, element) => element?.textContent === longSummary, {
-      selector: "[data-testid='quest-journey-proposal-review'] div",
-    });
+    // The shared Markdown renderer preserves soft breaks with <br>, rather
+    // than a literal newline text node; both complete lines remain visible.
+    const summary = screen.getByTestId("quest-journey-proposal-review").querySelector(".markdown-body");
     expect(summary).toBeInTheDocument();
+    expect(summary).toHaveTextContent("Goal / Acceptance: approve the workflow change.");
+    expect(summary).toHaveTextContent("Scheduling: wait for the current reviewer before dispatch.");
+    expect(summary?.querySelector("br")).not.toBeNull();
     expect(summary).not.toHaveClass("truncate");
     expect(screen.getByText("Build the draft and present paths.")).toHaveAttribute("data-purpose-kind", "authored");
     expect(screen.getByText("Build the draft and present paths.")).toHaveClass("ml-[1.375rem]");
