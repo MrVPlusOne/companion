@@ -311,6 +311,7 @@ function ThreadMarkerClusterRow({
   return (
     <div
       className="animate-[fadeSlideIn_0.2s_ease-out] pl-9"
+      data-activity-gutter
       data-testid={testId}
       data-thread-key={firstThreadKey}
       data-message-id={firstMessage?.id}

@@ -3,11 +3,15 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildLeaderThreadResponseState } from "../../../server/leader-thread-response.js";
+import { appendThreadTransitionMarkerForRouteSwitch } from "../../../server/thread-routing-metadata.js";
+import { buildFeedModel } from "../../hooks/use-feed-model.js";
 import { useStore } from "../../store.js";
 import { buildTurnActivityFixtureWindow, turnActivityFixture } from "../../test-fixtures/turn-activity-disclosure.js";
-import type { SessionState } from "../../types.js";
+import type { BrowserIncomingMessage, SessionState } from "../../types.js";
 import { createWsMessageHandler } from "../../ws-handlers.js";
+import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 import { MessageFeed } from "../MessageFeed.js";
+import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { PlaygroundTurnActivitySection } from "./PlaygroundTurnActivitySection.js";
 
 vi.mock("../../api.js", () => ({
@@ -88,6 +92,12 @@ function assertDisclosureFlow(container: HTMLElement) {
   expect(runs).toHaveLength(3);
   expect(within(runs[0]!).getByText(/I’ll check how the list restores/)).toBeVisible();
   expect(within(runs[1]!).getByText(/I’m also checking/)).toBeVisible();
+  // The producer-authored continuation markers stay inside
+  // the same guide as adjacent activity, rather than splitting it into five runs.
+  const transitions = view.getAllByTestId("thread-transition-marker");
+  expect(transitions).toHaveLength(2);
+  expect(transitions[0].closest("[data-turn-activity]")).toBe(runs[0]);
+  expect(transitions[1].closest("[data-turn-activity]")).toBe(runs[1]);
   // Provider final_answer on a leader commentary row does not make it an
   // explicit answer or justify a different visual level from other activity.
   expect(view.getByText(/The worker has confirmed filter restoration/).closest("[data-turn-activity]")).toBe(runs[0]);
@@ -128,6 +138,20 @@ describe("turn activity disclosure integration", () => {
     const window = buildTurnActivityFixtureWindow();
     expect(window.threadResponseSupportComplete).toBe(true);
     expect(window.threadResponseProjection?.currentAnswers).toHaveLength(2);
+    const history: BrowserIncomingMessage[] = [];
+    for (const message of turnActivityFixture.history) {
+      if (message.type !== "thread_transition_marker") {
+        history.push(message);
+        continue;
+      }
+      expect(
+        appendThreadTransitionMarkerForRouteSwitch(
+          history,
+          { threadKey: message.threadKey, questId: message.questId },
+          message.timestamp,
+        ),
+      ).toEqual(message);
+    }
   });
 
   it.each([
@@ -150,10 +174,68 @@ describe("turn activity disclosure integration", () => {
         if (message.type === "tool_result_preview") receive(turnActivityFixture.sessionId, message);
       }
     });
+    const onSelectThread = vi.fn();
     const { container } = render(
-      <MessageFeed sessionId={turnActivityFixture.sessionId} threadKey={turnActivityFixture.threadKey} />,
+      <MessageFeed
+        sessionId={turnActivityFixture.sessionId}
+        threadKey={turnActivityFixture.threadKey}
+        onSelectThread={onSelectThread}
+      />,
     );
     assertDisclosureFlow(container);
+    fireEvent.click(screen.getByRole("button", { name: /^Show turn activity/ }));
+    const marker = within(screen.getAllByTestId("thread-transition-marker")[0]);
+    fireEvent.click(marker.getByRole("button", { name: "current thread" }));
+    expect(onSelectThread).toHaveBeenLastCalledWith("q-42");
+    fireEvent.click(marker.getByRole("button", { name: "thread:q-43" }));
+    expect(onSelectThread).toHaveBeenLastCalledWith("q-43");
+  });
+
+  it.each([
+    { type: "error", id: "guide-error", timestamp: 1788955202600, message: "Background check failed." },
+    {
+      type: "compact_marker",
+      id: "guide-compaction",
+      timestamp: 1788955202600,
+      summary: "Earlier activity compacted.",
+    },
+    {
+      type: "task_notification",
+      task_id: "guide-check",
+      tool_use_id: "activity-first-tools-0",
+      status: "completed",
+      summary: "Background filter check finished.",
+    },
+  ] satisfies BrowserIncomingMessage[])("keeps $type events visible without breaking the guide", (event) => {
+    // Unrouted events belong to full history, not an invented quest route. Use
+    // the real normalizer/model to derive Turn data for the shared renderer.
+    const index = turnActivityFixture.history.findIndex((message) => message.type === "thread_transition_marker");
+    const history = turnActivityFixture.history.map((message, messageIndex) =>
+      messageIndex === index ? event : message,
+    );
+    const model = buildFeedModel(
+      history.flatMap((message, historyIndex) => normalizeHistoryMessageToChatMessages(message, historyIndex)),
+      true,
+    );
+    const normalizedEvent = normalizeHistoryMessageToChatMessages(event, index)[0];
+    const { container } = render(
+      <TurnEntriesExpanded
+        turn={model.turns[0]}
+        sessionId={turnActivityFixture.sessionId}
+        isCodexSession
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />,
+    );
+    const runs = container.querySelectorAll("[data-turn-activity]");
+    expect(runs).toHaveLength(3);
+    expect(screen.getByText(normalizedEvent.content)).toBeVisible();
+    expect(container.querySelector(`[data-message-id="${normalizedEvent.id}"]`)?.closest("[data-turn-activity]")).toBe(
+      runs[0],
+    );
+    expect(screen.getByText(/One additional detail:/).closest("[data-turn-activity]")).toBeNull();
+    expect(model.turns[1].id).toBe("activity-next-request");
+    expect(screen.queryByText("Does that also work when I open an item in a new tab?")).not.toBeInTheDocument();
   });
 
   it("offers the same production rendering in Playground without opening a backend session", () => {

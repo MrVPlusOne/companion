@@ -199,7 +199,9 @@ interface TurnEntryRun {
 }
 
 function groupTurnActivity(turn: Turn, presentation?: ThreadResponsePresentation | null): TurnEntryRun[] {
-  const activityIds = new Set(turn.agentEntries.map(getEntryId));
+  // System events' separate collapse policy must not split the surrounding
+  // activity guide. Retained answers and decisions remain layout boundaries.
+  const guidedEntryIds = new Set([...turn.agentEntries, ...turn.systemEntries].map(getEntryId));
   const retainedIds = new Set(turn.subConclusions.map((item) => getEntryId(item.entry)));
   for (const response of presentation?.currentResponses ?? []) retainedIds.add(response.response.currentMessageId);
   const runs: TurnEntryRun[] = [];
@@ -208,7 +210,7 @@ function groupTurnActivity(turn: Turn, presentation?: ThreadResponsePresentation
   // moving any entry across it. Existing feed classification owns visibility.
   for (const entry of turnPresentationEntries(turn)) {
     const key = getEntryId(entry);
-    const activity = activityIds.has(key) && !retainedIds.has(key);
+    const activity = guidedEntryIds.has(key) && !retainedIds.has(key);
     const previous = runs.at(-1);
     if (previous?.activity === activity) previous.entries.push(entry);
     else runs.push({ key, activity, entries: [entry] });
@@ -410,7 +412,7 @@ export const TurnEntries = memo(function TurnEntries({
                     )}
 
                     {turnPresentationEntries(turn).length > 0 && (
-                      <div className="min-w-0 pl-7 sm:pl-9">
+                      <div className="min-w-0">
                         <TurnActivityDisclosure
                           stats={turn.stats}
                           durationMs={turnSummaryDuration}

@@ -292,7 +292,8 @@ html, body {
   padding-left: 0;
 }
 
-[data-turn-activity] [data-worker-event] {
+[data-turn-activity] [data-worker-event],
+[data-turn-activity] [data-activity-gutter] {
   padding-left: 0;
 }
 
