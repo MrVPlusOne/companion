@@ -16,9 +16,11 @@ export function LeaderSessionReturnPlaygroundState() {
   const [threadStatusVisible, setThreadStatusVisible] = useState(false);
   const [threadStatusWrapped, setThreadStatusWrapped] = useState(false);
   const [needsInputVisible, setNeedsInputVisible] = useState(false);
+  const [restoredTabPreview, setRestoredTabPreview] = useState(false);
   const showingLeader = activeSessionId === PLAYGROUND_LEADER_RETURN_SESSION_ID;
 
   const resetLeaderMain = () => {
+    setRestoredTabPreview(false);
     persistLeaderSelectedThreadKey(PLAYGROUND_LEADER_RETURN_SESSION_ID, "main");
     setActiveSessionId(PLAYGROUND_LEADER_RETURN_SESSION_ID);
     setReturnEpoch((current) => current + 1);
@@ -118,7 +120,7 @@ export function LeaderSessionReturnPlaygroundState() {
   return (
     <Section
       title="Leader Session Return Stability"
-      description="Production-shaped 131-message leader return harness. Keep Main selected, scroll to a recognizable message, switch away and back repeatedly, apply late settlement, and confirm the selected tab and exact viewport stay fixed."
+      description="Keep Main selected, scroll to a recognizable message, switch away and back, and confirm the viewport stays fixed. The middle-tab preview shows a restored selection retaining its position between neighboring tabs."
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button
@@ -130,7 +132,19 @@ export function LeaderSessionReturnPlaygroundState() {
           }
           className="rounded-lg border border-cc-border bg-cc-hover px-3 py-1.5 text-xs font-medium text-cc-fg hover:bg-cc-active"
         >
-          {showingLeader ? "Switch to away session" : "Return to leader Main"}
+          {showingLeader ? "Switch to away session" : "Return to leader session"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            persistLeaderSelectedThreadKey(PLAYGROUND_LEADER_RETURN_SESSION_ID, "q-1945");
+            setRestoredTabPreview(true);
+            setActiveSessionId(PLAYGROUND_LEADER_RETURN_SESSION_ID);
+            setReturnEpoch((current) => current + 1);
+          }}
+          className="rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-xs font-medium text-cc-muted hover:text-cc-fg"
+        >
+          Preview middle-tab return
         </button>
         <button
           type="button"
@@ -182,9 +196,9 @@ export function LeaderSessionReturnPlaygroundState() {
           Reset leader to Main
         </button>
         <span className="text-xs text-cc-muted" data-testid="playground-leader-return-active-session">
-          {showingLeader ? "Leader Main return target" : "Away session"} · activity{" "}
-          {activityRunning ? "running" : "idle"} · thread status {threadStatusVisible ? "visible" : "hidden"} · needs
-          input {needsInputVisible ? "visible" : "hidden"} · late revision {settlementRevision}
+          {showingLeader ? "Leader return target" : "Away session"} · activity {activityRunning ? "running" : "idle"} ·
+          thread status {threadStatusVisible ? "visible" : "hidden"} · needs input{" "}
+          {needsInputVisible ? "visible" : "hidden"} · late revision {settlementRevision}
         </span>
       </div>
       <div
@@ -194,8 +208,8 @@ export function LeaderSessionReturnPlaygroundState() {
         <ChatView
           key={`${activeSessionId}:${returnEpoch}`}
           sessionId={activeSessionId}
-          hasThreadRoute={false}
-          routeThreadKey={null}
+          hasThreadRoute={restoredTabPreview}
+          routeThreadKey={restoredTabPreview ? "q-1945" : null}
         />
       </div>
     </Section>

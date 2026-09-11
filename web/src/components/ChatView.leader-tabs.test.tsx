@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useSyncExternalStore, type ReactNode } from "react";
 import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
-import { parseHash, threadRouteFromHash } from "../utils/routing.js";
+import { navigateToSession, parseHash, threadRouteFromHash } from "../utils/routing.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { installChatViewLeaderProjection } from "../test-fixtures/chat-view-leader-projection.js";
 import {
@@ -552,6 +552,52 @@ describe("ChatView leader open thread tabs", () => {
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "q-941");
+  });
+
+  it.each([
+    false,
+    true,
+  ])("preserves tab order across session return (new activation: %s)", async (activateWhileAway) => {
+    // Follow the real URL rewrite after restoring the saved selection. A fixed
+    // route prop misses the second render that used to promote the viewed tab.
+    resetStore({
+      sessions: new Map([
+        ...leaderSession(),
+        ["s2", { backend_state: "connected", backend_error: null, isOrchestrator: false }],
+      ]),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777", "q-555"]),
+      messages: new Map([["s1", [threadMessage("q-941", 1), threadMessage("q-777", 2), threadMessage("q-555", 3)]]]),
+      quests: [
+        { questId: "q-941", title: "First tab", status: "in_progress" },
+        { questId: "q-777", title: "Viewed tab", status: "in_progress" },
+        { questId: "q-555", title: "Resumed tab", status: "in_progress" },
+      ],
+    });
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+    fireEvent.click(scope.getByRole("button", { name: /q-777 viewed tab/i }));
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-777"));
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777,q-555");
+
+    for (let visit = 0; visit < 2; visit++) {
+      act(() => navigateToSession("s2", true));
+      expect(scope.getByTestId("message-feed")).toHaveTextContent("s2");
+      const expectedOrder = activateWhileAway ? ["q-555", "q-941", "q-777"] : ["q-941", "q-777", "q-555"];
+      // Consume the producer-shaped authoritative order, including a fresh
+      // activation received while away; restoring selection must not undo it.
+      setLeaderProjection(expectedOrder);
+      mockSendToSession.mockClear();
+      act(() => navigateToSession("s1", true));
+
+      await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-777"));
+      expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-777");
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", expectedOrder.join(","));
+      expect(readLeaderSelectedThreadKey("s1")).toBe("q-777");
+      expect(mockSendToSession).not.toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({ type: "leader_thread_tabs_update" }),
+      );
+    }
   });
 
   it("does not mount Main before restoring a server-open browser-local selected tab", () => {

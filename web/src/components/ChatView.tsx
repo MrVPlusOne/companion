@@ -1486,6 +1486,9 @@ export function ChatView({
       if (!restoredThreadKey) {
         persistLeaderSelectedThreadKey(sessionId, MAIN_THREAD_KEY);
       } else if (restoredThreadKey !== MAIN_THREAD_KEY) {
+        // This URL follows passive selection restore, not an external route
+        // requesting first placement over the authoritative tab order.
+        locallySelectedRouteThreadKeyRef.current = restoredThreadKey;
         navigateToSessionThread(sessionId, restoredThreadKey, true);
       }
       return;
