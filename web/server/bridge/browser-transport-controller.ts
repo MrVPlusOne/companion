@@ -1,5 +1,13 @@
 import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
+import {
+  acknowledgeBrowserConnection,
+  beginBrowserConnectionSubscribe,
+  closeBrowserConnectionDiagnostics,
+  finishBrowserConnectionSubscribe,
+  openBrowserConnectionDiagnostics,
+  sendObservedBrowserPayload,
+} from "./browser-connection-diagnostics.js";
 import { resolve } from "node:path";
 import {
   computeHistoryMessagesSyncHash,
@@ -135,6 +143,7 @@ export interface ProgrammaticUserMessageOptions {
 export interface BrowserTransportSocketLike {
   data?: unknown;
   send(data: string): unknown;
+  getBufferedAmount?(): number;
 }
 
 export interface BrowserTransportSessionLike {
@@ -293,6 +302,7 @@ function isArchivedReadOnlySession(session: BrowserTransportSessionLike, deps: B
 function isArchivedReadOnlyBrowserMessage(msg: BrowserOutgoingMessage): boolean {
   return (
     msg.type === "session_subscribe" ||
+    msg.type === "browser_connection_probe_ack" ||
     msg.type === "history_window_request" ||
     msg.type === "thread_window_request" ||
     msg.type === "conversation_view_update" ||
@@ -309,6 +319,7 @@ export function handleBrowserOpen(
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
+  openBrowserConnectionDiagnostics(ws, session.id);
   const data = (ws.data ??= {}) as BrowserTransportSocketData;
   data.subscribed = false;
   data.lastAckSeq = 0;
@@ -405,6 +416,7 @@ export function handleBrowserClose(
   code?: number,
   reason?: string,
 ): void {
+  closeBrowserConnectionDiagnostics(ws);
   session.browserSockets.delete(ws);
   deps.removeSyncedProjectionSubscriber?.(ws);
   const hasBackend = deps.backendConnected(session);
@@ -553,7 +565,12 @@ export function handleBrowserProtocolMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: BrowserTransportDeps,
 ): boolean | Promise<boolean> {
+  if (msg.type === "browser_connection_probe_ack") {
+    if (ws) acknowledgeBrowserConnection(ws, msg.connection_id);
+    return true;
+  }
   if (msg.type === "session_subscribe") {
+    const observingInitialSubscribe = ws && beginBrowserConnectionSubscribe(ws, msg.last_seq, msg.full_history_sync);
     return handleSessionSubscribe(
       session,
       ws,
@@ -568,7 +585,16 @@ export function handleBrowserProtocolMessage(
       msg.history_window_target_index,
       msg.full_history_sync,
       msg.synced_projection_subscriptions,
-    ).then(() => true);
+    ).then(
+      () => {
+        if (ws && observingInitialSubscribe) finishBrowserConnectionSubscribe(ws, true);
+        return true;
+      },
+      (error) => {
+        if (ws && observingInitialSubscribe) finishBrowserConnectionSubscribe(ws, false);
+        throw error;
+      },
+    );
   }
 
   if (handleSyncedProjectionProtocolMessage(session, msg, ws, deps, sendToBrowser)) return true;
@@ -1501,7 +1527,7 @@ export function broadcastToBrowsers(
     const socketData = (socket.data ??= {}) as BrowserTransportSocketData;
     try {
       if (!shouldDeliverBrowserEventToSocket(session, msg, socketData)) continue;
-      socket.send(json);
+      sendObservedBrowserPayload(socket, json, msg.type);
       successfulFanout++;
     } catch {
       session.browserSockets.delete(ws);
@@ -1514,7 +1540,7 @@ export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomi
   try {
     msg = projectBrowserMessage(msg);
     const json = JSON.stringify(msg);
-    const result = ws.send(json);
+    const result = sendObservedBrowserPayload(ws, json, msg.type);
     if (result === 0) return false;
     deferBrowserTrafficStats(
       json,
@@ -1531,7 +1557,7 @@ export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomi
 
 export function sendToBrowserRaw(ws: BrowserTransportSocketLike, json: string, messageType: string): boolean {
   try {
-    const result = ws.send(json);
+    const result = sendObservedBrowserPayload(ws, json, messageType);
     if (result === 0) return false;
     deferBrowserTrafficStats(
       json,

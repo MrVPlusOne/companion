@@ -49,6 +49,7 @@ export interface CLISocketData {
 export interface BrowserSocketData {
   kind: "browser";
   sessionId: string;
+  browserClientPlatform?: import("./browser-connection-diagnostics.js").BrowserClientPlatform;
   subscribed?: boolean;
   lastAckSeq?: number;
 }

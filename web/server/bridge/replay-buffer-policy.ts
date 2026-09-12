@@ -6,6 +6,7 @@ import type {
 
 const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   "session_init",
+  "browser_connection_probe",
   "event_replay",
   "leader_group_idle",
   "quest_list_updated",

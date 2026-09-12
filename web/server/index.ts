@@ -91,6 +91,10 @@ import {
 } from "./session-namer-arbitration.js";
 import { formatAutoNamerSkipReason, getAutoNamerSkipReason } from "./session-namer-guard.js";
 import type { SocketData } from "./ws-bridge.js";
+import {
+  classifyBrowserClientPlatform,
+  closeBrowserConnectionDiagnostics,
+} from "./bridge/browser-connection-diagnostics.js";
 import type { ServerWebSocket } from "bun";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -987,7 +991,13 @@ const server = Bun.serve<SocketData>({
       const data =
         wsRoute.kind === "terminal"
           ? { kind: "terminal" as const, terminalId: wsRoute.terminalId }
-          : ({ kind: wsRoute.kind, sessionId: wsRoute.sessionId } as const);
+          : {
+              kind: wsRoute.kind,
+              sessionId: wsRoute.sessionId,
+              ...(wsRoute.kind === "browser"
+                ? { browserClientPlatform: classifyBrowserClientPlatform(req.headers.get("user-agent")) }
+                : {}),
+            };
       const upgraded = server.upgrade(req, { data });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
@@ -1034,6 +1044,8 @@ const server = Bun.serve<SocketData>({
       if (data.kind === "cli") {
         wsBridge.handleCLIClose(ws, code, reason);
       } else if (data.kind === "browser") {
+        // Close diagnostics even if the session was removed while its socket was open.
+        closeBrowserConnectionDiagnostics(ws);
         wsBridge.handleBrowserClose(ws, code, reason);
       } else if (data.kind === "terminal") {
         terminalManager.removeBrowserSocket(data.terminalId, ws);

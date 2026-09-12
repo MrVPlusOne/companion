@@ -623,6 +623,12 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         const rawData = typeof event.data === "string" ? event.data : "";
         const parseStartedAt = perfNow();
         const data = JSON.parse(event.data) as SequencedIncomingMessage;
+        if (data.type === "browser_connection_probe") {
+          // This acknowledges transport receipt after preceding sync messages.
+          // It deliberately makes no claim about React commit, paint, or usability.
+          ws.send(JSON.stringify({ type: "browser_connection_probe_ack", connection_id: data.connection_id }));
+          return;
+        }
         const parsedAt = perfNow();
         const parseDurationMs = parsedAt - parseStartedAt;
         beginHistoryReceiveRenderTiming({
