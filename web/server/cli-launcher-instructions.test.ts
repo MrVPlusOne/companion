@@ -60,6 +60,35 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Do not use `file://` URI schemes");
   });
 
+  it.each(["claude", "codex"] as const)("includes bounded citation guidance in shared %s prompts", (backend) => {
+    // Cover ordinary sessions outside a repo and leaders in arbitrary worktrees:
+    // the guidance must not depend on repository instructions or session role.
+    const prompts = [
+      buildCompanionInstructions({ backend }),
+      buildInjectedSystemPromptForDebug({
+        backend,
+        isOrchestrator: true,
+        worktree: { branch: "feature", repoRoot: "/projects/example" },
+      }),
+    ];
+    for (const result of prompts) {
+      expect(result).toContain(
+        "Takode does not render native citation markup such as `\uE200cite\uE202turn0view0\uE201`",
+      );
+      expect(result).toContain("When you control the format of your own replies, do not emit this markup");
+      expect(result).toContain("ordinary named Markdown links to actual known source URLs");
+      expect(result).toContain("or the supported Takode links above");
+      expect(result).toContain("Never invent source destinations or infer them from opaque citation handles");
+      expect(result).toContain(
+        "If higher-priority platform or tool instructions require a citation format, preserve that required format",
+      );
+      expect(result).toContain(
+        "Preserve exact syntax when quoting or reproducing user, tool, code, or other source content",
+      );
+      expect(result).toContain("do not rewrite stored messages");
+    }
+  });
+
   it("instructs workers to batch commentary around meaningful milestones and write concise outcomes", () => {
     const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
 
