@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import * as questStore from "../quest-store.js";
 import { registerQuestDeliveryRoutes } from "./quest-deliveries.js";
+import { readCommitDetails } from "../git-commit-reader.js";
+import { recordedCommitStats } from "../../shared/quest-delivery.js";
 import type {
   QuestAutocompleteCandidate,
   QuestCreateInput,
@@ -55,9 +57,7 @@ import {
   getQuestDisplayOwner,
   getTakodeQuestOwnerSessionId,
 } from "../../shared/quest-owner.js";
-import { summarizeDiffFileStats, type DiffFileLineStats } from "../../shared/diff-file-groups.js";
 
-const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
 const MAX_QUEST_TITLE_IDS = 100;
 const SUMMARY_FEEDBACK_PREFIXES = ["summary:", "refreshed summary:"];
@@ -72,38 +72,6 @@ type ClaimedQuestProjection = Omit<QuestLifecycleEventSnapshot, "questId" | "sta
 function normalizeRequestedCommitSha(value: string): string | null {
   const sha = value.trim().toLowerCase();
   return /^[0-9a-f]{7,40}$/.test(sha) ? sha : null;
-}
-
-function parseNumstatSummary(output: string) {
-  const fileStats: DiffFileLineStats[] = [];
-
-  for (const rawLine of output.split("\n")) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const firstTab = line.indexOf("\t");
-    const secondTab = firstTab < 0 ? -1 : line.indexOf("\t", firstTab + 1);
-    if (firstTab < 0 || secondTab < 0) continue;
-
-    const add = line.slice(0, firstTab);
-    const del = line.slice(firstTab + 1, secondTab);
-    const path = line.slice(secondTab + 1);
-    if (!path) continue;
-    fileStats.push({
-      path,
-      additions: add === "-" ? 0 : Number.parseInt(add, 10) || 0,
-      deletions: del === "-" ? 0 : Number.parseInt(del, 10) || 0,
-    });
-  }
-
-  const totals = fileStats.reduce(
-    (summary, file) => ({
-      additions: summary.additions + file.additions,
-      deletions: summary.deletions + file.deletions,
-    }),
-    { additions: 0, deletions: 0 },
-  );
-
-  return { ...totals, splitStats: summarizeDiffFileStats(fileStats) };
 }
 
 function shouldIncludeCommitDiff(c: Context): boolean {
@@ -1084,51 +1052,11 @@ export function createQuestRoutes(ctx: RouteContext) {
 
     for (const repoRoot of repoCandidates) {
       try {
-        const fullSha = (
-          await execCaptureStdoutAsync(`${SERVER_GIT_CMD} rev-parse --verify "${sha}^{commit}"`, repoRoot)
-        ).trim();
-        if (!fullSha) continue;
-        const metadata = await execCaptureStdoutAsync(
-          `${SERVER_GIT_CMD} show -s --format="%H%x00%h%x00%s%x00%ct" "${fullSha}"`,
-          repoRoot,
-        );
-        if (!metadata.trim()) continue;
-        const numstat = includeDiff
-          ? await execCaptureStdoutAsync(
-              `${SERVER_GIT_CMD} show --format= --numstat --no-renames "${fullSha}"`,
-              repoRoot,
-            )
-          : "";
-        let diff = includeDiff
-          ? await execCaptureStdoutAsync(`${SERVER_GIT_CMD} show --format= --patch --no-color "${fullSha}"`, repoRoot, {
-              maxBuffer: DIFF_MAX_BUFFER,
-            })
-          : "";
-        let truncated = false;
-        if (Buffer.byteLength(diff, "utf-8") > MAX_DIFF_BYTES) {
-          diff = Buffer.from(diff, "utf-8").subarray(0, MAX_DIFF_BYTES).toString("utf-8");
-          truncated = true;
-        }
-
-        const [resolvedSha, shortSha, message, ts] = metadata.trim().split("\0");
-        if (!resolvedSha) continue;
-        const stats = parseNumstatSummary(numstat);
-        return c.json({
-          sha: resolvedSha || fullSha,
-          shortSha: shortSha || fullSha.slice(0, 7),
-          message: message || "",
-          timestamp: Number.parseInt(ts || "0", 10) * 1000,
-          ...(includeDiff
-            ? {
-                additions: stats.additions,
-                deletions: stats.deletions,
-                splitStats: stats.splitStats,
-                diff,
-              }
-            : {}),
-          truncated,
-          available: true,
-        });
+        const details = await readCommitDetails(repoRoot, sha, includeDiff, MAX_DIFF_BYTES);
+        const recorded = quest.codeDeliveries
+          ?.flatMap((delivery) => delivery.commits)
+          .find((commit) => commit.sha === details.sha);
+        return c.json({ ...details, recordedStats: recordedCommitStats(recorded, details), available: true });
       } catch {
         // Try the next known repo candidate for this quest.
       }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, type QuestCommitLookup } from "../api.js";
-import type { QuestDeliveryView } from "../../shared/quest-delivery.js";
+import { commitComparisonLabel, type QuestDeliveryView } from "../../shared/quest-delivery.js";
 import { buildCodeCommitEntries, QuestCommitDiffView, useQuestCommitDiffState } from "./QuestCommitDiffView.js";
 import type { QuestCommitEntry } from "./QuestCommitEvidence.js";
 
@@ -93,7 +93,7 @@ export function QuestCommitChip({
   }, [client, questId, deliveryId, sha, retry]);
 
   const title = selected
-    ? `${selected.message}\n+${selected.additions} −${selected.deletions}${selected.binaryFiles ? `; ${selected.binaryFiles} binary files` : ""}\n${delivery!.branch}`
+    ? `${selected.message}\n+${selected.additions} −${selected.deletions}${selected.binaryFiles ? `; ${selected.binaryFiles} binary files` : ""}\n${commitComparisonLabel(selected.comparison)}${selected.comparison?.baseSha ? ` ${selected.comparison.baseSha}` : ""}\n${delivery!.branch}`
     : undefined;
   return (
     <>
@@ -104,7 +104,7 @@ export function QuestCommitChip({
         title={title}
         aria-label={
           selected
-            ? `Open commit ${selected.message}, ${selected.additions} additions, ${selected.deletions} deletions`
+            ? `Open commit ${selected.message}, ${selected.additions} additions, ${selected.deletions} deletions, ${commitComparisonLabel(selected.comparison)}`
             : error
               ? "Retry unavailable commit details"
               : "Load commit details"
@@ -135,8 +135,13 @@ export function QuestCommitChip({
             <span className="text-right text-cc-muted">{error ? "Unavailable" : "…"}</span>
           )}
         </span>
-        <span className="min-w-0 truncate" data-testid="commit-chip-title">
-          {selected?.message || children}
+        <span className="min-w-0">
+          <span className="block truncate" data-testid="commit-chip-title">
+            {selected?.message || children}
+          </span>
+          <span className="block text-[10px] leading-tight text-cc-muted" data-testid="commit-chip-comparison">
+            {selected ? commitComparisonLabel(selected.comparison) : "Recorded commit"}
+          </span>
         </span>
       </button>
       {open && delivery && selected && (

@@ -1,5 +1,11 @@
 # Takode Changelog
 
+## 2026-09-12
+
+### Fixed
+
+- **Delivery comparisons** -- Commit chips identify their comparison baseline, and merge statistics and opened patches use the same first-parent view. Earlier saved totals stay inspectable, while reporting distinguishes pending and newly delivered batches without repeating historical commits.
+
 ## 2026-09-11
 
 ### Added

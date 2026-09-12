@@ -4,9 +4,10 @@ import {
   DELIVERY_ID_PATTERN,
   FULL_COMMIT_SHA_PATTERN,
   projectQuestDelivery,
+  recordedCommitStats,
   type QuestCodeDelivery,
 } from "../../shared/quest-delivery.js";
-import { readCommitPatch, readCommitSummary } from "../git-commit-reader.js";
+import { readCommitDetails } from "../git-commit-reader.js";
 import { verifyReview } from "../port-tracking.js";
 
 export function registerQuestDeliveryRoutes(api: Hono): void {
@@ -55,9 +56,12 @@ export function registerQuestDeliveryRoutes(api: Hono): void {
       return c.json({ ...selected, workerSha: undefined, review: undefined, available: true });
     try {
       if (review) await verifyReview(delivery.target.repoRoot, review);
-      const summary = isReview ? await readCommitSummary(delivery.target.repoRoot, sha) : selected!;
-      const patch = includeDiff ? await readCommitPatch(delivery.target.repoRoot, sha) : {};
-      return c.json({ ...summary, workerSha: undefined, review: undefined, ...patch, available: true });
+      const details = await readCommitDetails(delivery.target.repoRoot, sha, includeDiff);
+      return c.json({
+        ...details,
+        recordedStats: isReview ? undefined : recordedCommitStats(selected, details),
+        available: true,
+      });
     } catch (error) {
       console.warn(
         "[quest-delivery] Commit evidence unavailable:",

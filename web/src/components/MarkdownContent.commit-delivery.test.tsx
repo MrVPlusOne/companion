@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { registerQuestDeliveryRoutes } from "../../server/routes/quest-deliveries.js";
 import { getQuest } from "../../server/quest-store.js";
-import { readCommitPatch, readCommitSummary } from "../../server/git-commit-reader.js";
+import { readCommitDetails } from "../../server/git-commit-reader.js";
 import { verifyReview } from "../../server/port-tracking.js";
 import { deliveryCommitHref } from "../../shared/quest-delivery.js";
 import {
@@ -17,7 +17,7 @@ import {
 } from "../test-fixtures/commit-delivery-fixture.js";
 
 vi.mock("../../server/quest-store.js", () => ({ getQuest: vi.fn() }));
-vi.mock("../../server/git-commit-reader.js", () => ({ readCommitSummary: vi.fn(), readCommitPatch: vi.fn() }));
+vi.mock("../../server/git-commit-reader.js", () => ({ readCommitDetails: vi.fn() }));
 vi.mock("../../server/port-tracking.js", () => ({ verifyReview: vi.fn() }));
 vi.mock("./DiffViewer.js", () => ({
   DiffViewer: ({ unifiedDiff }: { unifiedDiff: string }) => <pre data-testid="wired-diff">{unifiedDiff}</pre>,
@@ -44,11 +44,16 @@ beforeEach(() => {
     commitShas: deliveryFixture.commits.map((commit) => commit.sha),
     codeDeliveries: [deliveryFixture],
   } as never);
-  vi.mocked(readCommitPatch).mockResolvedValue({ diff: "verified original patch\n", truncated: false });
-  vi.mocked(readCommitSummary).mockResolvedValue({
-    ...deliveryFixture.commits[0]!,
-    sha: REVIEW_FIXTURE_SHA,
-    message: "Retained original",
+  vi.mocked(readCommitDetails).mockImplementation(async (_repo, sha, includeDiff) => {
+    const metadata =
+      sha === REVIEW_FIXTURE_SHA
+        ? { ...deliveryFixture.commits[0]!, sha, message: "Retained original" }
+        : deliveryFixture.commits.find((commit) => commit.sha === sha)!;
+    return {
+      ...metadata,
+      comparison: metadata.comparison!,
+      ...(includeDiff ? { diff: "verified original patch\n", truncated: false } : {}),
+    };
   });
   vi.mocked(verifyReview).mockResolvedValue(undefined);
   const app = new Hono();
@@ -77,6 +82,7 @@ it("renders exact Markdown delivery links through the real API/viewer path while
   expect(requests.some((request) => request.path.includes("/commits/"))).toBe(false);
   fireEvent.click(trigger);
   expect(await screen.findByTestId("wired-diff")).toHaveTextContent("verified original patch");
+  expect(screen.getByTestId("quest-commit-comparison")).toHaveTextContent("Vs first parent (merge)");
   await waitFor(() =>
     expect(requests).toContainEqual({
       path: `/quests/q-9904/deliveries/${deliveryFixture.id}/commits/${FIRST_DELIVERY_SHA}?review=false&includeDiff=true`,

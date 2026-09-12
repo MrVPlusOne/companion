@@ -127,7 +127,7 @@ Use `[q-42](quest:q-42)` for a whole quest. When referring to one exact indexed 
 
 ## Delivery Commit Chips
 
-For new recorded deliveries, `quest commit-links q-N --delivery <id> [--commits <sha,...>] [--json]` produces fixed commit chips for a normal leader response. It is read-only and does not publish messages or evidence. Use only returned delivery IDs; historical quests are not backfilled. Chips keep their exact target commits when later deliveries arrive.
+For new recorded deliveries, `quest commit-links q-N --delivery <id> [--commits <sha,...>] [--json]` produces fixed commit chips for a normal leader response. It is read-only and does not publish messages or evidence. Use only returned delivery IDs; historical quests are not backfilled. Chips keep their exact target commits when later deliveries arrive. Report only that exact batch as newly delivered; the quest's accumulated commit list is the historical overview. For Pending port reporting and comparison meaning, follow the canonical Work assignee brief. JSON authoring includes the saved comparison label; an unrecorded historical baseline is not inferred.
 
 For already-authorized independent publication outside the inherited target, the assigned leader uses `takode board approve-delivery-target`; the worker then supplies the exact approved SHAs with `--delivery-target <approval-id>` to guarded delivery recording or Work-to-Memory. Read the independent-target section of the `/port-changes` port-tracking reference. This preserves normal ownership/evidence guards and never requires repeating a push or moving an unrelated branch.
 

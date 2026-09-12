@@ -55,6 +55,8 @@ takode port seal q-N <preparation-id> --commits <final-worker-sha>,<another-fina
 
 Sealing requires one commit per group, the expected parent chain, exact per-group resulting-tree equality, and the current target base. It retains the sealed worker commits too, so a changed cherry-pick SHA does not lose its source after cleanup.
 
+Before landing, inspect `takode port status q-N <preparation-id>` and report only its remaining sealed worker commits under **Pending port**. Already-landed groups stay out of that pending batch. Before sealing, remaining review-group tips are provisional review evidence, not final delivery commits. Follow the Work assignee brief's Delivery-batch reporting rules for comparison meaning and historical reports.
+
 ## 3. Port and record each landing
 
 Check the target again and perform the existing chronological cherry-picks. Immediately record each successful target SHA before any subsequent port or cleanup:
@@ -91,7 +93,7 @@ The response supplies an exact delivery ID; `quest show q-N --sections metadata`
 quest commit-links q-N --delivery <delivery-id>
 ```
 
-The optional `--commits` subset selects only commits inside that recorded delivery. The command only authors links; it never sends a message, mutates evidence, or displays today's whole mutable commit list in an old response. Never fabricate delivery IDs or backfill historical provenance.
+The optional `--commits` subset selects only commits inside that recorded delivery. The command labels its explicit delivery batch and authors its links; it never sends a message, mutates evidence, or displays today's whole mutable commit list in an old response. Use the ID returned for this landing when introducing new work. Older IDs remain valid for inspecting historical batches. Never fabricate delivery IDs or backfill historical provenance.
 
 Review and sealed refs survive worker reset/removal. They consume local disk, are not backed up by ordinary push, and have no new automatic expiry. Viewing unavailable evidence must remain honest. Never use the invalid-evidence replacement command as a normal many-to-one squash mechanism.
 

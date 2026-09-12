@@ -5,6 +5,7 @@ import {
   createDeliveryFixtureClient,
   deliveryFixture,
   laterDeliveryFixture,
+  legacyDeliveryFixture,
   DELIVERY_FIXTURE_QUEST,
 } from "../../test-fixtures/commit-delivery-fixture.js";
 
@@ -16,12 +17,19 @@ export function PlaygroundCommitDeliverySection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Commit delivery chips"
-        description="Content-sized groups with compact stats pairs, aligned titles, exact delivery selection, retained review, and unavailable repositories."
+        description="Current batches retain exact commits with explicit parent/merge/root comparisons, preserved legacy counts, and separate review history."
       >
         <Card label="Recorded delivery responses">
           <div className="space-y-3">
+            <div className="rounded border border-cc-border p-3 text-sm text-cc-fg">
+              <div className="font-medium">Pending port</div>
+              <p className="text-xs text-cc-muted">
+                Preview: refine the loading state. Source commits are not recorded delivery evidence until landing is
+                verified.
+              </p>
+            </div>
             <p className="text-sm text-cc-fg">
-              The first change is synced. These chips retain this delivery’s exact commits.
+              Earlier delivered batch. These links keep their original commits when a new batch arrives.
             </p>
             <span className="commit-chip-group" role="group" aria-label="First delivery commits">
               {deliveryFixture.commits.map((commit) => (
@@ -51,7 +59,9 @@ export function PlaygroundCommitDeliverySection() {
             </div>
             {later && (
               <div className="border-t border-cc-border pt-3">
-                <p className="mb-2 text-sm text-cc-fg">Later response: the empty-state issue is fixed.</p>
+                <p className="mb-2 text-sm text-cc-fg">
+                  Newly delivered batch: only the empty-state fix is introduced here.
+                </p>
                 <QuestCommitChip
                   questId={DELIVERY_FIXTURE_QUEST}
                   deliveryId={laterDeliveryFixture.id}
@@ -62,6 +72,19 @@ export function PlaygroundCommitDeliverySection() {
                 </QuestCommitChip>
               </div>
             )}
+            <div>
+              <p className="mb-2 text-sm text-cc-fg">
+                Historical evidence keeps its saved counts; an unrecorded baseline stays explicit.
+              </p>
+              <QuestCommitChip
+                questId={DELIVERY_FIXTURE_QUEST}
+                deliveryId={legacyDeliveryFixture.id}
+                sha={legacyDeliveryFixture.commits[0]!.sha}
+                client={client}
+              >
+                Older saved commit
+              </QuestCommitChip>
+            </div>
             <div className="flex flex-wrap gap-2 pt-3 text-xs">
               <button
                 type="button"

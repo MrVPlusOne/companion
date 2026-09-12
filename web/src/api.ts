@@ -565,7 +565,13 @@ export interface QuestCommitLookup {
   timestamp?: number;
   additions?: number;
   deletions?: number;
+  binaryFiles?: number;
   splitStats?: import("../shared/diff-file-groups.js").DiffFileGroupStats;
+  comparison?: import("../shared/quest-delivery.js").CommitComparison;
+  recordedStats?: Pick<
+    import("../shared/quest-delivery.js").CommitSummary,
+    "additions" | "deletions" | "binaryFiles" | "comparison"
+  >;
   diff?: string;
   sourceFiles?: MemoryUpdateDiffSourceFile[];
   truncated?: boolean;

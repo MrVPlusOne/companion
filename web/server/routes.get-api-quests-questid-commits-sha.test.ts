@@ -169,6 +169,12 @@ vi.mock("./usage-limits.js", () => ({
   getUsageLimits: mockGetUsageLimits,
 }));
 
+const mockReadCommitDetails = vi.hoisted(() => vi.fn());
+vi.mock("./git-commit-reader.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./git-commit-reader.js")>()),
+  readCommitDetails: mockReadCommitDetails,
+}));
+
 const mockMemoryCommitDiff = vi.hoisted(() => vi.fn());
 vi.mock("./workstream-memory-service.js", () => ({
   workstreamMemoryService: {
@@ -603,12 +609,21 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("GET /api/quests/:questId/commits/:sha", () => {
+  const fullSha = "abc1234" + "0".repeat(33);
+  const comparison = { method: "first-parent-v1", baseSha: "0".repeat(40), parentCount: 1 };
+  const details = {
+    sha: fullSha,
+    shortSha: "abc1234",
+    message: "Attach commits to quests",
+    timestamp: 1713292534000,
+    comparison,
+  };
+
   it.each([
     true,
     false,
   ])("uses the immutable delivery repository when its objects are available=%s", async (available) => {
-    // The ordinary quest viewer must work for an independent clone after a session target changes,
-    // and must honestly report lost evidence instead of substituting the current session repository.
+    // Recorded provenance must survive a changed session target; missing objects never substitute another repo.
     const sha = "a".repeat(40);
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       questId: "q-1",
@@ -618,11 +633,9 @@ describe("GET /api/quests/:questId/commits/:sha", () => {
       codeDeliveries: [{ target: { repoRoot: "/independent/published" }, commits: [{ sha }] }],
     } as any);
     launcher.getSession.mockReturnValue({ sessionId: "session-1", repoRoot: "/unrelated/current" } as any);
-    vi.mocked(execSync).mockImplementation((cmd: string) => {
+    mockReadCommitDetails.mockImplementation(async () => {
       if (!available) throw new Error("Retained objects unavailable");
-      if (cmd.includes("rev-parse")) return sha;
-      if (cmd.includes("show -s")) return [sha, sha.slice(0, 7), "Independent delivery", "1713292534"].join("\0");
-      throw new Error(`Unexpected command: ${cmd}`);
+      return { ...details, sha, message: "Independent delivery" };
     });
     const res = await app.request(`/api/quests/q-1/commits/${sha}?includeDiff=false`);
     expect(res.status).toBe(200);
@@ -631,139 +644,89 @@ describe("GET /api/quests/:questId/commits/:sha", () => {
         ? { available: true, message: "Independent delivery" }
         : { available: false, reason: "commit_not_available" },
     );
-    const reads = vi.mocked(exec).mock.calls.filter(([cmd]) => cmd.includes("rev-parse") || cmd.includes("show -s"));
-    expect(reads).toHaveLength(available ? 2 : 1);
-    for (const [, options] of reads) expect(options).toMatchObject({ cwd: "/independent/published" });
+    expect(mockReadCommitDetails).toHaveBeenCalledExactlyOnceWith("/independent/published", sha, false, 512 * 1024);
   });
 
   it("returns git-backed commit details for a SHA attached to the quest", async () => {
+    // Git-plumbing reconciliation is exercised with real merges in git-commit-reader.test.ts.
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
-      id: "q-1-v4",
       questId: "q-1",
-      title: "Quest",
       status: "done",
-      createdAt: Date.now(),
-      description: "Ready",
       sessionId: "session-1",
-      claimedAt: Date.now(),
-      verificationItems: [{ text: "verify", checked: false }],
       commitShas: ["abc1234"],
     } as any);
-    launcher.getSession.mockReturnValue({
-      sessionId: "session-1",
-      cwd: "/repo/worktree",
-      repoRoot: "/repo",
-    } as any);
-    vi.mocked(execSync).mockImplementation((cmd: string) => {
-      if (typeof cmd !== "string") throw new Error("non-string cmd");
-      if (cmd.includes('rev-parse --verify "abc1234^')) return "abc1234567890abcdef\n";
-      if (cmd.includes('show -s --format="%H%x00%h%x00%s%x00%ct"')) {
-        return ["abc1234567890abcdef", "abc1234", "Attach commits to quests", "1713292534"].join("\0") + "\n";
-      }
-      if (cmd.includes('show --format= --numstat --no-renames "abc1234567890abcdef"')) {
-        return (
-          ["12\t4\tweb/server/routes/quests.ts", "3\t0\tweb/src/components/QuestDetailPanel.test.tsx"].join("\n") + "\n"
-        );
-      }
-      if (cmd.includes('show --format= --patch --no-color "abc1234567890abcdef"')) {
-        return `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`;
-      }
-      throw new Error(`Unmocked: ${cmd}`);
-    });
-
-    const res = await app.request("/api/quests/q-1/commits/abc1234", { method: "GET" });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json).toMatchObject({
-      sha: "abc1234567890abcdef",
-      shortSha: "abc1234",
-      message: "Attach commits to quests",
+    launcher.getSession.mockReturnValue({ sessionId: "session-1", cwd: "/repo/worktree", repoRoot: "/repo" } as any);
+    mockReadCommitDetails.mockResolvedValue({
+      ...details,
       additions: 15,
       deletions: 4,
-      splitStats: {
-        code: { additions: 12, deletions: 4 },
-        tests: { additions: 3, deletions: 0 },
-      },
-      available: true,
+      splitStats: { code: { additions: 12, deletions: 4 }, tests: { additions: 3, deletions: 0 } },
+      diff: "diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n",
+      truncated: false,
     });
-    expect(json.diff).toContain("diff --git");
-    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('rev-parse --verify "abc1234^'));
-    expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining('show --format= --numstat --no-renames "abc1234567890abcdef"'),
-    );
+    const res = await app.request("/api/quests/q-1/commits/abc1234");
+    expect(res.status).toBe(200);
+    const value = await res.json();
+    expect(value).toMatchObject({
+      ...details,
+      additions: 15,
+      deletions: 4,
+      available: true,
+      splitStats: { code: { additions: 12, deletions: 4 }, tests: { additions: 3, deletions: 0 } },
+    });
+    expect(value.diff).toContain("diff --git");
+    expect(mockReadCommitDetails).toHaveBeenCalledWith("/repo", "abc1234", true, 512 * 1024);
   });
 
   it("returns an unavailable state when the commit cannot be found locally", async () => {
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
-      id: "q-1-v4",
       questId: "q-1",
-      title: "Quest",
       status: "done",
-      createdAt: Date.now(),
-      description: "Ready",
       sessionId: "session-1",
-      claimedAt: Date.now(),
-      verificationItems: [{ text: "verify", checked: false }],
       commitShas: ["deadbee"],
     } as any);
-    launcher.getSession.mockReturnValue({
-      sessionId: "session-1",
-      cwd: "/repo/worktree",
-      repoRoot: "/repo",
-    } as any);
-    vi.mocked(execSync).mockImplementation(() => {
-      throw new Error("unknown revision");
-    });
-
-    const res = await app.request("/api/quests/q-1/commits/deadbee", { method: "GET" });
-
+    launcher.getSession.mockReturnValue({ sessionId: "session-1", cwd: "/repo/worktree", repoRoot: "/repo" } as any);
+    mockReadCommitDetails.mockRejectedValue(new Error("unknown revision"));
+    const res = await app.request("/api/quests/q-1/commits/deadbee");
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({
-      sha: "deadbee",
-      available: false,
-      reason: "commit_not_available",
-    });
+    expect(await res.json()).toMatchObject({ sha: "deadbee", available: false, reason: "commit_not_available" });
   });
 
   it("can return code commit metadata without loading the patch", async () => {
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
-      id: "q-1-v4",
       questId: "q-1",
-      title: "Quest",
       status: "done",
-      createdAt: Date.now(),
-      description: "Ready",
       sessionId: "session-1",
-      claimedAt: Date.now(),
-      verificationItems: [{ text: "verify", checked: false }],
       commitShas: ["abc1234"],
     } as any);
-    launcher.getSession.mockReturnValue({
-      sessionId: "session-1",
-      cwd: "/repo/worktree",
-      repoRoot: "/repo",
-    } as any);
-    vi.mocked(execSync).mockImplementation((cmd: string) => {
-      if (cmd.includes('rev-parse --verify "abc1234^')) return "abc1234567890abcdef\n";
-      if (cmd.includes('show -s --format="%H%x00%h%x00%s%x00%ct"')) {
-        return ["abc1234567890abcdef", "abc1234", "Readable title", "1713292534"].join("\0") + "\n";
-      }
-      throw new Error(`Unmocked: ${cmd}`);
-    });
-
-    const res = await app.request("/api/quests/q-1/commits/abc1234?includeDiff=false", { method: "GET" });
-
+    launcher.getSession.mockReturnValue({ sessionId: "session-1", cwd: "/repo/worktree", repoRoot: "/repo" } as any);
+    mockReadCommitDetails.mockResolvedValue({ ...details, message: "Readable title" });
+    const res = await app.request("/api/quests/q-1/commits/abc1234?includeDiff=false");
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json).toMatchObject({
-      sha: "abc1234567890abcdef",
-      shortSha: "abc1234",
-      message: "Readable title",
-      available: true,
+    const value = await res.json();
+    expect(value).toMatchObject({ ...details, message: "Readable title", available: true });
+    expect(value.diff).toBeUndefined();
+    expect(value.additions).toBeUndefined();
+    expect(mockReadCommitDetails).toHaveBeenCalledWith("/repo", "abc1234", false, 512 * 1024);
+  });
+
+  it("keeps historical saved stats distinct from the current parent comparison in the ordinary viewer", async () => {
+    const saved = { ...details, additions: 90, deletions: 20, binaryFiles: 0, comparison: undefined };
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      questId: "q-1",
+      status: "done",
+      commitShas: [fullSha],
+      codeDeliveries: [{ target: { repoRoot: "/independent/published" }, commits: [saved] }],
+    } as any);
+    mockReadCommitDetails.mockResolvedValue({ ...details, additions: 1, deletions: 1, binaryFiles: 0, diff: "patch" });
+    const value = await (await app.request(`/api/quests/q-1/commits/${fullSha}`)).json();
+    expect(value).toMatchObject({
+      additions: 1,
+      deletions: 1,
+      comparison,
+      recordedStats: { additions: 90, deletions: 20 },
     });
-    expect(json.diff).toBeUndefined();
-    expect(vi.mocked(execSync)).not.toHaveBeenCalledWith(expect.stringContaining("show --format= --patch"));
+    expect(saved.comparison).toBeUndefined();
   });
 });
 

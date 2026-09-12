@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type QuestCommitLookup } from "../api.js";
+import { commitComparisonLabel } from "../../shared/quest-delivery.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { DiffViewer } from "./DiffViewer.js";
@@ -420,6 +421,27 @@ export function QuestCommitDiffView({
                 </>
               )}
           </div>
+          {activeCommitDetails?.available && activeCommitDetails.comparison && (
+            <p className="mt-1 text-[11px] text-cc-muted" data-testid="quest-commit-comparison">
+              {commitComparisonLabel(activeCommitDetails.comparison)}
+              {activeCommitDetails.comparison.baseSha && (
+                <code className="ml-1" title={activeCommitDetails.comparison.baseSha}>
+                  {shortCommitSha(activeCommitDetails.comparison.baseSha)}
+                </code>
+              )}
+              {activeCommitDetails.comparison.parentCount > 1 &&
+                ". This compares the whole merge with its first parent and may include existing layer code."}
+            </p>
+          )}
+          {activeCommitDetails?.available && activeCommitDetails.recordedStats && (
+            <p className="mt-1 text-[11px] text-cc-muted" data-testid="quest-commit-recorded-stats">
+              Saved chip counts: +{activeCommitDetails.recordedStats.additions} −
+              {activeCommitDetails.recordedStats.deletions}
+              {activeCommitDetails.recordedStats.binaryFiles > 0 &&
+                `; ${activeCommitDetails.recordedStats.binaryFiles} binary files`}
+              {` (${commitComparisonLabel(activeCommitDetails.recordedStats.comparison)}). The counts above describe the comparison shown here.`}
+            </p>
+          )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {commitEntries.map((entry) => {
               const key = commitLookupKey(entry.kind, entry.sha);

@@ -6,6 +6,7 @@ import { QuestCommitChip } from "./QuestCommitChip.js";
 import {
   deliveryFixture,
   laterDeliveryFixture,
+  legacyDeliveryFixture,
   createDeliveryFixtureClient,
   DELIVERY_FIXTURE_QUEST,
   FIRST_DELIVERY_SHA,
@@ -178,5 +179,47 @@ describe("fixed delivery commit chips", () => {
     );
     expect(await screen.findByText("Unavailable")).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+  it("labels merge and root comparisons while preserving old counts with an unrecorded baseline", async () => {
+    // These are server-projected fixture records. Old evidence is not relabeled as a known new comparison.
+    const client = createDeliveryFixtureClient();
+    render(
+      <>
+        <QuestCommitChip
+          questId={DELIVERY_FIXTURE_QUEST}
+          deliveryId={deliveryFixture.id}
+          sha={FIRST_DELIVERY_SHA}
+          client={client}
+        >
+          Merge
+        </QuestCommitChip>
+        <QuestCommitChip
+          questId={DELIVERY_FIXTURE_QUEST}
+          deliveryId={deliveryFixture.id}
+          sha={SECOND_DELIVERY_SHA}
+          client={client}
+        >
+          Root
+        </QuestCommitChip>
+        <QuestCommitChip
+          questId={DELIVERY_FIXTURE_QUEST}
+          deliveryId={legacyDeliveryFixture.id}
+          sha={legacyDeliveryFixture.commits[0]!.sha}
+          client={client}
+        >
+          Legacy
+        </QuestCommitChip>
+      </>,
+    );
+    expect(await screen.findByText("Vs first parent (merge)")).toBeVisible();
+    expect(await screen.findByText("Initial tree")).toBeVisible();
+    expect(await screen.findByText("Baseline unrecorded")).toBeVisible();
+    const legacy = screen.getByRole("button", { name: /Older saved commit, 9 additions, 2 deletions/ });
+    fireEvent.click(legacy);
+    expect(await screen.findByTestId("quest-commit-recorded-stats")).toHaveTextContent("Saved chip counts: +9 −2");
+    expect(screen.getByTestId("quest-commit-recorded-stats")).toHaveTextContent("Baseline unrecorded");
+    expect(screen.getByTestId("quest-commit-comparison")).toHaveTextContent("may include existing layer code");
+    expect(screen.getByTestId("quest-commit-diff-stats-overall")).toHaveTextContent("1");
+    expect(legacy).toHaveTextContent("+9−2");
   });
 });

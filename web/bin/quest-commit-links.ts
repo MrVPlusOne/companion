@@ -1,5 +1,10 @@
 import { getQuest } from "../server/quest-store.js";
-import { DELIVERY_ID_PATTERN, deliveryCommitHref, projectQuestDelivery } from "../shared/quest-delivery.js";
+import {
+  DELIVERY_ID_PATTERN,
+  commitComparisonLabel,
+  deliveryCommitHref,
+  projectQuestDelivery,
+} from "../shared/quest-delivery.js";
 
 /** Produce fixed, copy-ready links without publishing messages or mutating evidence. */
 export async function runCommitLinksCommand(input: {
@@ -32,9 +37,13 @@ export async function runCommitLinksCommand(input: {
       additions: commit.additions,
       deletions: commit.deletions,
       binaryFiles: commit.binaryFiles,
+      comparison: commitComparisonLabel(commit.comparison),
       markdown: `[${title}](${href})`,
     };
   });
   if (input.json) console.log(JSON.stringify({ questId: input.questId, deliveryId: delivery.id, commits: links }));
-  else for (const link of links) console.log(link.markdown);
+  else {
+    console.log("Delivered in this batch:");
+    for (const link of links) console.log(link.markdown);
+  }
 }

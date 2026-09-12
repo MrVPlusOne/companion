@@ -1,5 +1,12 @@
 import type { DiffFileGroupStats } from "./diff-file-groups.js";
 
+/** A recorded, deterministic commit comparison; root commits use the empty tree. */
+export interface CommitComparison {
+  method: "first-parent-v1";
+  baseSha: string | null;
+  parentCount: number;
+}
+
 export interface CommitSummary {
   sha: string;
   shortSha: string;
@@ -9,6 +16,7 @@ export interface CommitSummary {
   deletions: number;
   binaryFiles: number;
   splitStats?: DiffFileGroupStats;
+  comparison?: CommitComparison;
 }
 
 export interface RetainedReviewRange {
@@ -89,5 +97,33 @@ export function projectQuestDelivery(questId: string, delivery: QuestCodeDeliver
       reviewCount: review?.commitShas.length ?? 0,
     })),
     earlierReviewCount: delivery.earlierReviews?.length ?? 0,
+  };
+}
+
+/** Keep a missing historical baseline distinct from a newly verified comparison. */
+export function commitComparisonLabel(comparison?: CommitComparison): string {
+  if (comparison?.method !== "first-parent-v1") return "Baseline unrecorded";
+  if (comparison.baseSha === null) return "Initial tree";
+  return comparison.parentCount > 1 ? "Vs first parent (merge)" : "Vs parent";
+}
+
+/** Preserve old saved counts when their baseline is unknown or today's comparison differs. */
+export function recordedCommitStats(recorded: CommitSummary | undefined, current: Partial<CommitSummary>) {
+  if (!recorded || typeof current.additions !== "number") return undefined;
+  if (
+    recorded.comparison &&
+    recorded.comparison.method === current.comparison?.method &&
+    recorded.comparison.baseSha === current.comparison?.baseSha &&
+    recorded.comparison.parentCount === current.comparison?.parentCount &&
+    recorded.additions === current.additions &&
+    recorded.deletions === current.deletions &&
+    recorded.binaryFiles === current.binaryFiles
+  )
+    return undefined;
+  return {
+    additions: recorded.additions,
+    deletions: recorded.deletions,
+    binaryFiles: recorded.binaryFiles,
+    comparison: recorded.comparison,
   };
 }
