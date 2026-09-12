@@ -113,7 +113,7 @@ describe("takode scan/peek context diagnostics", () => {
         return;
       }
 
-      if (method === "GET" && url === "/api/sessions/153/messages?turn=0&showTools=true&context=true") {
+      if (method === "GET" && url === "/api/sessions/153/messages?turn=0&count=60&showTools=true&context=true") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -163,7 +163,10 @@ describe("takode scan/peek context diagnostics", () => {
         return;
       }
 
-      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=1&showTools=true&context=true") {
+      if (
+        method === "GET" &&
+        url === "/api/sessions/153/messages?turnContaining=1&count=60&showTools=true&context=true"
+      ) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -258,8 +261,10 @@ describe("takode scan/peek context diagnostics", () => {
       expect(containingPeek.stdout).toContain("ctx unavailable");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1&context=true");
-      expect(requests).toContain("GET /api/sessions/153/messages?turn=0&showTools=true&context=true");
-      expect(requests).toContain("GET /api/sessions/153/messages?turnContaining=1&showTools=true&context=true");
+      expect(requests).toContain("GET /api/sessions/153/messages?turn=0&count=60&showTools=true&context=true");
+      expect(requests).toContain(
+        "GET /api/sessions/153/messages?turnContaining=1&count=60&showTools=true&context=true",
+      );
     } finally {
       server.close();
     }

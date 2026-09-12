@@ -1,3 +1,4 @@
+import { recordCodexClose, recordCodexProcessTermination } from "./codex-close-diagnostics.js";
 /**
  * Codex App-Server Adapter
  *
@@ -299,13 +300,7 @@ export class CodexAdapter
           ` (process may still be running)` +
           `${pendingRequests.length ? `, pendingRpcRequests=${formatPendingRpcRequests(pendingRequests)}` : ""}`,
       );
-      this.options.recorder?.recordServerEvent(
-        this.sessionId,
-        "codex_adapter_transport_closed",
-        diagnostics as unknown as Record<string, unknown>,
-        "codex",
-        this.options.cwd || "",
-      );
+      recordCodexClose("codex_adapter_transport_closed", diagnostics, this.options.recorder);
       noteCodexTransportCloseForWave(diagnostics);
       if (this.recentRawMessages.length > 0) {
         console.log(
@@ -336,13 +331,7 @@ export class CodexAdapter
         `[codex-adapter] Process exited for session ${sessionId} ` +
           `(pid=${proc.pid}, code=${exitCode}, closeContext=${this.transport.getCloseContext()}, closeId=${diagnostics.closeId}, connected was true — transport.onClose did not fire first)`,
       );
-      this.options.recorder?.recordServerEvent(
-        this.sessionId,
-        "codex_process_exited_before_transport_close",
-        diagnostics as unknown as Record<string, unknown>,
-        "codex",
-        this.options.cwd || "",
-      );
+      recordCodexClose("codex_process_exited_before_transport_close", diagnostics, this.options.recorder);
       this.connected = false;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       this._clearSkillRefreshTimer();
@@ -724,13 +713,7 @@ export class CodexAdapter
       `[codex-adapter] Process exited after transport close for session ${this.sessionId} ` +
         `(pid=${this.proc.pid}, code=${exitCode}, closeId=${diagnostics.closeId}, eofToExitMs=${diagnostics.process.eofToExitMs ?? "unknown"})`,
     );
-    this.options.recorder?.recordServerEvent(
-      this.sessionId,
-      "codex_process_exit_after_transport_close",
-      diagnostics as unknown as Record<string, unknown>,
-      "codex",
-      this.options.cwd || "",
-    );
+    recordCodexClose("codex_process_exit_after_transport_close", diagnostics, this.options.recorder);
   }
 
   sendBrowserMessage(msg: BrowserOutgoingMessage): boolean {
@@ -869,6 +852,12 @@ export class CodexAdapter
     this.streamRetry.clear();
     this.connected = false;
     try {
+      recordCodexProcessTermination(
+        { sessionId: this.sessionId, backendType: "codex" },
+        this.proc.pid,
+        "SIGTERM",
+        "adapter.disconnect",
+      );
       this.proc.kill("SIGTERM");
       await Promise.race([this.proc.exited, new Promise((r) => setTimeout(r, 5000))]);
     } catch {}

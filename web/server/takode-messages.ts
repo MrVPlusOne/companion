@@ -20,7 +20,8 @@ import { deriveAttachmentPaths } from "./attachment-paths.js";
 import { TAKODE_PEEK_CONTENT_LIMIT } from "../shared/takode-constants.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import { isCompactionRecoveryPrompt } from "./compaction-recovery-prompts.js";
-import { findTurnBoundaries, type TurnBoundary } from "./turn-boundaries.js";
+import { findTurnBoundaries, turnNavigationEnd, type TurnBoundary } from "./turn-boundaries.js";
+import { resolveTurnInspection, type TurnInspectionRange } from "./takode-turn-navigation.js";
 import {
   collectToolContextSources,
   contextUsageAtTimestamp,
@@ -193,6 +194,8 @@ export interface PeekRangeResponse {
   to: number;
   messages: TakodePeekMessage[];
   bounds: { turn: number; si: number; ei: number }[];
+  /** Present only for a bounded turn lookup; paging stays inside this range. */
+  turn?: TurnInspectionRange;
 }
 
 export interface BuildPeekRangeOptions {
@@ -345,7 +348,7 @@ function turnParticipatesInThread(
 ): boolean {
   const normalized = normalizeInspectionThreadKey(threadKey);
   if (!normalized) return true;
-  const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  const endBound = turnNavigationEnd(messageHistory, turn);
   for (let i = turn.startIdx; i <= endBound; i++) {
     const msg = messageHistory[i];
     if (msg && messageParticipatesInThread(msg, normalized)) return true;
@@ -360,7 +363,7 @@ function turnThreadSummary(
   threads?: string[];
   threadStatuses?: TakodeThreadStatusSummary[];
 } {
-  const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  const endBound = turnNavigationEnd(messageHistory, turn);
   const threads = new Set<string>();
   const statuses: TakodeThreadStatusSummary[] = [];
   for (let i = turn.startIdx; i <= endBound; i++) {
@@ -648,7 +651,7 @@ function deriveTurnResultPreview(
   } = {},
 ): string {
   const { subagentToolUseIds = new Set<string>(), toolResultPreviews = new Map<string, ToolResultPreview>() } = opts;
-  const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  const endBound = turnNavigationEnd(messageHistory, turn);
   let lastTopLevelAssistantText = "";
   let lastSyntheticAssistantPreview = "";
 
@@ -977,7 +980,7 @@ function buildTurnMessages(
   const startMsg = messageHistory[turn.startIdx];
   const startedAt = extractTimestamp(startMsg);
 
-  const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  const endBound = turnNavigationEnd(messageHistory, turn);
   const peekMessages: TakodePeekMessage[] = [];
   let lastKnownTs = startedAt;
 
@@ -1188,7 +1191,7 @@ export function buildPeekDefault(
     const startedAt = extractTimestamp(startMsg);
     const durationMs = endMsg?.type === "result" ? ((endMsg.data as CLIResultMessage).duration_ms ?? null) : null;
     const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
-    const stats = computeTurnStats(messageHistory, turn.startIdx, turn.endIdx);
+    const stats = computeTurnStats(messageHistory, turn.startIdx, turnNavigationEnd(messageHistory, turn));
 
     // Success from result
     const success = endMsg?.type === "result" ? !(endMsg.data as CLIResultMessage).is_error : null;
@@ -1213,7 +1216,7 @@ export function buildPeekDefault(
     return {
       turn: allTurns.indexOf(turn),
       si: turn.startIdx,
-      ei: turn.endIdx,
+      ei: turnNavigationEnd(messageHistory, turn),
       start: startedAt,
       ...(endedAt !== null ? { end: endedAt } : {}),
       ...(durationMs !== null ? { dur: durationMs } : {}),
@@ -1247,7 +1250,11 @@ export function buildPeekDefault(
   }).filter(
     (msg) => !threadKey || messageParticipatesInThread(messageHistory[msg.idx]!, threadKey) || msg.type === "result",
   );
-  const lastTurnStats = computeTurnStats(messageHistory, lastTurn.startIdx, lastTurn.endIdx);
+  const lastTurnStats = computeTurnStats(
+    messageHistory,
+    lastTurn.startIdx,
+    turnNavigationEnd(messageHistory, lastTurn),
+  );
 
   // Apply expandLimit -- keep only the last N messages, track omitted count
   const omittedMsgs = Math.max(0, expandedMessages.length - expandLimit);
@@ -1260,9 +1267,9 @@ export function buildPeekDefault(
     collapsedSlice.length > 0
       ? collapsedSlice[0].startIdx
       : omitted > 0
-        ? (priorTurns[Math.max(0, omitted - 1)]?.endIdx ?? -1) + 1
+        ? turnNavigationEnd(messageHistory, priorTurns[omitted - 1]!) + 1
         : 0;
-  const visibleEnd = lastTurn.endIdx >= 0 ? lastTurn.endIdx : messageHistory.length - 1;
+  const visibleEnd = turnNavigationEnd(messageHistory, lastTurn);
   const compactionEvents = findCompactionEvents(messageHistory, allTurns, visibleStart, visibleEnd);
 
   return {
@@ -1323,7 +1330,7 @@ export function buildPeekRange(
   const turnIndexForMessage = (idx: number): number | null => {
     for (let turnIndex = 0; turnIndex < allTurns.length; turnIndex++) {
       const turn = allTurns[turnIndex]!;
-      const endBound = turn.endIdx >= 0 ? turn.endIdx : totalMessages - 1;
+      const endBound = turnNavigationEnd(messageHistory, turn);
       if (idx >= turn.startIdx && idx <= endBound) return turnIndex;
     }
     return null;
@@ -1462,13 +1469,13 @@ export function buildPeekRange(
   // Find overlapping turn boundaries
   const bounds = allTurns
     .filter((t) => {
-      const tEnd = t.endIdx >= 0 ? t.endIdx : totalMessages - 1;
+      const tEnd = turnNavigationEnd(messageHistory, t);
       return t.startIdx <= rangeTo && tEnd >= rangeFrom;
     })
     .map((t) => ({
       turn: allTurns.indexOf(t),
       si: t.startIdx,
-      ei: t.endIdx,
+      ei: turnNavigationEnd(messageHistory, t),
     }));
 
   return {
@@ -1559,22 +1566,11 @@ export function buildReadResponse(
 export function buildPeekRangeForContainingMessage(
   messageHistory: BrowserIncomingMessage[],
   idx: number,
-  options: {
-    showTools?: boolean;
-    threadKey?: string;
-    includeContext?: boolean;
-    contextUsageHistory?: ContextUsageHistoryEntry[];
-    getToolResult?: ReadOptions["getToolResult"];
-  } = {},
+  options: BuildPeekRangeOptions & { getToolResult?: ReadOptions["getToolResult"] } = {},
   sessionId?: string,
 ): PeekRangeLookupResult {
-  if (!Number.isInteger(idx) || idx < 0) {
-    return { ok: false, status: 400, error: "turnContaining must be a non-negative integer" };
-  }
-  if (idx >= messageHistory.length) {
-    return { ok: false, status: 404, error: `Message index ${idx} out of range (0-${messageHistory.length - 1})` };
-  }
-
+  const resolved = resolveTurnInspection(messageHistory, { messageIndex: idx }, options);
+  if (!resolved.ok) return resolved;
   if (options.threadKey) {
     const read = buildReadResponse(
       messageHistory,
@@ -1590,29 +1586,7 @@ export function buildPeekRangeForContainingMessage(
       };
     }
   }
-
-  const turn = findTurnBoundaries(messageHistory).find((item) => {
-    const endIdx = item.endIdx >= 0 ? item.endIdx : messageHistory.length - 1;
-    return idx >= item.startIdx && idx <= endIdx;
-  });
-  if (!turn) return { ok: false, status: 404, error: `Message index ${idx} is not contained in a turn` };
-
-  const endIdx = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
-  return {
-    ok: true,
-    response: buildPeekRange(
-      messageHistory,
-      {
-        from: turn.startIdx,
-        until: endIdx,
-        showTools: options.showTools,
-        threadKey: options.threadKey,
-        includeContext: options.includeContext,
-        contextUsageHistory: options.contextUsageHistory,
-      },
-      sessionId,
-    ),
-  };
+  return { ok: true, response: buildTurnInspectionPage(messageHistory, resolved, options, sessionId) };
 }
 
 export function buildPeekRangeForTurnNumber(
@@ -1621,24 +1595,33 @@ export function buildPeekRangeForTurnNumber(
   options: BuildPeekRangeOptions = {},
   sessionId?: string,
 ): PeekRangeLookupResult {
-  if (!Number.isInteger(turnNum) || turnNum < 0) {
-    return { ok: false, status: 400, error: "turn must be a non-negative integer" };
-  }
+  const resolved = resolveTurnInspection(messageHistory, { turn: turnNum }, options);
+  return resolved.ok
+    ? { ok: true, response: buildTurnInspectionPage(messageHistory, resolved, options, sessionId) }
+    : resolved;
+}
 
-  const allTurns = findTurnBoundaries(messageHistory);
-  if (turnNum >= allTurns.length) {
-    return {
-      ok: false,
-      status: 404,
-      error: `Turn ${turnNum} not found. Session has ${allTurns.length} turns (0-${allTurns.length - 1}).`,
-    };
-  }
-
-  const turn = allTurns[turnNum]!;
-  const endIdx = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+function buildTurnInspectionPage(
+  history: BrowserIncomingMessage[],
+  resolved: Extract<ReturnType<typeof resolveTurnInspection>, { ok: true }>,
+  options: BuildPeekRangeOptions,
+  sessionId?: string,
+): PeekRangeResponse {
+  // Build at most count rows before clipping to the owner turn. In particular,
+  // do not pass both from/until, whose explicit-range mode intentionally expands.
+  const response = buildPeekRange(
+    history,
+    { ...options, from: undefined, until: undefined, ...resolved.page },
+    sessionId,
+  );
+  const { range } = resolved;
   return {
-    ok: true,
-    response: buildPeekRange(messageHistory, { ...options, from: turn.startIdx, until: endIdx }, sessionId),
+    ...response,
+    from: Math.max(response.from, range.from),
+    to: Math.min(response.to, range.to),
+    messages: response.messages.filter((message) => message.idx >= range.from && message.idx <= range.to),
+    bounds: [{ turn: range.number, si: range.from, ei: range.to }],
+    turn: range,
   };
 }
 
@@ -1718,7 +1701,7 @@ export function buildPeekTurnScan(
     const startedAt = extractTimestamp(startMsg);
     const durationMs = endMsg?.type === "result" ? ((endMsg.data as CLIResultMessage).duration_ms ?? null) : null;
     const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
-    const stats = computeTurnStats(messageHistory, turn.startIdx, turn.endIdx);
+    const stats = computeTurnStats(messageHistory, turn.startIdx, turnNavigationEnd(messageHistory, turn));
     const success = endMsg?.type === "result" ? !(endMsg.data as CLIResultMessage).is_error : null;
 
     const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, {
@@ -1742,7 +1725,7 @@ export function buildPeekTurnScan(
     return {
       turn: turnNum,
       si: turn.startIdx,
-      ei: turn.endIdx,
+      ei: turnNavigationEnd(messageHistory, turn),
       start: startedAt,
       ...(endedAt !== null ? { end: endedAt } : {}),
       ...(durationMs !== null ? { dur: durationMs } : {}),
@@ -1763,7 +1746,7 @@ export function buildPeekTurnScan(
   const firstTurn = slice[0];
   const lastTurn = slice[slice.length - 1];
   const scanStart = fromTurn === 0 ? 0 : firstTurn.startIdx;
-  const scanEnd = lastTurn.endIdx >= 0 ? lastTurn.endIdx : messageHistory.length - 1;
+  const scanEnd = turnNavigationEnd(messageHistory, lastTurn);
   const compactionEvents = findCompactionEvents(messageHistory, allTurns, scanStart, scanEnd);
 
   return {
@@ -1850,7 +1833,7 @@ export function grepMessageHistory(
   const turnLookup = new Map<number, number>();
   for (let t = 0; t < allTurns.length; t++) {
     const turn = allTurns[t];
-    const endBound = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
+    const endBound = turnNavigationEnd(history, turn);
     for (let i = turn.startIdx; i <= endBound; i++) {
       turnLookup.set(i, t);
     }
@@ -1926,7 +1909,7 @@ export function exportSessionAsText(history: BrowserIncomingMessage[], sessionId
   const turnLookup = new Map<number, number>();
   for (let t = 0; t < allTurns.length; t++) {
     const turn = allTurns[t];
-    const endBound = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
+    const endBound = turnNavigationEnd(history, turn);
     for (let i = turn.startIdx; i <= endBound; i++) {
       turnLookup.set(i, t);
     }

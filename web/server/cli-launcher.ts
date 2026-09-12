@@ -1,3 +1,4 @@
+import { recordCodexProcessTermination } from "./codex-close-diagnostics.js";
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, access, writeFile } from "node:fs/promises";
 
@@ -207,6 +208,12 @@ export class CliLauncher {
     if (!pid) return;
 
     try {
+      recordCodexProcessTermination(
+        this.sessions.get(sessionId),
+        pid,
+        "SIGTERM",
+        reason ?? "launcher.terminateKnownProcess",
+      );
       if (proc) {
         proc.kill("SIGTERM");
       } else {
@@ -233,6 +240,12 @@ export class CliLauncher {
         `${reason ? ` (${reason})` : ""}; escalating to SIGKILL`,
     );
     try {
+      recordCodexProcessTermination(
+        this.sessions.get(sessionId),
+        pid,
+        "SIGKILL",
+        reason ?? "launcher.terminateKnownProcess",
+      );
       process.kill(pid, "SIGKILL");
     } catch {}
     await waitForProcessExit(pid, 1000);
@@ -1512,6 +1525,7 @@ export class CliLauncher {
 
     const proc = this.processes.get(sessionId);
     if (proc) {
+      recordCodexProcessTermination(session, proc.pid, "SIGTERM", "launcher.kill");
       proc.kill("SIGTERM");
 
       // Wait up to 5s for graceful exit, then force kill
@@ -1522,6 +1536,7 @@ export class CliLauncher {
 
       if (!exited) {
         console.log(`[cli-launcher] Force-killing session ${sessionTag(sessionId)}`);
+        recordCodexProcessTermination(session, proc.pid, "SIGKILL", "launcher.kill");
         proc.kill("SIGKILL");
       }
 

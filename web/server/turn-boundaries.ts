@@ -19,6 +19,17 @@ function isNonBoundaryRecoveryDiagnostic(message: BrowserIncomingMessage): boole
   return message.type === "user_message" && isCodexLeaderRecoveryDiagnosticSourceId(message.agentSource?.sessionId);
 }
 
+/** Bound navigation without inventing a completion result for an interrupted turn. */
+export function turnNavigationEnd(messages: BrowserIncomingMessage[], turn: TurnBoundary): number {
+  if (turn.endIdx >= 0) return turn.endIdx;
+  for (let index = turn.startIdx + 1; index < messages.length; index++) {
+    const message = messages[index]!;
+    if (message.type !== "user_message") continue;
+    if (!isSyntheticStopTail(message) && !isNonBoundaryRecoveryDiagnostic(message)) return index - 1;
+  }
+  return messages.length - 1;
+}
+
 /** Find user/result turn boundaries, optionally skipping rows outside a projection. */
 export function findTurnBoundaries(
   messages: BrowserIncomingMessage[],

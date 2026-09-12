@@ -10,13 +10,15 @@ import { makePlaygroundMessage } from "./fixtures.js";
 export const PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT = [
   "[System 11:04 AM] [thread:q-9010] Takode could not confirm that the previous turn completed its response.",
   "",
-  "This is a separately owned verification-first continuation. The original user payload was not replayed because its history or effect evidence is incomplete.",
+  "This is a separately owned verification-first continuation. The original user payload was not replayed; available history or outcome evidence is incomplete.",
   "",
-  "Start with `takode peek 901 --turn-containing 42`, then use `takode read 901 42` and other targeted inspection only as needed.",
+  "Takode has evidence that the original input was recorded. An incomplete recovery view does not establish that your model context was lost.",
+  "",
+  "Continue from the request and partial work already in your context. Only if a necessary detail is missing, use `takode read 901 42 --limit 40` or `takode peek 901 --turn-containing 42 --count 20`.",
   "",
   "Takode history and these commands expose only Takode's persisted observations; they may be incomplete and do not prove all Codex-internal progress, partial tool execution, or external effects.",
   "",
-  "Tool or external effects may already have occurred. Inspect current quest, board, notification, file, and external state before repeating any action.",
+  "Tool or external effects may already have occurred. Before repeating an action whose outcome is uncertain, verify that operation's current state. Do not repeat already-completed work.",
   "",
   "Continue only the missing work within the original authorization and thread route. If safe continuation remains unclear, report the unfinished/action-required state instead of guessing or claiming completion.",
 ].join("\n");

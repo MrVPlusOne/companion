@@ -686,24 +686,25 @@ export function createTakodeRoutes(ctx: RouteContext) {
       });
     }
 
+    const turnPageOptions = {
+      ...contextOptions,
+      showTools: c.req.query("showTools") === "true" || includeContext,
+      count: parseInt(c.req.query("count") ?? "60", 10),
+      ...(fromParam !== undefined ? { from: parseInt(fromParam, 10) } : {}),
+      ...(untilParam !== undefined ? { until: parseInt(untilParam, 10) } : {}),
+    };
+
     // Turn mode: resolve turn number to message range, then use range mode
     if (turnParam !== undefined) {
-      const showTools = c.req.query("showTools") === "true" || includeContext;
-      const result = buildPeekRangeForTurnNumber(
-        history,
-        parseInt(turnParam, 10),
-        { showTools, ...contextOptions },
-        sessionId,
-      );
+      const result = buildPeekRangeForTurnNumber(history, parseInt(turnParam, 10), turnPageOptions, sessionId);
       return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);
     }
 
     if (c.req.query("turnContaining") !== undefined) {
-      const showTools = c.req.query("showTools") === "true" || includeContext;
       const result = buildPeekRangeForContainingMessage(
         history,
         parseInt(c.req.query("turnContaining") ?? "", 10),
-        { showTools, ...contextOptions },
+        turnPageOptions,
         sessionId,
       );
       return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);

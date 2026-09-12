@@ -1,5 +1,5 @@
 import type { BrowserIncomingMessage, ContextUsageHistoryEntry, ToolResultPreview } from "./session-types.js";
-import type { TurnBoundary } from "./takode-messages.js";
+import { turnNavigationEnd, type TurnBoundary } from "./turn-boundaries.js";
 
 export interface ContextToolSource {
   name: string;
@@ -281,7 +281,7 @@ export function computeContextTurnSummary(
   turn: TurnBoundary,
   toolSources = collectToolContextSources(messages),
 ): ContextTurnSummary {
-  const endBound = turn.endIdx >= 0 ? turn.endIdx : messages.length - 1;
+  const endBound = turnNavigationEnd(messages, turn);
   const byCommand = new Map<string, ContextTopCommand>();
   let messageBytes = 0;
   let toolResultBytes = 0;

@@ -1,3 +1,4 @@
+import { createCodexHistoryIncorporation } from "./codex-history-incorporation.js";
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage, CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
 import { injectUserMessage as injectProgrammaticUserMessage } from "./browser-transport-controller.js";
@@ -365,6 +366,14 @@ describe("Codex interrupted turn recovery state", () => {
     expect(recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent).toContain(
       "may be incomplete and do not prove all Codex-internal progress, partial tool execution, or external effects",
     );
+    const prompt = recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent;
+    expect(prompt).toContain("cannot confirm the original input's receipt");
+    expect(prompt).toContain("Continue from the request and partial work already in your context");
+    expect(prompt).toContain("Only if a necessary detail is missing");
+    expect(prompt).toContain("--limit 40");
+    expect(prompt).toContain("--count 20");
+    expect(prompt).not.toContain("Start with");
+    expect(prompt).not.toContain("Inspect current quest, board");
     expect(session.state.codex_turn_recovery).toMatchObject({
       originalOwnerId: "original-owner",
       continuationOwnerId: "continuation-owner",
@@ -418,13 +427,11 @@ describe("Codex interrupted turn recovery state", () => {
     );
     expect(deliveryContent).toContain("Takode could not confirm that the previous turn completed its response");
     expect(deliveryContent).toContain("Takode history and these commands expose only Takode's persisted observations");
+    expect(deliveryContent).toContain("Continue from the request and partial work already in your context");
+    expect(deliveryContent).toContain("Only if a necessary detail is missing");
     expect(deliveryContent).toContain(
-      "Takode's available observations did not show effect-capable activity after this input",
+      "Before repeating an action whose outcome is uncertain, verify that operation's current state",
     );
-    expect(deliveryContent).toContain(
-      "that absence is not proof that no partial tool execution or external effect occurred",
-    );
-    expect(deliveryContent).toContain("finish only the missing response without repeating already-taken actions");
     expect(deliveryContent).not.toContain("verification-first continuation");
     expect(session.state.codex_turn_recovery).toMatchObject({
       continuationMode: "finish_response",
@@ -432,6 +439,33 @@ describe("Codex interrupted turn recovery state", () => {
       attempt: 1,
       maxAttempts: 1,
     });
+  });
+
+  it("distinguishes recorded-input uncertainty from missing receipt and uses bounded lookup only when needed", () => {
+    // A conservative verification-first mode must not imply that a known
+    // receipt was lost or that the model necessarily lost its working context.
+    const session = makeSession();
+    const recoveryDeps = deps(session);
+    const history = createCodexHistoryIncorporation(["original-owner"]);
+    history.recordedAt = 3;
+    history.recordedSource = "live";
+    const original = turn({ historyIncorporation: history });
+    beginCodexTurnRecoveryContinuation(session, original, { threadKey: "main" }, recoveryDeps);
+    const prompt = recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent;
+    expect(prompt).toContain("has evidence that the original input was recorded");
+    expect(prompt).not.toContain("cannot confirm the original input's receipt");
+    expect(prompt).toContain("does not establish that your model context was lost");
+    expect(prompt).toContain("verify that operation's current state");
+  });
+
+  it("uses a bounded optional scan when the interrupted owner has no history anchor", () => {
+    const session = makeSession();
+    const recoveryDeps = deps(session);
+    beginCodexTurnRecoveryContinuation(session, turn({ historyIndex: -1 }), { threadKey: "main" }, recoveryDeps);
+    const prompt = recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent;
+    expect(prompt).toContain("Only if a necessary detail is missing");
+    expect(prompt).toContain("takode scan 42 --count 5");
+    expect(prompt).not.toContain("--turn-containing -1");
   });
 
   it("fails closed after the one continuation is interrupted instead of recursively injecting", () => {

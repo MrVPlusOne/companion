@@ -424,6 +424,7 @@ type PeekRangeResponse = {
   to: number;
   messages: PeekMessage[];
   bounds: Array<{ turn: number; si: number; ei: number }>;
+  turn?: { number: number; from: number; to: number; completed: boolean };
 };
 
 type PeekDetailResponse = {
@@ -711,6 +712,11 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number,
   const safeSessionRef = formatInlineText(sessionRef);
   const threadSuffix = formatThreadCommandSuffix(threadKey);
   printPeekHeader(d);
+  if (d.turn) {
+    console.log(
+      `Turn ${d.turn.number}: [${d.turn.from}]-[${d.turn.to}] (${d.turn.completed ? "result recorded" : "no result recorded"})`,
+    );
+  }
   console.log(`Messages [${d.from}]-[${d.to}] of [0]-[${d.totalMessages - 1}]`);
   console.log("");
 
@@ -804,19 +810,24 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number,
 
   console.log("");
 
-  // Navigation hints
+  // Turn pages never offer a cursor outside their owner, and previous pages
+  // exclude the current first row so paging always makes progress.
   const hints: string[] = [];
   const firstShown = d.messages[0]?.idx ?? d.from;
   const lastShown = d.messages[d.messages.length - 1]?.idx ?? d.to;
-  if (firstShown > 0) {
-    hints.push(`Prev: takode peek ${safeSessionRef} --until ${firstShown} --count ${count}${threadSuffix}`);
+  const min = d.turn?.from ?? 0;
+  const max = d.turn?.to ?? d.totalMessages - 1;
+  const turnFlag = d.turn ? ` --turn ${d.turn.number}` : "";
+  if (firstShown > min) {
+    const until = d.turn ? firstShown - 1 : firstShown;
+    hints.push(`Prev: takode peek ${safeSessionRef}${turnFlag} --until ${until} --count ${count}${threadSuffix}`);
   }
-  if (lastShown < d.totalMessages - 1) {
-    hints.push(`Next: takode peek ${safeSessionRef} --from ${lastShown + 1} --count ${count}${threadSuffix}`);
+  if (lastShown < max) {
+    hints.push(
+      `Next: takode peek ${safeSessionRef}${turnFlag} --from ${lastShown + 1} --count ${count}${threadSuffix}`,
+    );
   }
-  if (hints.length > 0) {
-    console.log(hints.join("  |  "));
-  }
+  if (hints.length > 0) console.log(hints.join("  |  "));
 }
 
 function printPeekDetail(d: PeekDetailResponse): void {
@@ -874,30 +885,20 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   if (turnNum !== undefined && turnContainingIdx !== undefined)
     err("Cannot use both --turn and --turn-containing. Use one or the other.");
 
-  // Resolve --turn N to a message range via the server
-  if (turnNum !== undefined) {
-    const params = new URLSearchParams({ turn: String(turnNum) });
+  // Turn pages retain their owner bounds and honor the same count/cursors as ranges.
+  if (turnNum !== undefined || turnContainingIdx !== undefined) {
+    const params = new URLSearchParams(
+      turnNum !== undefined ? { turn: String(turnNum) } : { turnContaining: String(turnContainingIdx) },
+    );
+    params.set("count", String(count));
+    if (fromIdx !== undefined) params.set("from", String(fromIdx));
+    if (untilIdx !== undefined) params.set("until", String(untilIdx));
     if (showTools || includeContext) params.set("showTools", "true");
     if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
-    const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
-    const data = await apiGet(base, path, { auth: "optional" });
-    if (jsonMode) {
-      console.log(JSON.stringify(data, null, 2));
-      return;
-    }
-    printPeekRange(data as PeekRangeResponse, sessionRef, count, threadKey);
-    return;
-  }
-
-  // Resolve --turn-containing idx to that message's full turn via the server.
-  if (turnContainingIdx !== undefined) {
-    const params = new URLSearchParams({ turnContaining: String(turnContainingIdx) });
-    if (showTools || includeContext) params.set("showTools", "true");
-    if (includeContext) params.set("context", "true");
-    appendThreadQueryParam(params, threadKey);
-    const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
-    const data = await apiGet(base, path, { auth: "optional" });
+    const data = await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`, {
+      auth: "optional",
+    });
     if (jsonMode) {
       console.log(JSON.stringify(data, null, 2));
       return;

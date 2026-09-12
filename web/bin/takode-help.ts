@@ -94,6 +94,10 @@ Options:
 const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--context] [--detail] [--turns N] [--json]
 
 View session activity with progressive detail.
+Turn lookups return up to --count messages (default 60). A containing-message page
+includes that message; use the Prev/Next commands to page within the same turn.
+Increase --count explicitly for more detail. An unfinished turn ends its navigation
+range before the next turn without being marked complete.
 
 Options:
   --context  Include reported usage at message starts plus compact payload-size navigation hints

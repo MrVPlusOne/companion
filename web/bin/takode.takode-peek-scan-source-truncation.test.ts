@@ -149,7 +149,7 @@ describe("takode peek/scan source-aware truncation", () => {
         return;
       }
 
-      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=1&threadKey=q-1298") {
+      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=1&count=60&threadKey=q-1298") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -164,7 +164,7 @@ describe("takode peek/scan source-aware truncation", () => {
         return;
       }
 
-      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=0&threadKey=q-1298") {
+      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=0&count=60&threadKey=q-1298") {
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "Message index 0 does not participate in thread q-1298" }));
         return;

@@ -1407,20 +1407,22 @@ function buildContinuationPrompt(
 ): string {
   const sessionRef = String(getKnownSessionNum(session.id) ?? session.sessionNum ?? session.id);
   const historyIndex = pending.historyIndex;
-  const inspectCommands =
+  const inspection =
     historyIndex >= 0
-      ? `Start with \`takode peek ${sessionRef} --turn-containing ${historyIndex}\`, then use \`takode read ${sessionRef} ${historyIndex}\` and other targeted inspection only as needed.`
-      : `Start with \`takode scan ${sessionRef}\`, then inspect the most recent interrupted turn with \`takode peek\` or \`takode read\` as needed.`;
+      ? `use \`takode read ${sessionRef} ${historyIndex} --limit 40\` or \`takode peek ${sessionRef} --turn-containing ${historyIndex} --count 20\``
+      : `use \`takode scan ${sessionRef} --count 5\` to locate the relevant request, then inspect a bounded message or turn page`;
+  const recorded = pending.historyIncorporation?.recordedAt != null || continuationMode === "finish_response";
   return [
     "Takode could not confirm that the previous turn completed its response.",
     continuationMode === "verify_then_continue"
-      ? "This is a separately owned verification-first continuation. The original user payload was not replayed because its history or effect evidence is incomplete."
+      ? "This is a separately owned verification-first continuation. The original user payload was not replayed; available history or outcome evidence is incomplete."
       : "This is a separately owned recovery continuation. The original user payload is recorded in Codex history and must not be replayed.",
-    inspectCommands,
+    recorded
+      ? "Takode has evidence that the original input was recorded. An incomplete recovery view does not establish that your model context was lost."
+      : "Takode cannot confirm the original input's receipt from the available history. This uncertainty does not establish that your model context was lost.",
+    `Continue from the request and partial work already in your context${continuationMode === "finish_response" ? "; finish only the missing response without repeating already-taken actions" : ""}. Only if a necessary detail is missing, ${inspection}.`,
     "Takode history and these commands expose only Takode's persisted observations; they may be incomplete and do not prove all Codex-internal progress, partial tool execution, or external effects.",
-    continuationMode === "verify_then_continue"
-      ? "Tool or external effects may already have occurred. Inspect current quest, board, notification, file, and external state before repeating any action."
-      : "Takode's available observations did not show effect-capable activity after this input; that absence is not proof that no partial tool execution or external effect occurred. Inspect the original request, partial response, and current state, then finish only the missing response without repeating already-taken actions.",
+    "Tool or external effects may already have occurred. Before repeating an action whose outcome is uncertain, verify that operation's current state. Do not repeat already-completed work.",
     "Continue only the missing work within the original authorization and thread route. If safe continuation remains unclear, report the unfinished/action-required state instead of guessing or claiming completion.",
   ].join("\n\n");
 }
