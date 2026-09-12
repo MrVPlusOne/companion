@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fsMocks = vi.hoisted(() => ({
@@ -56,37 +57,20 @@ describe("ensureQuestmasterIntegration", () => {
     });
   });
 
-  it("writes quest skill to Claude and agents skill homes", async () => {
+  it.each([false, true])("writes canonical quest files to both supported homes (existing=%s)", async (existing) => {
+    // Prove missing/stale installations receive complete current templates, not
+    // just a few policy phrases. All writes and cleanup remain mocked.
+    fsMocks.existsSync.mockReturnValue(existing);
     await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.claude/skills/quest", { recursive: true });
-    expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.agents/skills/quest", { recursive: true });
-    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
-      "/home/tester/.claude/skills/quest/SKILL.md",
-      expect.stringContaining("name: quest"),
-      "utf-8",
-    );
-    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
-      "/home/tester/.agents/skills/quest/SKILL.md",
-      expect.stringContaining("name: quest"),
-      "utf-8",
-    );
-    expect(writtenFile("/home/tester/.claude/skills/quest/SKILL.md")).toContain(
-      "[q-42 feedback #3](quest:q-42:feedback:3)",
-    );
-    expect(writtenFile("/home/tester/.agents/skills/quest/SKILL.md")).toContain(
-      "[q-42 feedback #3](quest:q-42:feedback:3)",
-    );
-    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
-      "/home/tester/.claude/skills/quest/memory-completion.md",
-      expect.stringContaining("Quest Memory and Completion Details"),
-      "utf-8",
-    );
-    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
-      "/home/tester/.agents/skills/quest/memory-completion.md",
-      expect.stringContaining("Quest Memory and Completion Details"),
-      "utf-8",
-    );
+    for (const [filename, template] of [
+      ["SKILL.md", "quest-skill-docs.md"],
+      ["memory-completion.md", "quest-memory-completion.md"],
+    ]) {
+      const canonical = await readFile(new URL(`./templates/${template}`, import.meta.url), "utf-8");
+      for (const home of [".claude", ".agents"]) {
+        expect(writtenFile(`/home/tester/${home}/skills/quest/${filename}`)).toBe(canonical);
+      }
+    }
     expect(fsMocks.writeFileSync).not.toHaveBeenCalledWith(
       "/home/tester/.codex/skills/quest/SKILL.md",
       expect.anything(),
@@ -123,255 +107,6 @@ describe("ensureQuestmasterIntegration", () => {
     expect(fsMocks.unlinkSync.mock.invocationCallOrder[unlinkCallIndex]).toBeLessThan(
       fsMocks.writeFileSync.mock.invocationCallOrder[writeCallIndex]!,
     );
-  });
-
-  it("overwrites generated quest subfiles when stale or missing", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const mainSkill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
-    const memoryCompletion = writtenFile("/home/tester/.agents/skills/quest/memory-completion.md");
-
-    expect(mainSkill).toContain("Read `memory-completion.md`");
-    expect(mainSkill).toContain("Quest quiz items are for user-facing active recall");
-    expect(mainSkill).toContain("source-of-origin preflight");
-    expect(mainSkill).toContain(
-      "reject or rewrite candidates whose answer mainly comes from the user's original request",
-    );
-    expect(mainSkill).toContain("What internal mechanism carries ready-result unread state?");
-    expect(mainSkill).toContain("human-vs-agent memory separation");
-    expect(memoryCompletion).toContain("Stream Memory CLI");
-    expect(memoryCompletion).toContain("Quest quiz metadata");
-    expect(memoryCompletion).toContain("self-contained from the quest record and accepted scope");
-    expect(memoryCompletion).toContain("major work/change, new discoveries, and critical related background knowledge");
-    expect(memoryCompletion).toContain(
-      "Reject or rewrite items whose answer mainly comes from the user's original request",
-    );
-    expect(memoryCompletion).toContain('Reject: "What should `Thread Ready` do?"');
-    expect(memoryCompletion).toContain('Rewrite/allow: "What internal mechanism carries ready-result unread state?"');
-    expect(memoryCompletion).toContain("future-agent/system-memory facts");
-    expect(memoryCompletion).toContain("User review checks are optional human-owned checks only");
-    expect(memoryCompletion).toContain("--memory-commit <sha>");
-  });
-
-  it("includes explicit feedback-addressing workflow in generated skill", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
-    const memoryCompletion = writtenFile("/home/tester/.agents/skills/quest/memory-completion.md");
-    expect(skill).toContain("quest address <id> <index> [--json]");
-    expect(memoryCompletion).toContain("Address all human feedback");
-    expect(memoryCompletion).toContain("Both steps are required");
-    expect(memoryCompletion).toContain("Add or refresh a user-oriented summary comment");
-    expect(memoryCompletion).toContain("what changed, why it matters, and what verification passed");
-    expect(memoryCompletion).toContain("Write the summary as an outcome note, not a review or rework timeline");
-    expect(skill).toContain("TLDR Quality Guidance");
-    expect(skill).toContain("Write the full description, feedback, or summary body first");
-    expect(skill).toContain("quest feedback add q-N --text-file summary.md --tldr-file summary-tldr.md");
-    expect(skill).toContain("Final debrief TLDRs should be self-contained quest-journey summaries");
-    expect(skill).toContain("Phase-note TLDRs should usually be 1-5 scan-friendly bullets or sentences");
-    expect(skill).toContain("Machine-oriented bookkeeping, including synced SHA lists");
-    expect(skill).toContain("Once commits or hashes are attached as structured metadata");
-    expect(skill).toContain("do not repeat the raw identifiers in TLDRs");
-    expect(skill).toContain("User-facing quest completion summaries should lead with the outcome");
-    expect(skill).toContain("Worker live commentary should happen at meaningful milestones");
-    expect(skill).toContain("Tool rows already expose operations");
-    expect(skill).toContain("final debrief metadata status, no-op memory statements");
-    expect(skill).toContain("File Link Guidance");
-    expect(skill).toContain("[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)");
-    expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
-    expect(skill).toContain("Quests vs Personal To-dos vs Built-in TodoWrite");
-    expect(skill).toContain("`takode todo`");
-    expect(skill).toContain("genuinely ambiguous generic wording");
-    expect(skill).toContain("Quest Journey Phase Documentation");
-    expect(skill).toContain("every active phase should leave durable quest feedback");
-    expect(skill).toContain("For memory record frontmatter `source`");
-    expect(skill).toContain("Do not routinely add `commit:*` or `session:*` sources");
-    expect(skill).toContain("Maintain one current phase note per phase occurrence");
-    expect(skill).toContain("quest feedback edit <id> <index>");
-    expect(skill).toContain("instead of appending a near-duplicate note");
-    expect(skill).toContain("explicitly say which prior feedback index is superseded");
-    expect(skill).toContain("For phase-note TLDRs, write 1-5 scan-friendly bullets or sentences");
-    expect(skill).toContain("takode worker-stream");
-    expect(skill).toContain("optional, creates an internal herd checkpoint");
-    expect(skill).toContain("does not replace phase documentation, final debrief metadata");
-    expect(skill).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
-    expect(skill).toContain("If inference is unavailable or ambiguous");
-    expect(skill).toContain("minimal understanding and authorization handshake");
-    expect(skill).toContain("not implementation investigation");
-    expect(skill).toContain("concise plain-language outcome for the human reader");
-    expect(skill).toContain("Reviewers should check documentation quality, not just whether a comment exists");
-    expect(skill).toContain("One TLDR bullet or sentence is fine only when the source truly has one main point");
-    expect(memoryCompletion).toContain("For long multi-topic summaries, write the full `Summary:` body first");
-    expect(memoryCompletion).toContain("Include the concise human outcome");
-    expect(memoryCompletion).toContain("command-by-command narration");
-    expect(memoryCompletion).toContain("Reviewer-owned quest hygiene");
-    expect(memoryCompletion).toContain('`quest feedback add q-N --text "Summary: ..."` for short single-topic content');
-    expect(memoryCompletion).toContain(
-      "quest feedback q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md",
-    );
-    expect(skill).toContain(
-      [
-        "### quest transition <id> --status <s> [flags]",
-        "| Flag | Description |",
-        "|------|-------------|",
-        "| `--status <s>` | Target status (REQUIRED) |",
-        '| `--desc "..."` | Optional description update |',
-        "| `--desc-file <path>` | Read the description update from a file, or use `-` to read from stdin |",
-        '| `--tldr "..."` | Optional human-readable TLDR metadata for long descriptions |',
-        "| `--tldr-file <path>` | Read TLDR metadata from a file, or use `-` to read from stdin |",
-      ].join("\n"),
-    );
-    expect(memoryCompletion).toContain("Prefer one consolidated feedback entry");
-    expect(memoryCompletion).toContain("This summary may also explain addressed human feedback");
-    expect(memoryCompletion).toContain("Avoid review-process timelines, duplicate near-identical comments");
-    expect(memoryCompletion).toContain("required worker deliverable");
-    expect(skill).toContain("keep the same quest in Work");
-    expect(skill).toContain("separate review quest can inspect a clean incremental diff");
-    expect(skill).toContain("purely read-only follow-up review discussion does not reopen Work");
-  });
-
-  it("requires quest-design before quest creation or refinement only", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
-    expect(skill).toContain("Required `/quest-design` before quest creation or refinement");
-    expect(skill).toContain("invoke `/quest-design` and complete its confirmation round");
-    expect(skill).toContain("Before any agent creates a new quest or refines an `idea` quest");
-    expect(skill).toContain("Stop and wait for confirmation or correction");
-    expect(skill).toContain("Use `/quest-design` before:");
-    expect(skill).toContain("`quest create`");
-    expect(skill).toContain("`quest edit` or `quest transition --status refined` when refining an `idea` quest");
-    expect(skill).toContain("full approval workflow lives in the existing `quest-design` skill");
-    expect(skill).toContain("combined quest/Journey approval rules");
-    expect(skill).toContain("follow-up relationship guidance");
-    expect(skill).toContain(
-      "Quest descriptions for refined-and-later work must be intent-first and self-contained enough",
-    );
-    expect(skill).toContain("requirements or constraints the user supplied or confirmed");
-    expect(skill).toContain("useful evidence or context -- especially material a worker could not reasonably recover");
-    expect(skill).toContain("Preserve helpful leader analysis as non-binding context");
-    expect(skill).toContain("leave unconfirmed ideas and detailed investigation, planning, technical design");
-    expect(skill).toContain("how a true follow-up differs from or builds on its predecessor");
-    expect(skill).toContain("Links, screenshots, phase notes, and prior messages should enrich the description");
-    expect(skill).toContain("Operations that do not require `/quest-design`");
-    expect(skill).toContain("Adding human or agent feedback to an existing quest");
-    expect(skill).toContain("Routine progress bookkeeping after approved work");
-    expect(skill).toContain("invoke `/quest-design` before applying them");
-    expect(skill).toContain("Ask clarifying questions until the goal, scope, and non-goals are clear enough");
-    expect(skill).toContain("Draft the refined title, description, and tags, then invoke `/quest-design`");
-    expect(skill).toContain("include `Relationship: follow-up of [q-M](quest:q-M)`");
-    expect(skill).toContain("Description: clear, actionable, intent-first, and self-contained");
-    expect(skill).toContain(
-      "Do not turn unconfirmed leader ideas or detailed planning into binding acceptance criteria",
-    );
-    expect(skill).toContain("define non-obvious terms");
-    expect(skill).toContain("Wait for user confirmation or correction");
-    expect(skill).toContain('[--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"]');
-    expect(skill).toContain('[--follow-up-of "q-1,q-2" | --clear-follow-up-of]');
-    expect(skill).toContain("| `--status idea|refined` | Initial quest status; defaults to `idea` |");
-    expect(skill).toContain('| `--follow-up-of "q-1,q-2"` | Persist that the new quest is a true follow-up');
-    expect(skill).toContain("| `--clear-follow-up-of` | Clear explicit follow-up relationships");
-    expect(skill).not.toContain("Proposed Quest");
-    expect(skill).not.toContain("Make it read like a TLDR for approval");
-    expect(skill).not.toContain("full quest-body paste");
-    expect(skill).not.toContain("Before any agent creates a quest or materially updates/refines an existing quest");
-    expect(skill).not.toContain("When in doubt, treat the change as material and confirm first");
-  });
-
-  it("requires titles under 10 words for refined and later stages", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
-    expect(skill).toContain("Title rule for refined and later");
-    expect(skill).toContain("less than 10 words");
-    expect(skill).toContain("`refined`, `in_progress`, or `done`");
-  });
-
-  it("tells worktree workers to sync to main before done", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
-    const memoryCompletion = writtenFile("/home/tester/.agents/skills/quest/memory-completion.md");
-    expect(skill).toContain("Worktree sessions must not enter Memory until changes are synced");
-    expect(skill).toContain("Work owns implementation, self-review, approved execution, validation, sync/push duties");
-    expect(skill).toContain("changes are synced to the selected target and pushed when required");
-    expect(skill).toContain('--skip-optional-checkpoint "<reason>"');
-    expect(skill).toContain("Required checkpoints and optional checkpoints that are actually taken");
-    expect(skill).toContain("Repeated plans may use generic advance to resume or skip into later Work");
-    expect(memoryCompletion).toContain(
-      'takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"',
-    );
-    expect(skill).toContain("[--memory-commit <sha>] [--memory-commits");
-    expect(memoryCompletion).toContain("file-based memory-repository commits during final Memory");
-    expect(memoryCompletion).toContain("Keep code commit metadata separate from memory commit metadata");
-    expect(memoryCompletion).toContain("Synced SHAs: sha1,sha2");
-    expect(memoryCompletion).toContain(
-      "Final Memory verifies that tracked Work SHAs are already structured quest metadata",
-    );
-    expect(memoryCompletion).toContain("do not first-attach them with completion-time `--commit` / `--commits`");
-    expect(memoryCompletion).toContain("Final debrief draft:");
-    expect(memoryCompletion).toContain("Debrief TLDR draft:");
-    expect(skill).toContain("route final Memory");
-    expect(memoryCompletion).toContain("Do not rely on log parsing or memory");
-    expect(skill).toContain("Every completed non-cancelled quest must include a final debrief and debrief TLDR");
-    expect(memoryCompletion).toContain("Completion without both a final debrief and a debrief TLDR is incomplete");
-    expect(memoryCompletion).toContain("accepted substantive result is complete");
-    expect(memoryCompletion).toContain("including implementation when the approved scope requires it");
-    expect(skill).toContain("then perform the accepted investigation, design, implementation, validation");
-    expect(skill).not.toContain("then start coding");
-    expect(memoryCompletion).toContain("Metadata reconciliation is a final-scope accuracy check");
-    expect(memoryCompletion).toContain("not permission to rewrite active scope or unfinished quests");
-    expect(memoryCompletion).toContain("do not invent a separate Port phase");
-    expect(memoryCompletion).toContain("Do not leave code commit info only in comments");
-    expect(memoryCompletion).toContain("one substantive quest-level prose summary");
-    expect(memoryCompletion).toContain("what changed, why it matters, and what verification passed");
-    expect(skill).toContain("Use value-based compression instead of hard length caps");
-    expect(skill).toContain("file-by-file diff narration");
-    expect(skill).toContain("Keep the memory boundary explicit");
-    expect(skill).toContain("If your context was compacted during the phase");
-    expect(memoryCompletion).toContain("structured final debrief metadata");
-    expect(skill).toContain("--debrief-file");
-    expect(skill).toContain("--debrief-tldr-file");
-    expect(memoryCompletion).toContain("If you complete a quest");
-    expect(memoryCompletion).toContain("The debrief TLDR should stay higher level and self-contained");
-    expect(memoryCompletion).toContain("Routine synced SHAs, raw commit IDs, branch names");
-    expect(memoryCompletion).toContain(
-      "command lists or transcripts, raw paths, and verification mechanics belong in the body",
-    );
-    expect(memoryCompletion).toContain("If commit metadata or a `Synced SHAs:` handoff already carries exact values");
-    expect(memoryCompletion).toContain(
-      "the visible completion message still needs a complementary useful outcome summary",
-    );
-    expect(memoryCompletion).toContain("{[(Quest Quiz: q-N)]}");
-    expect(memoryCompletion).toContain(
-      "Challenge TLDRs or routine user-facing summaries that repeat raw commits/hashes",
-    );
-    expect(memoryCompletion).toContain(
-      "Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`)",
-    );
-    expect(memoryCompletion).toContain("Only add a second port-specific comment");
-    expect(memoryCompletion).toContain("`quest complete ... --no-code` remains only a local reminder switch");
-    expect(memoryCompletion).toContain("only a local reminder switch");
-    expect(memoryCompletion).toContain(
-      "Do not add placeholder sync notes, synced SHA lines, or automated-check results as checks",
-    );
-    expect(memoryCompletion).toContain("zero git-tracked changes");
-    expect(skill).toContain(
-      "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
-    );
-    expect(skill).toContain("Do not use `--no-code` for these quests");
-    expect(skill).toContain("User review checks are optional human-owned checks only");
-    expect(memoryCompletion).toContain(
-      "Put what changed, why it matters, synchronized state, and automated verification results",
-    );
-  });
-
-  it("instructs agents to use quest directly before PATH fallbacks", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
-    expect(skill).toContain("Prefer `quest ...` directly when `quest` is already on PATH");
-    expect(skill).toContain("Do not prepend to `PATH` proactively");
   });
 
   it("writes a copied global quest wrapper targeting the stable main checkout", async () => {
@@ -457,67 +192,6 @@ describe("ensureQuestmasterIntegration", () => {
       "utf-8",
     );
     expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/rg", 0o755);
-  });
-
-  it("documents verification inbox commands and filters", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
-    const memoryCompletion = writtenFile("/home/tester/.agents/skills/quest/memory-completion.md");
-    expect(skill).toContain("quest later  <id> [--json]");
-    expect(skill).toContain("quest inbox  <id> [--json]");
-    expect(skill).toContain("--verification <scope>");
-    expect(memoryCompletion).toContain("Review inbox workflow");
-    expect(memoryCompletion).toContain("quest list --verification inbox");
-  });
-
-  it("tells agents to prefer plain-text quest show and reserve --json for exact fields", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
-      (call) => call[0] === "/home/tester/.agents/skills/quest/SKILL.md",
-    );
-    expect(codexSkillWrite).toBeDefined();
-
-    const skill = String(codexSkillWrite?.[1] ?? "");
-    expect(skill).toContain("Prefer the plain-text form");
-    expect(skill).toContain("quest feedback list/latest/show");
-    expect(skill).toContain("quest feedback list --json");
-    expect(skill).toContain("`commitShas`");
-    expect(skill).toContain("legacy backup metadata from `quest history`");
-  });
-
-  it("documents feedback inspection and compact status commands", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
-      (call) => call[0] === "/home/tester/.agents/skills/quest/SKILL.md",
-    );
-    expect(codexSkillWrite).toBeDefined();
-
-    const skill = String(codexSkillWrite?.[1] ?? "");
-    expect(skill).toContain("quest status <id>");
-    expect(skill).toContain("quest feedback list <id>");
-    expect(skill).toContain("quest feedback latest <id>");
-    expect(skill).toContain("quest feedback show <id> <index>");
-    expect(skill).toContain("quest feedback edit <id> <index>");
-    expect(skill).toContain("Use these read-only commands instead of `quest show --json` plus jq/Python");
-  });
-
-  it("documents quest grep as the preferred way to search inside quest text and comments", async () => {
-    await ensureQuestmasterIntegration(3456, "/repo/web");
-
-    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
-      (call) => call[0] === "/home/tester/.agents/skills/quest/SKILL.md",
-    );
-    expect(codexSkillWrite).toBeDefined();
-
-    const skill = String(codexSkillWrite?.[1] ?? "");
-    expect(skill).toContain("quest grep   <pattern> [--count N] [--json]");
-    expect(skill).toContain("Search quest title, description, final debrief, and feedback/comments");
-    expect(skill).toContain("Use `quest grep` when you need to search **inside** quest titles");
-    expect(skill).toContain("Use `quest list --text` when you are broadly filtering the quest list");
-    expect(skill).toContain("prefer `quest grep <pattern>` over manually scanning `quest show` output");
   });
 
   it("keeps copied quest wrappers identical across worktrees of the same repo", async () => {

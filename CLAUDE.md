@@ -117,6 +117,7 @@ cd web && bun --no-install run format:check
 ```
 
 - All new backend (`web/server/`) and frontend (`web/src/`) code **must** include tests when possible.
+- Do not add unit tests solely to lock down static instruction wording, including copied sentences, keyword checklists, or prompt snapshots. Test instruction assembly, selection, delivery, and machine-interpreted syntax; wording-specific assertions require a concrete regression rationale. Wording-only changes may rely on meaningful existing coverage and careful review instead of a new test.
 - Tests use Vitest. Server tests live alongside source files (e.g. `routes.test.ts` next to `routes.ts`).
 - Keep path-dependent tests portable: derive host-dependent expectations from the runtime environment or a controlled fixture root instead of hardcoding a developer's home or checkout path. Fixed synthetic paths are valid test data. Keep test writes and cleanup under isolated temporary roots, never real home or durable user-data directories.
 - A husky pre-commit hook runs staged formatting, the staged file line-limit guard, and typecheck automatically before each commit. It does not run the full test suite.

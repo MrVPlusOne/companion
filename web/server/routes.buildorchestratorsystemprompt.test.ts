@@ -572,89 +572,30 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("buildOrchestratorSystemPrompt", () => {
-  it("keeps the Codex leader startup prompt free of Claude/sub-agent wording", () => {
-    const prompt = buildOrchestratorSystemPrompt("codex");
-    expect(prompt).toContain("leader session");
-    expect(prompt).toContain(
-      "Delegate non-trivial implementation, investigation, and verification to worker sessions.",
-    );
-    expect(prompt).toContain("Archiving a worktree worker deletes its worktree and any uncommitted changes.");
-    expect(prompt).toContain("new source of truth");
-    expect(prompt).toContain("stale review/port completions from the older scope");
-    // Link syntax instructions moved to system prompt (cli-launcher.ts) -- no longer in user message
-    expect(prompt).not.toContain("CLAUDE.md");
-    expect(prompt).not.toContain("sub-agent");
-    expect(prompt).not.toContain("[Agent]");
+  it("selects the Claude family for SDK startup and a distinct Codex variant", () => {
+    // Preserve backend selection without freezing the prose of either variant.
+    expect(buildOrchestratorSystemPrompt("claude-sdk")).toBe(buildOrchestratorSystemPrompt("claude"));
+    expect(buildOrchestratorSystemPrompt("codex")).not.toBe(buildOrchestratorSystemPrompt("claude"));
   });
 
-  it("is minimal -- heavy orchestration instructions live in system prompt", () => {
-    // The user message should be short: identity + role + startup instruction.
-    // Detailed orchestration rules (delegation, quest lifecycle, permissions, etc.)
-    // live in the system prompt built by cli-launcher.ts.
-    const prompt = buildOrchestratorSystemPrompt("claude");
-    expect(prompt).toContain("[System] You are a leader session");
-    expect(prompt).toContain("takode-orchestration");
-    expect(prompt).toContain("leader-dispatch");
-    expect(prompt).toContain("confirm");
-    expect(prompt).toContain("quest");
-    expect(prompt).toContain("included immediately after this kickoff message");
-    expect(prompt).toContain("takode board advance <quest-id>` only for non-Work boundaries");
-    expect(prompt).toContain(
-      'takode board work-to-memory <quest-id> --work-note <feedback-index> --commits "sha1,sha2"',
-    );
-    expect(prompt).toContain("mutually exclusive `--no-code` mode for genuine zero-git-tracked-change Work");
-    expect(prompt).toContain(
-      "direct approved optional checkpoint before Memory adds `--skip-optional-checkpoint <reason>`",
-    );
-    expect(prompt).toContain("required or taken checkpoints must resume into later Work first");
-    expect(prompt).toContain("via tool calls");
-    expect(prompt).toContain("wait for the user's instructions");
-    expect(prompt).toContain("ask the user in a commentary-routed leader response");
-    expect(prompt).toContain("then call `takode notify needs-input` after that user-visible text exists");
-    expect(prompt).toContain("`[thread:main:C]` / `[thread:q-N:C]` for commentary");
-    expect(prompt).toContain("`[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for a self-contained answer");
-    expect(prompt).not.toContain("takode user-message");
-    expect(prompt).toContain(
-      "Use the orchestration instructions already loaded in this session as your source of truth",
-    );
-    expect(prompt).toContain("repo-local docs still mention deprecated leader reply tags");
-    // These were moved to system prompt and should NOT appear in user message
-    expect(prompt).not.toContain("Delegation principle");
-    expect(prompt).not.toContain("Quest refinement");
-    expect(prompt).not.toContain("Quest lifecycle");
-    expect(prompt).not.toContain("Permission requests");
-    expect(prompt).not.toContain("Read your project's instruction files");
-  });
-
-  it("scopes leader startup user waits instead of blocking unrelated orchestration", () => {
-    for (const backend of ["claude", "codex", "claude-sdk"] as const) {
-      const prompt = buildOrchestratorSystemPrompt(backend);
-      expect(prompt).toContain("User questions create scoped waits");
-      expect(prompt).toContain("keep only the affected thread, quest, or board row paused");
-      expect(prompt).toContain("never answer that decision yourself");
-      expect(prompt).toContain("Keep independent herd events, quests, and coordination moving");
-      expect(prompt).toContain("safety, global orchestration, worker-slot, shared-resource, or cross-quest blockers");
-      expect(prompt).toContain("parks one prompt");
-      expect(prompt).toContain("does not depend on that answer");
-      expect(prompt).not.toContain("WAIT for their answer");
-      expect(prompt).not.toContain("Don't let herd events override your decision to wait");
-    }
-  });
-
-  it("injects the Codex-specific startup prompt for connected leader sessions", async () => {
+  it.each([
+    "claude",
+    "claude-sdk",
+    "codex",
+  ] as const)("injects the canonical %s startup prompt for connected leaders", async (backend) => {
     launcher.getSession.mockReturnValue({ state: "connected" });
 
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", backend: "codex", role: "orchestrator" }),
+      body: JSON.stringify({ cwd: "/test", backend, role: "orchestrator" }),
     });
 
     expect(res.status).toBe(200);
     await vi.waitFor(() => expect(bridge.injectUserMessage).toHaveBeenCalled());
     expect(bridge.injectUserMessage).toHaveBeenCalledWith(
       "session-1",
-      buildOrchestratorSystemPrompt("codex"),
+      buildOrchestratorSystemPrompt(backend),
       {
         sessionId: LEADER_KICKOFF_SOURCE_ID,
         sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,

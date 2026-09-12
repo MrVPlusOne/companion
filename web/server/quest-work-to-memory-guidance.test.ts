@@ -5,82 +5,24 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-function read(relativePath: string): string {
-  return readFileSync(resolve(ROOT, relativePath), "utf8");
-}
-
-describe("Work-to-Memory code evidence guidance", () => {
-  it("keeps the orchestration design rubric on active-v2 Work ownership", () => {
-    const design = read(".claude/skills/takode-orchestration-design/SKILL.md");
-
-    expect(design).toContain("guarded transition-time SHA attachment before Memory");
-    expect(design).not.toContain("Execute assignees should");
-    expect(design).not.toContain("Port assignees should");
-  });
-
-  it("keeps copyable orchestration commands evidence-complete", () => {
-    const journey = read(".claude/skills/takode-orchestration/quest-journey.md");
-    const boardUsage = read(".claude/skills/takode-orchestration/board-usage.md");
-    const leaderDispatch = read(".claude/skills/leader-dispatch/SKILL.md");
-
-    for (const source of [journey, boardUsage, leaderDispatch]) {
-      expect(source).toContain("--commits");
-      expect(source).toContain("--no-code");
+describe("copyable Work-to-Memory commands", () => {
+  it.each([
+    ".claude/skills/takode-orchestration/quest-journey.md",
+    ".claude/skills/takode-orchestration/board-usage.md",
+    ".claude/skills/worktree-rules/SKILL.md",
+    ".claude/skills/worktree-rules/references/port-tracking.md",
+    "web/server/templates/quest-memory-completion.md",
+  ])("includes the required transition flags and compatible evidence modes in %s", (path) => {
+    // These are executable command examples, not prose keywords: omitting the
+    // Work note or supplying conflicting evidence modes makes the command fail.
+    const source = readFileSync(resolve(ROOT, path), "utf8");
+    const commands = source.match(/^takode board work-to-memory [^\n]+/gm) ?? [];
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) {
+      const flags: string[] = command.match(/--[\w-]+/g) ?? [];
+      expect(flags).toContain("--work-note");
+      expect(flags.filter((flag) => ["--commit", "--commits", "--no-code"].includes(flag))).toHaveLength(1);
+      expect(flags.includes("--preparation") && flags.includes("--delivery-target")).toBe(false);
     }
-
-    expect(journey).toContain("Every Work occurrence, including rework, must supply its own fresh transition evidence");
-    expect(journey).toContain('--work-note <feedback-index> --commits "sha1,sha2"');
-    expect(journey).toContain("--work-note <feedback-index> --no-code");
-    expect(journey).toContain("commit count and diff controls are available as soon as Memory begins");
-    expect(boardUsage).toContain("Older stored commits do not replace fresh evidence for a rework occurrence");
-    expect(boardUsage).toContain("takode board replace-work-evidence");
-    expect(boardUsage).toContain("expected ordered list must exactly match current storage");
-    expect(boardUsage).toContain("does not advance the Journey");
-  });
-
-  it("makes independent targets discoverable from loaded guidance without replacing the normal port contract", () => {
-    // These are the canonical installed/generated sources, not a quest-local handoff.
-    for (const source of [
-      "web/shared/quest-journey-phases/work/leader.md",
-      "web/shared/quest-journey-phases/work/assignee.md",
-      "web/server/templates/quest-skill-docs.md",
-      ".claude/skills/takode-orchestration/board-usage.md",
-    ]) {
-      expect(read(source)).toContain("delivery-target");
-    }
-    const recipe = read(".claude/skills/worktree-rules/references/port-tracking.md");
-    expect(recipe).toContain("approve-delivery-target");
-    expect(recipe).toContain("does not grant permission for new external operations");
-    expect(recipe).toContain("--preparation");
-    expect(recipe).toContain("Missing objects remain honestly unavailable");
-  });
-
-  it("keeps Memory deltas and completion guidance from first-attaching Work commits", () => {
-    const handoffs = read(".claude/skills/leader-dispatch/references/phase-handoff-examples.md");
-    const edgeCases = read(".claude/skills/leader-dispatch/references/edge-cases.md");
-    const memoryCompletion = read("web/server/templates/quest-memory-completion.md");
-
-    expect(handoffs).not.toContain("Leader-specific deltas: <synced SHAs");
-    expect(handoffs).toContain("missing code evidence routes back to Work");
-    expect(edgeCases).toContain("do not send synchronized Work SHAs as a Memory delta");
-    expect(memoryCompletion).toContain(
-      "Final Memory verifies that tracked Work SHAs are already structured quest metadata",
-    );
-    expect(memoryCompletion).toContain("memory-repository commits during final Memory");
-    expect(memoryCompletion).not.toContain("Final Memory or the leader attaches those SHAs");
-  });
-
-  it("keeps optional and taken checkpoint routing behind the right boundary", () => {
-    const journey = read(".claude/skills/takode-orchestration/quest-journey.md");
-    const boardUsage = read(".claude/skills/takode-orchestration/board-usage.md");
-    const workBrief = read("web/shared/quest-journey-phases/work/assignee.md");
-    const checkpointBrief = read("web/shared/quest-journey-phases/user-checkpoint/leader.md");
-
-    expect(journey).toContain("direct optional suffix `[work, user-checkpoint, memory]`");
-    expect(journey).toContain('--skip-optional-checkpoint "<reason>"');
-    expect(journey).toContain("the reason is recorded");
-    expect(boardUsage).toContain("Generic `board advance` cannot skip directly from Work into Memory");
-    expect(workBrief).toContain("must continue into a later Work occurrence before Memory");
-    expect(checkpointBrief).toContain("revise the remaining Journey to `[user-checkpoint, work, memory]`");
   });
 });

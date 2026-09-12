@@ -181,9 +181,14 @@ describe("skill source payload validation", () => {
       "utf-8",
     );
     const skeptic = await readFile(join(installation.installedAgentsHome, "skeptic-review", "SKILL.md"), "utf-8");
-    expect(orchestration).toContain("One fresh reply may make one exact substitution");
-    expect(skeptic).toContain("name: skeptic-review");
-    expect(skeptic).toContain("description: >-");
+    // The installed bytes must come from the canonical source; policy wording
+    // is not part of the metadata compatibility contract.
+    expect(orchestration).toBe(
+      await readFile(join(PROJECT_ROOT, ".claude", "skills", "takode-orchestration", "SKILL.md"), "utf-8"),
+    );
+    expect(skeptic).toBe(
+      await readFile(join(PROJECT_ROOT, ".claude", "skills", "skeptic-review", "SKILL.md"), "utf-8"),
+    );
   });
 
   it("rejects semantic blanks and comments in metadata and bodies", async () => {

@@ -1,189 +1,36 @@
 import { readFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-describe("quest skill ownership docs", () => {
-  function readTemplate(name: string): string {
-    return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "templates", name), "utf-8");
-  }
+const docs = readFileSync(fileURLToPath(new URL("./templates/quest-skill-docs.md", import.meta.url)), "utf8");
 
-  function sectionBetween(source: string, start: string, end: string): string {
-    const startIndex = source.indexOf(start);
-    const endIndex = source.indexOf(end, startIndex + start.length);
-
-    expect(startIndex).toBeGreaterThanOrEqual(0);
-    expect(endIndex).toBeGreaterThan(startIndex);
-
-    return source.slice(startIndex, endIndex);
-  }
-
-  it("documents force claim, leader reassign, and archived-owner audit compatibility", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-
-    expect(docs).toContain("quest claim  <id> [--session <sid>] [--force --reason <text>] [--json]");
-    expect(docs).toContain("quest reassign <id> --session <worker> --reason <text> [--json]");
-    expect(docs).toContain("archived_owner_takeover");
+describe("quest skill command and link syntax", () => {
+  it.each([
+    ["claim", ["--session", "--force", "--reason"]],
+    ["reassign", ["--session", "--reason"]],
+    ["complete", ["--memory-commit", "--memory-commits", "--debrief-file", "--debrief-tldr-file"]],
+    ["show", ["--sections", "--full", "--json"]],
+    ["list", ["--verification"]],
+    ["feedback", ["--text-file", "--tldr-file", "--phase"]],
+    ["grep", ["--count", "--json"]],
+  ] as const)("documents the parser's %s command flags", (command, requiredFlags) => {
+    // These tokens are consumed by the CLI. Check the command's own synopsis,
+    // with flexible whitespace, rather than matching surrounding explanations.
+    const synopsis = docs.match(new RegExp(`^quest ${command}\\s+[^\\n]+`, "m"))?.[0] ?? "";
+    const flags = synopsis.match(/--[\w-]+/g) ?? [];
+    expect(flags).toEqual(expect.arrayContaining([...requiredFlags]));
   });
 
-  it("documents owning-leader completion recovery as an audited exception", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-
-    expect(docs).toContain("Owning-leader completion recovery is a future escape hatch, not the nominal path");
-    expect(docs).toContain("Prefer ordinary worker completion or `quest reassign`");
-    expect(docs).toContain("records an explicit recovery audit event");
+  it("documents the read-only legacy outcome command without removed mutation verbs", () => {
+    // Copying a retired mutation verb would invoke an unsupported CLI operation.
+    expect(docs).toMatch(/quest outcome show\s+<id>/);
+    expect(docs).not.toMatch(/quest outcome (?:set|use)\b/);
   });
 
-  it("documents Questmaster data safety for destructive helpers", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-
-    expect(docs).toContain("## Questmaster Data Safety");
-    expect(docs).toContain("Questmaster records are durable shared user data");
-    expect(docs).toContain("reset/delete/migration helpers");
-    expect(docs).toContain("isolated temporary/disposable state");
-    expect(docs).toContain("backup, snapshot, or recovery plan and approval");
-  });
-
-  it("documents User review checks as optional Memory-settled user-owned checks", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-    const memoryCompletion = readTemplate("quest-memory-completion.md");
-
-    expect(docs).toContain("User review checks are optional human-owned checks only");
-    expect(docs).toContain("Final Memory is mandatory for every non-cancelled Quest Journey");
-    expect(memoryCompletion).toContain("User review checks are optional human-owned checks only");
-    expect(docs).toContain("an empty list is normal when no user action remains");
-    expect(memoryCompletion).toContain(
-      "Empty User review checks are normal and preferred over invented checklist entries",
-    );
-    expect(docs).not.toContain("Verification items must be human-checkable acceptance items only");
-  });
-
-  it("documents Work-owned code metadata separately from Memory-owned commit metadata", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-    const memoryCompletion = readTemplate("quest-memory-completion.md");
-
-    expect(docs).toContain("[--memory-commit <sha>] [--memory-commits");
-    expect(docs).toContain("nominal active-v2 flow Work already used this on `takode board work-to-memory`");
-    expect(docs).toContain(
-      "| `--memory-commit <sha>` | Attach one memory repo commit SHA (repeatable). Use this for file-based memory commits, not code repo commits. |",
-    );
-    expect(docs).toContain("Keep these separate from code repo commits.");
-    expect(memoryCompletion).toContain("Work owns code-repository evidence");
-    expect(memoryCompletion).toContain(
-      "Final Memory verifies that tracked Work SHAs are already structured quest metadata",
-    );
-    expect(memoryCompletion).toContain("do not first-attach them with completion-time `--commit` / `--commits`");
-    expect(memoryCompletion).toContain("file-based memory-repository commits during final Memory");
-    expect(memoryCompletion).not.toContain("Final Memory or the leader attaches those SHAs");
-  });
-
-  it("documents quest show progressive reveal before expensive full detail", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-
-    expect(docs).toContain("quest show   <id> [--sections <list>] [--full] [--json]");
-    expect(docs).toContain("Plain-text `quest show q-N` is compact by default");
-    expect(docs).toContain("quest show q-12 --sections description,debrief");
-    expect(docs).toContain("quest show q-12 --sections phases");
-    expect(docs).toContain("quest show q-12 --sections phase:7");
-    expect(docs).toContain("Prefer targeted `--sections` reveals first.");
-  });
-
-  it("keeps retired Quest Outcome data read-only and out of active completion guidance", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-    const memoryCompletion = readTemplate("quest-memory-completion.md");
-
-    expect(docs).toContain("quest outcome show <id> [--json]");
-    expect(docs).toContain("preserved legacy Outcome data (read-only)");
-    expect(docs).not.toContain("quest outcome set");
-    expect(docs).not.toContain("quest outcome use");
-    expect(docs).not.toContain("## Current Outcome");
-    expect(memoryCompletion).toContain("preserved as opaque read-only recovery data");
-    expect(memoryCompletion).toContain("do not treat them as final-debrief authority");
-    expect(memoryCompletion).not.toContain("sealed Current Outcome");
-  });
-
-  it("documents the canonical exact-feedback link without teaching the legacy alias", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-
-    expect(docs).toContain("[q-42 feedback #3](quest:q-42:feedback:3)");
-    expect(docs).toContain("Feedback indices are stable and zero-based");
-    expect(docs).toContain("read them from `quest feedback list/show` and never guess");
-    expect(docs).not.toContain("quest:q-42#feedback-3");
-  });
-
-  it("documents compact phase handoffs without weakening durable phase notes", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-
-    expect(docs).toContain("Keep final chat handoffs much shorter than the phase note");
-    expect(docs).toContain("Questmaster phase feedback as the source of truth for detailed results");
-    expect(docs).toContain("name the phase feedback index");
-    expect(docs).toContain("User Checkpoint packets");
-    expect(docs).toContain("Work's selected target plus ordered `Synced SHAs:`");
-    expect(docs).toContain("final Memory's required memory statement");
-    expect(docs).toContain("After a successful Work -> Memory transition, stop the Work turn");
-    expect(docs).toContain("the leader can report the accepted outcome immediately");
-    expect(docs).toContain("Final Memory resumes under the Memory phase brief");
-    expect(docs).toContain("may add only separate memory-repository commit metadata");
-    expect(docs).toContain("missing Work code evidence routes back to Work");
-    expect(docs).toContain('takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"');
-    expect(docs).toContain("takode board work-to-memory q-N --work-note <feedback-index> --no-code");
-  });
-
-  it("documents the generic two-axis tag taxonomy with mocked non-examples", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-    const tagsSection = sectionBetween(docs, "## Tags", "## Images");
-
-    expect(tagsSection).toContain("Use a small generic two-axis taxonomy by default");
-    expect(tagsSection).toContain(
-      "Default area tags: `ui`, `backend`, `cli`, `orchestration`, `data`, `ml`, `infra`, `security`.",
-    );
-    expect(tagsSection).toContain(
-      "Default work-type tags: `bugfix`, `feature`, `improvement`, `investigation`, `validation`, `refactor`, `docs`, `cleanup`, `ops`.",
-    );
-    expect(tagsSection).toContain("project-alpha");
-    expect(tagsSection).toContain("pipeline-widget");
-    expect(tagsSection).toContain("status-panel");
-    expect(tagsSection).toContain("bridge-adapter");
-    expect(tagsSection).toContain("public instruction examples");
-    expect(tagsSection).not.toContain("Common patterns: component/area");
-  });
-
-  it("keeps public tag examples aligned with the taxonomy guidance", () => {
-    const docs = readTemplate("quest-skill-docs.md");
-
-    // Guard stale copyable examples outside the main Tags section too. These
-    // examples are intentionally narrow so public docs do not teach old
-    // component/project-tag or third-tag patterns by accident.
-    expect(docs).not.toContain('--tags "questmaster,cli"');
-    expect(docs).not.toContain('--tags "ui,bugfix,mobile"');
-    expect(docs).not.toContain("Common patterns: component/area");
-    expect(docs).not.toContain("Reuse existing tags. Only create new tags when no existing tag fits.");
-
-    const areaTags = new Set(["ui", "backend", "cli", "orchestration", "data", "ml", "infra", "security"]);
-    const workTypeTags = new Set([
-      "bugfix",
-      "feature",
-      "improvement",
-      "investigation",
-      "validation",
-      "refactor",
-      "docs",
-      "cleanup",
-      "ops",
-    ]);
-    const concreteTagExamples = [...docs.matchAll(/--tags "([^"]+)"/g)]
-      .map((match) => match[1])
-      .filter((tags) => tags !== "t1,t2");
-
-    expect(concreteTagExamples.length).toBeGreaterThan(0);
-
-    for (const tagExample of concreteTagExamples) {
-      const [areaTag, workTypeTag, extraTag] = tagExample.split(",");
-
-      expect(extraTag, `${tagExample} should use only an area tag and a work-type tag`).toBeUndefined();
-      expect(areaTags.has(areaTag ?? ""), `${tagExample} should start with a default area tag`).toBe(true);
-      expect(workTypeTags.has(workTypeTag ?? ""), `${tagExample} should end with a default work-type tag`).toBe(true);
-    }
+  it("uses canonical feedback URI syntax in the copyable example", () => {
+    // The URI grammar is interpreted by Takode navigation. Example IDs and the
+    // surrounding prose can change without weakening this protocol check.
+    expect(docs).toMatch(/\[q-\d+ feedback #\d+\]\(quest:q-\d+:feedback:\d+\)/);
+    expect(docs).not.toMatch(/quest:q-\d+#feedback-/);
   });
 });

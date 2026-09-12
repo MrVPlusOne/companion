@@ -1,3 +1,12 @@
+import {
+  getCompactionRecoveryPrompt,
+  getLeaderContextRecoveryInstructions,
+  getStandardContextRecoveryInstructions,
+} from "./compaction-recovery-prompts.js";
+import {
+  LEADER_COMPACTION_RECOVERY_PREFIX,
+  STANDARD_COMPACTION_RECOVERY_PREFIX,
+} from "../shared/injected-event-message.js";
 import { vi } from "vitest";
 
 const mockExecSync = vi.hoisted(() => vi.fn());
@@ -634,13 +643,22 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Compaction recovery prompts", () => {
+  it.each([
+    ["leader", LEADER_COMPACTION_RECOVERY_PREFIX, getLeaderContextRecoveryInstructions],
+    ["standard", STANDARD_COMPACTION_RECOVERY_PREFIX, getStandardContextRecoveryInstructions],
+  ] as const)("selects the %s recovery source and machine-recognized prefix", (role, prefix, instructions) => {
+    // Test the role-to-source mapping independently of the bridge's delivery
+    // check below. Prefixes are parsed by recovery detection; prose is canonical.
+    expect(getCompactionRecoveryPrompt(role, "42")).toBe(`${prefix}\n\n${instructions("42")}`);
+  });
+
   // After compaction finishes, Takode sessions receive a [System] user message
   // reminding them to recover enough self-history before resuming. Leaders get
   // orchestration-specific guidance; non-leaders get a general recovery prompt.
 
   it("injects recovery message for leader sessions after SDK compaction finishes", async () => {
-    // Leader sessions lose skill context after compaction. The recovery
-    // message reminds them to reload /takode-orchestration and /quest.
+    // Verify role selection, full canonical prompt delivery, and preloaded
+    // skills after compaction without freezing the recovery policy's prose.
     const adapter = makeClaudeSdkAdapterMock();
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
     adapter.emitBrowserMessage({
@@ -670,10 +688,7 @@ describe("Compaction recovery prompts", () => {
 
     // Recovery message should have been injected with system source tag
     const recoveryCalls = await waitForRecoveryInjection(spy);
-    expect(recoveryCalls[0][1]).toContain(
-      "required leader skill contents are included immediately after this recovery message",
-    );
-    expect(recoveryCalls[0][1]).toContain("via tool calls");
+    expect(recoveryCalls[0][1]).toBe(getCompactionRecoveryPrompt("leader", "42"));
     expect(recoveryCalls[0][5]).toEqual(
       expect.objectContaining({
         deliveryContent: expect.stringMatching(
@@ -690,40 +705,6 @@ describe("Compaction recovery prompts", () => {
         ]),
       }),
     );
-    expect(recoveryCalls[0][1]).toContain("Use the compacted memory summary as your first recovery signal");
-    expect(recoveryCalls[0][1]).toContain("decide the appropriate Takode, quest, board, and memory inspection path");
-    expect(recoveryCalls[0][1]).toContain(
-      "Do not conclude recovery is complete until you have accounted for likely unanswered user requests",
-    );
-    expect(recoveryCalls[0][1]).toContain("unanswered user requests");
-    expect(recoveryCalls[0][1]).toContain("interrupted actions");
-    expect(recoveryCalls[0][1]).toContain("unmodeled quest setup");
-    expect(recoveryCalls[0][1]).toContain("Inspect relevant quest state before advancing Journey work");
-    expect(recoveryCalls[0][1]).toContain("Inspect file-based memory only when durable memory may affect");
-    expect(recoveryCalls[0][1]).toContain("Verify active Journey, board, and herd/session state");
-    expect(recoveryCalls[0][1]).not.toContain("takode leader-context-resume 42");
-    expect(recoveryCalls[0][1]).not.toContain("takode scan 42");
-    expect(recoveryCalls[0][1]).not.toContain("memory recall");
-    expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
-    expect(recoveryCalls[0][1]).toContain("compacted memory summary as evidence");
-    expect(recoveryCalls[0][1]).toContain("Scope unresolved user decisions, including `needs-input` prompts");
-    expect(recoveryCalls[0][1]).toContain("unresolved user decisions");
-    expect(recoveryCalls[0][1]).toContain("needs-input");
-    expect(recoveryCalls[0][1]).toContain("do not advance the affected thread, quest, or board row");
-    expect(recoveryCalls[0][1]).toContain("Keep unrelated dispatch, quests, and herd events moving");
-    expect(recoveryCalls[0][1]).toContain("sets one prompt aside");
-    expect(recoveryCalls[0][1]).toContain("does not depend on the answer");
-    expect(recoveryCalls[0][1]).toContain("interrupted active Work occurrence");
-    expect(recoveryCalls[0][1]).toContain("~/.companion/quest-journey-phases/work/leader.md");
-    expect(recoveryCalls[0][1]).toContain("That brief owns the complete recovery rule");
-    expect(recoveryCalls[0][1]).toContain("preloaded Takode orchestration guidance only to classify the event");
-    expect(recoveryCalls[0][1]).not.toContain("one short verification window");
-    expect(recoveryCalls[0][1]).not.toContain("full remaining authorized Work envelope");
-    expect(recoveryCalls[0][1]).not.toContain("exact-once replay proof and recovery suppression remain authoritative");
-    expect(recoveryCalls[0][1]).not.toContain("do not dispatch, advance quests");
-    expect(recoveryCalls[0][1]).toContain("using the current phase briefs");
-    expect(recoveryCalls[0][1]).not.toContain("approved next phase and stop");
-    expect(recoveryCalls[0][1]).not.toContain("port only when explicitly told");
     await vi.waitFor(() => expect(mockMemoryCatalogRecordSeen).toHaveBeenCalledTimes(1));
   });
 
@@ -756,10 +737,7 @@ describe("Compaction recovery prompts", () => {
     expect(session.state.is_compacting).toBe(false);
 
     const recoveryCalls = await waitForRecoveryInjection(spy, sid);
-    expect(recoveryCalls[0][1]).toContain(
-      "required leader skill contents are included immediately after this recovery message",
-    );
-    expect(recoveryCalls[0][1]).toContain("via tool calls");
+    expect(recoveryCalls[0][1]).toBe(getCompactionRecoveryPrompt("leader", sid));
     expect(recoveryCalls[0][5]).toEqual(
       expect.objectContaining({
         deliveryContent: expect.stringMatching(
@@ -931,23 +909,10 @@ describe("Compaction recovery prompts", () => {
 
     const recoveryCalls = await waitForRecoveryInjection(spy);
     expect(recoveryCalls).toHaveLength(1);
-    expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
-    expect(recoveryCalls[0][1]).toContain("takode scan 42");
-    expect(recoveryCalls[0][1]).toContain("takode peek 42");
-    expect(recoveryCalls[0][1]).toContain("takode read 42");
-    expect(recoveryCalls[0][1]).toContain("memory catalog show");
-    expect(recoveryCalls[0][1]).toContain("inspect plausible catalog-listed files directly");
-    expect(recoveryCalls[0][1]).toContain("targeted `rg` under `$(memory repo path)`");
-    expect(recoveryCalls[0][1]).toContain("skip blind repo-wide memory search");
-    expect(recoveryCalls[0][1]).not.toContain("memory recall");
-    expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
-    expect(recoveryCalls[0][1]).toContain("Keep your current role");
-    expect(recoveryCalls[0][1]).not.toContain("/takode-orchestration");
+    expect(recoveryCalls[0][1]).toBe(getCompactionRecoveryPrompt("standard", "42"));
     expect(recoveryCalls[0][5]).toEqual(
       expect.objectContaining({
-        deliveryContent: expect.stringMatching(
-          /recover enough context from your own session history[\s\S]*Memory catalog preloaded/,
-        ),
+        deliveryContent: expect.stringMatching(/takode scan 42[\s\S]*Memory catalog preloaded/),
         historyFollowUps: expect.arrayContaining([
           expect.objectContaining({
             content: expect.stringContaining("Memory catalog preloaded"),
@@ -974,6 +939,8 @@ describe("Compaction recovery prompts", () => {
       },
     });
 
+    (bridge.getSession("s1") as any).sessionNum = 42;
+
     // Herded worker (not orchestrator)
     bridge.setLauncher({
       touchActivity: vi.fn(),
@@ -988,8 +955,6 @@ describe("Compaction recovery prompts", () => {
 
     const recoveryCalls = await waitForRecoveryInjection(spy);
     expect(recoveryCalls).toHaveLength(1);
-    expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
-    expect(recoveryCalls[0][1]).toContain("do not switch into leader/orchestration behavior");
-    expect(recoveryCalls[0][1]).not.toContain("/leader-dispatch");
+    expect(recoveryCalls[0][1]).toBe(getCompactionRecoveryPrompt("standard", "42"));
   });
 });
