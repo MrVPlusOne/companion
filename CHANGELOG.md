@@ -1,5 +1,11 @@
 # Takode Changelog
 
+## 2026-09-11
+
+### Added
+
+- **Notify Me** -- Monitor named task tabs and keep new results in a global list until acknowledged or replied to; monitoring survives viewing, tab closure, and reconnects while ordinary unread and needs-input remain independent
+
 ## 2026-08-31
 
 ### Changed

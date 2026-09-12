@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "../session-types.js";
-import { ingestUserMessage, routeBrowserMessage } from "./adapter-browser-routing-controller.js";
+import {
+  ingestUserMessage,
+  routeBrowserMessage,
+  routeAdapterBrowserMessage,
+} from "./adapter-browser-routing-controller.js";
 import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import { THREAD_RESPONSE_REMINDER_SOURCE_ID } from "./leader-thread-outcome-validator.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
@@ -290,6 +294,73 @@ function deps() {
 }
 
 describe("leader direct-user response cutover ingestion", () => {
+  it.each([
+    "human",
+    "stale",
+    "other-thread",
+    "timer",
+    "not-yet-accepted",
+  ])("acknowledges monitored results only for an accepted matching %s reply", async (kind) => {
+    const target = session();
+    target.state.threadMonitoring = {
+      revision: 2,
+      alertVersion: 1,
+      threads: {
+        "q-42": {
+          trackedAt: 1,
+          afterHistoryIndex: -1,
+          pending: { id: "2", messageId: "ready", summary: "Ready", timestamp: 1 },
+        },
+      },
+    };
+    const message: Extract<BrowserOutgoingMessage, { type: "user_message" }> = {
+      type: "user_message",
+      content: "Thanks, continue.",
+      threadKey: kind === "other-thread" ? "q-43" : "q-42",
+      threadMonitorResultId: kind === "stale" ? "1" : "2",
+      ...(kind === "timer" ? { agentSource: { sessionId: "timer:t1", sessionLabel: "Timer" } } : {}),
+    };
+    await ingestUserMessage(target, message, deps(), { commit: kind !== "not-yet-accepted" });
+    expect(target.state.threadMonitoring.threads["q-42"].pending?.id ?? null).toBe(kind === "human" ? null : "2");
+  });
+
+  it("acknowledges a Codex reply when durably queued, before deferred history delivery", async () => {
+    // Use the actual adapter admission path; backend execution remains frozen and no provider is contacted.
+    const target = session();
+    target.backendType = "codex";
+    target.state.threadMonitoring = {
+      revision: 2,
+      alertVersion: 1,
+      threads: {
+        "q-42": {
+          trackedAt: 1,
+          afterHistoryIndex: -1,
+          pending: { id: "2", messageId: "ready", summary: "Ready", timestamp: 1 },
+        },
+      },
+    };
+    const runtime = new Proxy(deps(), {
+      get(object, key) {
+        if (!(key in object)) Reflect.set(object, key, vi.fn());
+        return Reflect.get(object, key);
+      },
+    });
+    runtime.isCodexWorkerV2DeliveryFrozen = vi.fn(() => true);
+    runtime.addPendingCodexInput = vi.fn((_session, pending) => {
+      target.pendingCodexInputs.push(pending);
+    });
+    await routeAdapterBrowserMessage(
+      target,
+      { type: "user_message", content: "Continue", threadKey: "q-42", threadMonitorResultId: "2" },
+      undefined,
+      runtime,
+    );
+    expect(target.pendingCodexInputs).toHaveLength(1);
+    expect(target.messageHistory).toHaveLength(0);
+    expect(target.state.threadMonitoring.threads["q-42"].pending).toBeNull();
+    expect(runtime.persistSession).toHaveBeenCalledWith(target);
+  });
+
   it("marks committed human input, clears stale Ready, and refreshes selected windows", () => {
     const target = session();
     const runtime = deps();

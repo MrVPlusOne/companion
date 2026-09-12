@@ -1,4 +1,5 @@
 import { NotificationChip } from "../NotificationChip.js";
+import { PlaygroundNotifyMe } from "./PlaygroundNotifyMe.js";
 import { GlobalNeedsInputMenu } from "../GlobalNeedsInputMenu.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { TimerChip } from "../TimerWidget.js";
@@ -451,6 +452,7 @@ export function PlaygroundNotificationInboxSection() {
       description="Per-session notification inbox for takode notify events. Chip + modal with active/done sections."
     >
       <div className="max-w-3xl space-y-4">
+        <PlaygroundNotifyMe />
         <Card label="Notification chip (floating pill)">
           <div className="p-3 space-y-2">
             <button

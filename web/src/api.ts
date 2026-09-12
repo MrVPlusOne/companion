@@ -40,6 +40,7 @@ import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming }
 import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+import { observedThreadMonitorResultId } from "./utils/thread-monitoring.js";
 
 export { checkHealth, checkHealthStatus, checkReadiness, checkReadinessStatus } from "./api/server-status.js";
 export type { ServerStatusProbe } from "./api/server-status.js";
@@ -1203,7 +1204,10 @@ export const api = {
   ) =>
     post<{ ok: boolean; sessionId: string; notificationId: string; delivery: "sent" | "queued" | "already_done" }>(
       `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/response`,
-      response,
+      {
+        ...response,
+        threadMonitorResultId: observedThreadMonitorResultId(sessionId, response.threadKey ?? response.questId),
+      },
     ),
 
   getSessionNotifications: (sessionId: string) =>

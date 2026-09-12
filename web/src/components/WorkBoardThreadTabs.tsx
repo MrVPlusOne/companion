@@ -16,6 +16,9 @@ import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js"
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
+import { NotifyMeIcon } from "./NotifyMe.js";
+import { THREAD_MONITORING_PROJECTION, type ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
+import { getSyncedProjectionValue } from "../store-synced-projections.js";
 
 export const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
 const NORMAL_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
@@ -336,6 +339,7 @@ function ThreadTabCloseButton({
 }
 
 interface ThreadTabView {
+  monitor?: { pendingResultId: string | null };
   tab: PrimaryThreadChip;
   threadKey: string;
   selected: boolean;
@@ -362,10 +366,12 @@ function buildThreadTabView(
   activeTurnRoute: ActiveTurnRoute | null | undefined,
   newTabKeys: ReadonlySet<string> | undefined,
   threadStatuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
+  monitors?: ThreadMonitoringProjectionValue["threads"],
 ): ThreadTabView {
   const hoverQuest = cachedQuestForId(tab.questId);
   return {
     tab,
+    monitor: monitors?.[tab.threadKey],
     threadKey: normalizeThreadKey(tab.threadKey),
     selected: isSelectedThread(currentThreadKey, tab.threadKey),
     activeOutput: isActiveOutputThread(activeTurnRoute, tab.threadKey),
@@ -445,6 +451,7 @@ function RailThreadTab({
         aria-pressed={selected}
       >
         <ThreadTabAlerts attention={tab} activeOutput={activeOutput} />
+        {view.monitor && <NotifyMeIcon pending={Boolean(view.monitor.pendingResultId)} />}
         <ThreadTabIdentity questId={questId} title={tab.title} titleColor={titleColor} activeOutput={activeOutput} />
       </button>
       {onClose && tab.canClose && (
@@ -521,6 +528,7 @@ function MoreThreadTabRow({
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.8)]" />
         )}
         <ThreadTabAlerts attention={tab} activeOutput={activeOutput} />
+        {view.monitor && <NotifyMeIcon pending={Boolean(view.monitor.pendingResultId)} />}
         <span className="min-w-0 flex-1">
           <ThreadTabIdentity
             questId={questId}
@@ -627,6 +635,9 @@ export function ThreadTabRail({
     if (onSelectThread && (selected === ALL_THREADS_KEY || selected !== target)) onSelectThread(target);
   };
   const sessionStatus = useStore((state) => state.sessionStatus.get(sessionId));
+  const monitors = useStore(
+    (state) => getSyncedProjectionValue(state, THREAD_MONITORING_PROJECTION, sessionId)?.threads,
+  );
   const activeTurnRoute = useStore((state) => state.activeTurnRoutes.get(sessionId));
   const runningRoute = sessionStatus === "running" ? activeTurnRoute : null;
   const hover = useQuestTabHover();
@@ -779,7 +790,14 @@ export function ThreadTabRail({
         >
           <SortableContext items={sortableTabKeys} strategy={horizontalListSortingStrategy}>
             {visibleTabs.map((tab) => {
-              const view = buildThreadTabView(tab, currentThreadKey, runningRoute, newTabKeys, threadStatuses);
+              const view = buildThreadTabView(
+                tab,
+                currentThreadKey,
+                runningRoute,
+                newTabKeys,
+                threadStatuses,
+                monitors,
+              );
               const reorderable = !!onReorderThreadTabs && reorderableKeySet.has(view.threadKey);
               return (
                 <RailThreadTab
@@ -874,7 +892,14 @@ export function ThreadTabRail({
                 </div>
                 <div className="max-h-72 overflow-y-auto py-1" data-testid="thread-tabs-more-list-rows">
                   {listedHiddenTabs.map((tab) => {
-                    const view = buildThreadTabView(tab, currentThreadKey, runningRoute, newTabKeys, threadStatuses);
+                    const view = buildThreadTabView(
+                      tab,
+                      currentThreadKey,
+                      runningRoute,
+                      newTabKeys,
+                      threadStatuses,
+                      monitors,
+                    );
                     const reorderable = reorderableKeySet.has(view.threadKey);
                     return (
                       <MoreThreadTabRow

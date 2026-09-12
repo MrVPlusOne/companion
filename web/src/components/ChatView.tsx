@@ -19,6 +19,7 @@ import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-jou
 import type { LeaderThreadTabsProjectionJourney } from "../../shared/leader-thread-tabs-projection.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
+import { NotifyMeControl } from "./NotifyMe.js";
 import { SideChatPanel } from "./SideChatPanel.js";
 import {
   PermissionBanner,
@@ -896,11 +897,13 @@ export function QuestThreadBanner({
   threadKey,
   variant = "thread",
   currentSessionId,
+  monitorSessionId,
 }: {
   row?: QuestThreadBannerRow;
   threadKey: string;
   variant?: QuestBannerVariant;
   currentSessionId?: string;
+  monitorSessionId?: string;
 }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const title = row?.title;
@@ -962,6 +965,9 @@ export function QuestThreadBanner({
             {inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
             {showCommitAffordance && (
               <QuestBannerCommitButton questId={questId} count={codeCommitState.commitShas.length} />
+            )}
+            {monitorSessionId && !isSessionBanner && (
+              <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />
             )}
             {hasParticipantContext && (
               <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
@@ -1665,7 +1671,7 @@ export function ChatView({
           <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
               {!preview && showQuestThreadBanner && (
-                <QuestThreadBanner row={selectedThreadRow} threadKey={selectedThreadKey} />
+                <QuestThreadBanner row={selectedThreadRow} threadKey={selectedThreadKey} monitorSessionId={sessionId} />
               )}
               {!preview && !showQuestThreadBanner && sessionQuestBannerRow && (
                 <QuestThreadBanner

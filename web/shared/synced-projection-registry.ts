@@ -25,8 +25,16 @@ import {
 } from "./leader-thread-tabs-projection.js";
 import { reconcileValue, type ValueEquality } from "./stable-reconciliation.js";
 import type { SyncedProjectionEnvelope } from "./synced-projection.js";
+import {
+  THREAD_MONITORING_PROJECTION,
+  THREAD_MONITORING_MAX_VALUE_BYTES,
+  isThreadMonitoringProjectionValue,
+  threadMonitoringProjectionEqual,
+  type ThreadMonitoringProjectionValue,
+} from "./thread-monitoring.js";
 
 export interface SyncedProjectionValueById {
+  [THREAD_MONITORING_PROJECTION]: ThreadMonitoringProjectionValue;
   [SESSION_ATTENTION_PROJECTION]: SessionAttentionProjectionValue;
   [SESSION_NAVIGATION_PROJECTION]: SessionNavigationProjectionValue;
   [LEADER_THREAD_TABS_PROJECTION]: LeaderThreadTabsProjectionValue;
@@ -35,6 +43,7 @@ export interface SyncedProjectionValueById {
 export type SyncedProjectionId = keyof SyncedProjectionValueById;
 
 export interface SyncedProjectionRestFieldById {
+  [THREAD_MONITORING_PROJECTION]: "threadMonitoringProjection";
   [SESSION_ATTENTION_PROJECTION]: "sessionAttentionProjection";
   [SESSION_NAVIGATION_PROJECTION]: "sessionNavigationProjection";
   [LEADER_THREAD_TABS_PROJECTION]: "leaderThreadTabsProjection";
@@ -88,6 +97,15 @@ function defineSyncedProjectionDescriptor<K extends SyncedProjectionId>(
 }
 
 export const SYNCED_PROJECTION_DESCRIPTORS = {
+  [THREAD_MONITORING_PROJECTION]: defineSyncedProjectionDescriptor({
+    projection: THREAD_MONITORING_PROJECTION,
+    restField: "threadMonitoringProjection",
+    subscriptionScope: "leader",
+    maxValueBytes: THREAD_MONITORING_MAX_VALUE_BYTES,
+    isValue: isThreadMonitoringProjectionValue,
+    equal: threadMonitoringProjectionEqual,
+    reconcile: (previous, next) => reconcileValue(previous, next, threadMonitoringProjectionEqual),
+  }),
   [SESSION_ATTENTION_PROJECTION]: defineSyncedProjectionDescriptor({
     projection: SESSION_ATTENTION_PROJECTION,
     restField: "sessionAttentionProjection",

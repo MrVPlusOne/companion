@@ -23,6 +23,7 @@ import {
   SYNCED_PROJECTION_DESCRIPTORS,
   type SyncedProjectionRestEnvelopeFields,
 } from "../../shared/synced-projection-registry.js";
+import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
 const scheduledWorktreeGitStateRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
@@ -159,6 +160,10 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           projectionFields[SYNCED_PROJECTION_DESCRIPTORS[LEADER_THREAD_TABS_PROJECTION].restField] =
             leaderThreadTabsProjection;
         }
+        const threadMonitoringProjection = leaderThreadTabsProjection
+          ? projectionController?.getSnapshot?.(THREAD_MONITORING_PROJECTION, s.sessionId)
+          : null;
+        if (threadMonitoringProjection) projectionFields.threadMonitoringProjection = threadMonitoringProjection;
         const turnMetrics = currentBridgeSession
           ? computeSessionTurnMetrics(currentBridgeSession.messageHistory)
           : null;

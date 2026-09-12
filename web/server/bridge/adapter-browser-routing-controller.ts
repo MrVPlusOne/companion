@@ -1,4 +1,5 @@
 import { normalizeAdapterUserMessage, prepareAnnotatedUserMessage } from "./user-message-delivery.js";
+import { acknowledgeMonitoredThreadResult } from "../thread-monitoring.js";
 import { formatAnnotatedMessage, readAnnotationMessage } from "../../shared/conversation-annotations.js";
 import { randomUUID } from "node:crypto";
 import { evaluatePermission, type RecentToolCall } from "../auto-approver.js";
@@ -1281,6 +1282,9 @@ export function ingestUserMessage(
         deps.broadcastToBrowsers(session, reminderHistoryEntry);
       }
       session.messageHistory.push(userHistoryEntry);
+      if (isActualHumanUserMessage(userHistoryEntry)) {
+        acknowledgeMonitoredThreadResult(session, explicitTarget?.threadKey ?? "main", msg.threadMonitorResultId);
+      }
       deps.promoteLeaderThreadTabForMessageAttention?.(session.id, userHistoryEntry);
       userMsgHistoryIdx = session.messageHistory.length - 1;
       session.lastUserMessage = formatReplyContentForPreview(
@@ -1799,6 +1803,16 @@ export function routeAdapterBrowserMessage(
           return true;
         }
         deps.addPendingCodexInput(session, pendingInput);
+        if (isActualHumanUserMessage(ingested.historyEntry)) {
+          if (
+            acknowledgeMonitoredThreadResult(
+              session,
+              ingested.historyEntry.threadKey ?? "main",
+              msg.threadMonitorResultId,
+            )
+          )
+            deps.persistSession(session);
+        }
         deps.promoteLeaderThreadTabForMessageAttention?.(session.id, ingested.historyEntry);
         markNeedsInputResolutionNoticesQueued(
           session,

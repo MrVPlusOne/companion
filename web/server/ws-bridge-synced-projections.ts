@@ -28,6 +28,7 @@ import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BrowserIncomingMessage, ThreadTransitionMarker } from "./session-types.js";
 import { hasConnectedCurrentBuildBrowserViewingThread } from "./bridge/browser-conversation-window-policy.js";
 import { createSessionAttentionProjectionDefinition } from "./session-attention-projection.js";
+import { createThreadMonitoringProjectionDefinition } from "./thread-monitoring-projection.js";
 import {
   createLeaderThreadTabsProjectionDefinition,
   resolveLeaderThreadTabMutationPolicy,
@@ -99,6 +100,13 @@ export class WsBridgeSyncedProjectionController {
     });
     const authorizeSubscription = (_socket: BrowserTransportSocketLike, session: Session) =>
       this.isProjectionVisibleSession(session);
+    this.runtime.register(
+      createThreadMonitoringProjectionDefinition({
+        getSession: deps.getSession,
+        isLeaderSession: (session) => this.isLeaderSession(session),
+        authorizeSubscription,
+      }),
+    );
     this.runtime.register(
       createSessionAttentionProjectionDefinition({
         getSession: deps.getSession,

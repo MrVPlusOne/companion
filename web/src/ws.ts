@@ -1,4 +1,5 @@
 import { useStore } from "./store.js";
+import { observedThreadMonitorResultId } from "./utils/thread-monitoring.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, SdkSessionInfo } from "./types.js";
 import { createWsTransport } from "./ws-transport.js";
 import { createWsMessageHandler, resolveSessionFilePath } from "./ws-handlers.js";
@@ -240,6 +241,9 @@ export function waitForConnection(sessionId: string): Promise<void> {
 }
 
 export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage): boolean {
+  if (msg.type === "user_message" && !msg.agentSource) {
+    msg = { ...msg, threadMonitorResultId: observedThreadMonitorResultId(sessionId, msg.threadKey ?? msg.questId) };
+  }
   return transport.sendToSession(sessionId, msg);
 }
 

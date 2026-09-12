@@ -8,6 +8,19 @@ type NotificationUpdateMessage = Extract<BrowserIncomingMessage, { type: "notifi
 let lastNotificationSoundAt = 0;
 const NOTIFICATION_SOUND_DEBOUNCE_MS = 1000;
 
+/** Shares the existing alert gate so Ready and monitoring updates sound only once. */
+export function playNewMonitoredResultSound(): void {
+  const now = Date.now();
+  if (
+    document.hasFocus() ||
+    !useStore.getState().notificationSound ||
+    now - lastNotificationSoundAt < NOTIFICATION_SOUND_DEBOUNCE_MS
+  )
+    return;
+  lastNotificationSoundAt = now;
+  void playReviewSound();
+}
+
 /** Applies one server-authored inbox update and handles its optional user alert. */
 export function handleNotificationUpdateMessage(sessionId: string, data: NotificationUpdateMessage): void {
   const store = useStore.getState();

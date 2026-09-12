@@ -64,6 +64,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "cwd"
     | "is_compacting"
     | "leaderThreadStatuses"
+    | "threadMonitoring"
     | "memorySessionSpaceSlug"
     | "model"
     | "num_turns"

@@ -62,6 +62,7 @@ import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
+import { registerThreadMonitoringRoutes } from "./thread-monitoring.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
@@ -432,6 +433,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
   registerTakodeThreadHandoffRoute(api, ctx);
   registerTakodeNotificationResponseRoute(api, ctx, notificationPersistDeps);
   registerTakodeNotificationInboxRoutes(api, ctx, notificationPersistDeps);
+  registerThreadMonitoringRoutes(api, ctx);
 
   api.get("/takode/me", (c) => {
     const auth = authenticateTakodeCaller(c);

@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { THREAD_MONITORING_PROJECTION, isThreadMonitoringProjectionValue } from "./thread-monitoring.js";
 import {
   LEADER_THREAD_TABS_PROJECTION,
   LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
@@ -33,6 +34,7 @@ import {
 describe("synchronized projection descriptor registry", () => {
   it("owns one ordered, unique inventory and REST mapping", () => {
     expect(SYNCED_PROJECTION_DESCRIPTOR_LIST.map((descriptor) => descriptor.projection)).toEqual([
+      THREAD_MONITORING_PROJECTION,
       SESSION_ATTENTION_PROJECTION,
       SESSION_NAVIGATION_PROJECTION,
       LEADER_THREAD_TABS_PROJECTION,
@@ -42,6 +44,7 @@ describe("synchronized projection descriptor registry", () => {
       SYNCED_PROJECTION_DESCRIPTOR_LIST.length,
     );
     expect(SYNCED_PROJECTION_DESCRIPTOR_LIST.map((descriptor) => descriptor.restField)).toEqual([
+      "threadMonitoringProjection",
       "sessionAttentionProjection",
       "sessionNavigationProjection",
       "leaderThreadTabsProjection",
@@ -49,6 +52,12 @@ describe("synchronized projection descriptor registry", () => {
   });
 
   it("binds each literal projection ID to its validator, equality, reconciliation, and byte bound", () => {
+    // New monitoring snapshots are a separate leader-only authority, not review/unread aliases.
+    expect(SYNCED_PROJECTION_DESCRIPTORS[THREAD_MONITORING_PROJECTION]).toMatchObject({
+      projection: THREAD_MONITORING_PROJECTION,
+      isValue: isThreadMonitoringProjectionValue,
+      subscriptionScope: "leader",
+    });
     expect(SYNCED_PROJECTION_DESCRIPTORS[SESSION_ATTENTION_PROJECTION]).toMatchObject({
       projection: SESSION_ATTENTION_PROJECTION,
       isValue: isSessionAttentionProjectionValue,

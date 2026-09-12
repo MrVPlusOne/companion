@@ -1,3 +1,4 @@
+import { recordMonitoredThreadResult } from "../thread-monitoring.js";
 import type {
   BrowserIncomingMessage,
   ContentBlock,
@@ -114,6 +115,7 @@ export interface LeaderThreadStatusSessionLike {
   notifications?: SessionNotification[];
   state: {
     leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
+    threadMonitoring?: import("../../shared/thread-monitoring.js").ThreadMonitoringState;
   };
 }
 
@@ -569,6 +571,8 @@ export function updateLeaderThreadStatusesForAssistantOutput(
       updatedAt: Date.now(),
     };
     statuses[key] = record;
+    if (session.messageHistory)
+      recordMonitoredThreadResult({ state: session.state, messageHistory: session.messageHistory }, record);
     records.push(record);
     changed = true;
   }

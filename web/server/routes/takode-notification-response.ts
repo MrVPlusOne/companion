@@ -3,6 +3,7 @@ import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
 import { markNotificationDone as markNotificationDoneController } from "../bridge/session-registry-controller.js";
 import { normalizeThreadRoute } from "../thread-routing-metadata.js";
 import type { RouteContext } from "./context.js";
+import { acknowledgeMonitoredThreadResult } from "../thread-monitoring.js";
 
 type NotificationPersistDeps = Parameters<typeof markNotificationDoneController>[3];
 
@@ -76,6 +77,9 @@ export function registerTakodeNotificationResponseRoute(
     }
 
     notificationPersistDeps.cancelScheduledNotification?.(id, notifId);
+    if (acknowledgeMonitoredThreadResult(session, threadRoute.threadKey, body.threadMonitorResultId)) {
+      wsBridge.persistSessionById(id);
+    }
     return c.json({ ok: true, sessionId: id, notificationId: notifId, delivery, changed: true });
   });
 }

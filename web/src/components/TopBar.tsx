@@ -14,6 +14,7 @@ import { resolveDiffTarget } from "../utils/diff-target.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
+import { GlobalNotifyMeMenu } from "./GlobalNotifyMeMenu.js";
 import { activeBoardSummarySegments } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
 import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
@@ -316,6 +317,7 @@ export function TopBar({
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[12px] text-cc-muted sm:gap-3">
           <GlobalNeedsInputMenu />
+          <GlobalNotifyMeMenu />
           <SearchToggleButton
             isOpen={universalSearchOpen}
             onOpen={onOpenUniversalSearch}
@@ -460,6 +462,7 @@ export function TopBar({
           </LeaderWorkboardControlButton>
         )}
         <GlobalNeedsInputMenu />
+        <GlobalNotifyMeMenu />
         <SearchToggleButton
           isOpen={universalSearchOpen}
           onOpen={onOpenUniversalSearch}

@@ -619,6 +619,7 @@ export type BrowserOutgoingMessage =
       timerFiring?: import("./timer-types.js").TimerFiring;
       annotations?: ConversationAnnotation[];
       replyContext?: ReplyContext;
+      threadMonitorResultId?: string;
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;
       /** Direct user entry point that should stay deliverable while other input sources are paused. */
@@ -1362,6 +1363,8 @@ export interface SessionState extends BackendSessionState {
   codexLeaderCompactionMode?: import("../shared/codex-leader-compaction-mode.js").CodexLeaderCompactionMode;
   /** Server-owned leader quest/thread tab state. Browsers must treat this as authoritative. */
   leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
+  /** Durable Notify Me preferences and results; never owned by read/view state. */
+  threadMonitoring?: import("../shared/thread-monitoring.js").ThreadMonitoringState;
   /** Server-owned starred chat messages keyed by stable raw message ID. */
   starredMessages?: Record<string, StarredMessageRecord>;
   backend_type?: BackendType;
@@ -1528,7 +1531,7 @@ export interface SessionState extends BackendSessionState {
   hidden?: boolean;
 }
 
-type BrowserSessionInternalAlias = "leaderOpenThreadTabs" | "leaderThreadStatuses";
+type BrowserSessionInternalAlias = "leaderOpenThreadTabs" | "leaderThreadStatuses" | "threadMonitoring";
 
 /** Session state safe for current-build browser snapshots and patches. */
 export type BrowserSessionState = Omit<SessionState, BrowserSessionInternalAlias>;
@@ -1540,6 +1543,7 @@ export function projectBrowserSessionState<T extends Partial<SessionState>>(
   const {
     leaderOpenThreadTabs: _leaderOpenThreadTabs,
     leaderThreadStatuses: _leaderThreadStatuses,
+    threadMonitoring: _threadMonitoring,
     codex_result_error_auto_pause_recovery_testing: _recoveryTesting,
     ...browserState
   } = state as T & { codex_result_error_auto_pause_recovery_testing?: unknown };
