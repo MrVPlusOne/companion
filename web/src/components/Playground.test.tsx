@@ -7,6 +7,18 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
+// Browser layout APIs are present for annotation markers; measurement cases install their own callback-driven observer.
+beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    },
+  );
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

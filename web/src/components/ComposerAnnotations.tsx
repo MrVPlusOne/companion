@@ -38,6 +38,7 @@ export function ComposerAnnotations({
   return (
     <>
       <AnnotationAttachments
+        sessionId={sessionId}
         annotations={annotations}
         onEdit={
           disabled

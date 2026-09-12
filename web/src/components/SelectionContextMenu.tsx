@@ -1,3 +1,4 @@
+import { captureAnnotationSource } from "./annotation-passages.js";
 import { useMemo, useCallback } from "react";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useStore } from "../store.js";
@@ -23,46 +24,19 @@ export function formatSelectedTextAsBlockquote(text: string): string | null {
 
 /**
  * Floating context menu shown when the user selects text in an assistant message.
- * Offers "Quote selected" (injects blockquote into composer) and a "Copy" submenu
+ * Offers a comment attachment editor and a "Copy" submenu
  * with three formats: rich text, markdown, and plain text.
  */
 export function SelectionContextMenu({ selection, sessionId, onClose }: SelectionContextMenuProps) {
-  const handleQuote = useCallback(() => {
-    const blockquote = formatSelectedTextAsBlockquote(selection.plainText);
-    if (!blockquote) return;
-
-    const store = useStore.getState();
-    const currentDraft = store.composerDrafts.get(sessionId);
-    const currentText = currentDraft?.text ?? "";
-    const separator = currentText.length > 0 ? "\n\n" : "";
-    const newText = currentText + separator + blockquote + "\n\n";
-
-    store.setComposerDraft(sessionId, {
-      ...currentDraft,
-      text: newText,
-      images: currentDraft?.images ?? [],
-    });
-
-    // Signal the Composer to focus
-    store.focusComposer();
-
-    // Clear both the menu and the browser selection
-    selection.clear();
-    onClose();
-  }, [selection, sessionId, onClose]);
-
   const handleComment = useCallback(() => {
     if (!selection.plainText.trim()) return;
-    const node = selection.range?.startContainer;
-    const element = node instanceof Element ? node : node?.parentElement;
-    const sourceMessageId = element?.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
     useStore.getState().setAnnotationEditor({
       sessionId,
       annotation: {
         id: crypto.randomUUID(),
         selectedText: selection.plainText,
         comment: "",
-        ...(sourceMessageId ? { sourceMessageId } : {}),
+        ...captureAnnotationSource(selection.range),
       },
       ...(selection.position ? { position: selection.position } : {}),
     });
@@ -100,7 +74,6 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
 
   const items = useMemo<ContextMenuItem[]>(
     () => [
-      { label: "Quote selected", onClick: handleQuote },
       { label: "Comment", onClick: handleComment },
       {
         label: "Copy",
@@ -112,7 +85,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
         ],
       },
     ],
-    [handleQuote, handleComment, handleCopyRichText, handleCopyMarkdown, handleCopyPlainText],
+    [handleComment, handleCopyRichText, handleCopyMarkdown, handleCopyPlainText],
   );
 
   if (!selection.isActive || !selection.position) return null;

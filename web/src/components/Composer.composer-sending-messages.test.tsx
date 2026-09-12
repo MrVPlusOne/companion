@@ -1103,3 +1103,43 @@ describe("Composer sending messages", () => {
     );
   });
 });
+
+it.each([
+  false,
+  true,
+])("minimizes a populated composer without changing its draft or attachments (touch=%s)", async (touch) => {
+  // Exercise the assembled composer: the image tray sits outside its text card but must collapse with it.
+  mediaState.touchDevice = touch;
+  setViewportWidth(touch ? 430 : 1440);
+  const draft = {
+    text: "A long unsent message",
+    images: [
+      {
+        id: "kept-image",
+        name: "reference.png",
+        base64: "ZmFrZQ==",
+        mediaType: "image/png",
+        status: "ready",
+        prepared: { imageRef: { imageId: "kept-image", media_type: "image/png" }, path: "/fixture/reference.png" },
+      },
+    ],
+    annotations: [
+      { id: "kept-comment", selectedText: "Selected passage", comment: "Unsent feedback", sourceMessageId: "source" },
+    ],
+  };
+  setupMockStore({ draft });
+  const { container } = render(<Composer sessionId="s1" />);
+  const textarea = container.querySelector("textarea")!;
+  const image = screen.getByAltText("reference.png");
+  fireEvent.click(screen.getByLabelText("Minimize composer"));
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(image.closest("[hidden]")).toBeTruthy();
+  expect(container.querySelector("details")?.closest("[hidden]")).toBeTruthy();
+  expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
+  fireEvent.click(screen.getByLabelText("Restore composer"));
+  expect(container.querySelector("textarea")).toBe(textarea);
+  expect(textarea.value).toBe(draft.text);
+  expect(image.closest("[hidden]")).toBeNull();
+  expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
+  expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
+});

@@ -1,3 +1,4 @@
+import { ComposerMinimizer } from "./ComposerMinimizer.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
@@ -1714,226 +1715,233 @@ export function Composer({
   }
 
   return (
-    <div
-      ref={composerRootRef}
-      className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "" : "px-2 sm:px-4 py-2 sm:py-3"}`}
+    <ComposerMinimizer
+      destination={`${sessionId}:${threadKey}`}
+      canMinimize={!isCollapsed}
+      reveal={isVoiceInteractionActive || annotationEditorOpen}
+      onRestore={expandComposer}
     >
-      <CollapsedComposerBar
-        isCollapsed={isCollapsed}
-        expandComposer={expandComposer}
-        onVoiceButton={() => {
-          if (!voiceSupported) {
-            toggleVoiceUnsupportedInfo(true);
-            return;
-          }
-          setComposerExpanded(true);
-          handleMicClick();
-        }}
-        onOpenFilePicker={() => fileInputRef.current?.click()}
-        imageUploadDisabled={imageUploadDisabled}
-        imageUploadTitle={imageUploadTitle}
-        compactVoiceButtonDisabled={compactVoiceButtonDisabled}
-        voiceSupported={voiceSupported}
-        isPreparing={isPreparing}
-        isRecording={isRecording}
-        voiceButtonTitle={voiceButtonTitle}
-        isRunning={isRunning}
-        onStop={handleInterrupt}
-      />
-      <div className={isCollapsed ? "h-0 overflow-hidden" : ""}>
-        <ComposerInputSurface
-          imageSrcs={imageSrcs}
-          lightboxSrc={lightboxSrc}
-          setLightboxSrc={setLightboxSrc}
-          removeImage={removeImage}
-          retryImage={retryImage}
-          fileInputRef={fileInputRef}
-          handleFileSelect={handleFileSelect}
-          handleComposerDragEnter={handleComposerDragEnter}
-          handleComposerDragOver={handleComposerDragOver}
-          handleComposerDragLeave={handleComposerDragLeave}
-          handleComposerDrop={handleComposerDrop}
-          isImageDragOver={isImageDragOver}
-          isPlan={isPlan}
-          textareaRef={textareaRef}
-          text={text}
-          handleInput={handleInput}
-          handleSelectionChange={handleSelectionChange}
-          handleKeyDown={handleKeyDown}
-          handlePaste={handlePaste}
-          placeholder={placeholder}
+      <div
+        ref={composerRootRef}
+        className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "" : "px-2 sm:px-4 py-2 sm:py-3"}`}
+      >
+        <CollapsedComposerBar
+          isCollapsed={isCollapsed}
+          expandComposer={expandComposer}
+          onVoiceButton={() => {
+            if (!voiceSupported) {
+              toggleVoiceUnsupportedInfo(true);
+              return;
+            }
+            setComposerExpanded(true);
+            handleMicClick();
+          }}
+          onOpenFilePicker={() => fileInputRef.current?.click()}
+          imageUploadDisabled={imageUploadDisabled}
+          imageUploadTitle={imageUploadTitle}
+          compactVoiceButtonDisabled={compactVoiceButtonDisabled}
+          voiceSupported={voiceSupported}
+          isPreparing={isPreparing}
           isRecording={isRecording}
-          recordingCursorBefore={preRecordingTextRef.current.before}
-          recordingCursorAfter={preRecordingTextRef.current.after}
-          topChildren={
-            <>
-              <ComposerMenus
-                slashMenuOpen={slashMenuOpen}
-                filteredCommands={filteredCommands}
-                menuRef={menuRef}
-                slashMenuIndex={slashMenuIndex}
-                selectCommand={selectCommand}
-                dollarMenuOpen={dollarMenuOpen}
-                filteredDollarCommands={filteredDollarCommands}
-                dollarMenuRef={dollarMenuRef}
-                dollarMenuIndex={dollarMenuIndex}
-                referenceMenuOpen={referenceMenuOpen}
-                filteredReferenceSuggestions={filteredReferenceSuggestions}
-                referenceMenuRef={referenceMenuRef}
-                referenceMenuIndex={referenceMenuIndex}
-                referenceKind={referenceKind}
-                referenceQuery={referenceQuery}
-                referenceLoading={referenceLoading}
-                selectReference={selectReference}
-                mentionMenuOpen={mentionMenuOpen}
-                mentionResults={mentionResults}
-                mentionMenuRef={mentionMenuRef}
-                mentionIndex={mentionIndex}
-                mentionQuery={mentionQuery}
-                mentionLoading={mentionLoading}
-                selectMention={selectMention}
-              />
-
-              <ComposerStatusBlocks
-                isPreparing={isPreparing}
-                isRecording={isRecording}
-                isTranscribing={isTranscribing}
-                transcriptionPhase={transcriptionPhase}
-                volumeLevel={volumeLevel}
-                volumeHistory={volumeHistory}
-                voiceCaptureMode={voiceCaptureMode}
-                voiceUnsupportedInfoOpen={voiceUnsupportedInfoOpen}
-                voiceUnsupportedMessage={voiceUnsupportedMessage}
-                voiceError={voiceError}
-                failedTranscription={failedTranscription}
-                voiceEditProposal={voiceEditProposal}
-                alternateVoiceRerun={alternateVoiceRerun}
-                replyContext={replyContext ?? null}
-                vscodeSelectionLabel={
-                  vscodeSelectionPayload ? formatVsCodeSelectionAttachmentLabel(vscodeSelectionPayload) : null
-                }
-                vscodeSelectionSummary={
-                  vscodeSelectionPayload ? formatVsCodeSelectionSummary(vscodeSelectionPayload) : null
-                }
-                vscodeSelectionTitle={
-                  vscodeSelectionPayload ? buildVsCodeSelectionPrompt(vscodeSelectionPayload) : null
-                }
-                onRetryTranscription={retryTranscription}
-                onDismissVoiceError={() => {
-                  setFailedTranscription(null);
-                  setVoiceError(null);
-                }}
-                onAcceptVoiceEdit={acceptVoiceEdit}
-                onUndoVoiceEdit={undoVoiceEdit}
-                onRerunAlternateVoiceMode={rerunAlternateVoiceMode}
-                onDismissUnsupportedInfo={() => setVoiceUnsupportedInfoOpen(false)}
-                onDismissReply={() => useStore.getState().setReplyContext(sessionId, null)}
-                onDismissVsCodeSelection={() => useStore.getState().dismissVsCodeSelection(currentVsCodeSelectionKey)}
-                onSetVoiceModeEdit={() => {
-                  voiceCaptureModeRef.current = "edit";
-                  setVoiceCaptureMode("edit");
-                  persistPreferredVoiceMode("edit");
-                }}
-                onSetVoiceModeAppend={() => {
-                  voiceCaptureModeRef.current = "append";
-                  setVoiceCaptureMode("append");
-                  persistPreferredVoiceMode("append");
-                }}
-              />
-              <PausedInputChip
-                pause={pauseState}
-                autoPause={codexResultErrorAutoPause}
-                autoPauseRecoveryProgress={codexAutoPauseRecoveryProgress}
-                heldCount={pausedInputQueueCount}
-                autoPausedHeldCount={codexAutoPausedInputCount}
-                directComposerMessagesSend={isConnected}
-                onReleaseAutoPausedInputs={(pausedAt) =>
-                  sendToSession(sessionId, { type: "release_codex_auto_paused_inputs", pausedAt })
-                }
-              />
-              <ComposerAnnotations
-                sessionId={sessionId}
-                threadKey={transcriptionThreadKey ?? threadKey}
-                threadTitle={transcriptionThreadTitle}
-                disabled={!canUseInput}
-              />
-              <ComposerReferencePreview references={plainReferencePreviews} />
-            </>
-          }
-          bottomChildren={
-            <>
-              <ComposerMetaToolbar
-                sessionId={sessionId}
-                sessionView={sessionView}
-                isCodex={isCodex}
-                isConnected={isConnected}
-                canEditLaunchSettings={isBrowserServerConnected}
-                imageUploadDisabled={imageUploadDisabled}
-                imageUploadTitle={imageUploadTitle}
-                showModelDropdown={showModelDropdown}
-                setShowModelDropdown={setShowModelDropdown}
-                modelDropdownRef={modelDropdownRef}
-                claudeModelOptions={claudeModelOptions}
-                codexModelOptions={codexModelOptions}
-                onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
-                codexReasoningEffort={codexReasoningEffort}
-                codexEffectiveReasoningEffort={codexEffectiveReasoningEffort}
-                codexEffectiveReasoningEffortReported={codexEffectiveReasoningEffortReported}
-                onSelectCodexReasoning={(effort) =>
-                  sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
-                }
-                codexServiceTier={codexServiceTier}
-                codexFastServiceTier={codexFastServiceTier}
-                onSelectCodexServiceTier={(serviceTier) =>
-                  sendToSession(sessionId, { type: "set_codex_service_tier", serviceTier })
-                }
-                onResetCodexSettings={resetCodexModelSettings}
-                permissionOptions={permissionOptions}
-                permissionMode={permissionMode}
-                showPermissionDropdown={showPermissionDropdown}
-                setShowPermissionDropdown={setShowPermissionDropdown}
-                permissionDropdownRef={permissionDropdownRef}
-                pendingPermissionMode={pendingPermissionMode}
-                onRequestPermissionMode={(mode) => {
-                  if (mode === permissionMode) {
-                    setShowPermissionDropdown(false);
-                    return;
-                  }
-                  setPendingPermissionMode(mode);
-                  setShowPermissionDropdown(false);
-                }}
-                onCancelPermissionMode={() => setPendingPermissionMode(null)}
-                onConfirmPermissionMode={confirmPermissionChange}
-                collapseAllButton={<CollapseAllButton sessionId={sessionId} />}
-                pauseControl={
-                  <PauseOtherSourcesButton
-                    isPaused={isPaused}
-                    heldCount={pausedInputQueueCount}
-                    busy={pauseBusy}
-                    directComposerMessagesSend={isConnected}
-                    onToggle={handleTogglePause}
-                  />
-                }
-                onOpenFilePicker={() => fileInputRef.current?.click()}
-                warmMicrophone={warmMicrophone}
-                voiceSupported={voiceSupported}
-                toggleVoiceUnsupportedInfo={toggleVoiceUnsupportedInfo}
-                handleMicClick={handleMicClick}
-                voiceButtonDisabled={voiceButtonDisabled}
-                isPreparing={isPreparing}
-                isRecording={isRecording}
-                voiceButtonTitle={voiceButtonTitle}
-                canSend={canSend}
-                isRunning={isRunning}
-                handleInterrupt={handleInterrupt}
-                handleSend={handleSend}
-                sendButtonTitle={sendButtonTitle}
-                sendPressing={sendPressing}
-              />
-            </>
-          }
+          voiceButtonTitle={voiceButtonTitle}
+          isRunning={isRunning}
+          onStop={handleInterrupt}
         />
+        <div className={isCollapsed ? "h-0 overflow-hidden" : ""}>
+          <ComposerInputSurface
+            imageSrcs={imageSrcs}
+            lightboxSrc={lightboxSrc}
+            setLightboxSrc={setLightboxSrc}
+            removeImage={removeImage}
+            retryImage={retryImage}
+            fileInputRef={fileInputRef}
+            handleFileSelect={handleFileSelect}
+            handleComposerDragEnter={handleComposerDragEnter}
+            handleComposerDragOver={handleComposerDragOver}
+            handleComposerDragLeave={handleComposerDragLeave}
+            handleComposerDrop={handleComposerDrop}
+            isImageDragOver={isImageDragOver}
+            isPlan={isPlan}
+            textareaRef={textareaRef}
+            text={text}
+            handleInput={handleInput}
+            handleSelectionChange={handleSelectionChange}
+            handleKeyDown={handleKeyDown}
+            handlePaste={handlePaste}
+            placeholder={placeholder}
+            isRecording={isRecording}
+            recordingCursorBefore={preRecordingTextRef.current.before}
+            recordingCursorAfter={preRecordingTextRef.current.after}
+            topChildren={
+              <>
+                <ComposerMenus
+                  slashMenuOpen={slashMenuOpen}
+                  filteredCommands={filteredCommands}
+                  menuRef={menuRef}
+                  slashMenuIndex={slashMenuIndex}
+                  selectCommand={selectCommand}
+                  dollarMenuOpen={dollarMenuOpen}
+                  filteredDollarCommands={filteredDollarCommands}
+                  dollarMenuRef={dollarMenuRef}
+                  dollarMenuIndex={dollarMenuIndex}
+                  referenceMenuOpen={referenceMenuOpen}
+                  filteredReferenceSuggestions={filteredReferenceSuggestions}
+                  referenceMenuRef={referenceMenuRef}
+                  referenceMenuIndex={referenceMenuIndex}
+                  referenceKind={referenceKind}
+                  referenceQuery={referenceQuery}
+                  referenceLoading={referenceLoading}
+                  selectReference={selectReference}
+                  mentionMenuOpen={mentionMenuOpen}
+                  mentionResults={mentionResults}
+                  mentionMenuRef={mentionMenuRef}
+                  mentionIndex={mentionIndex}
+                  mentionQuery={mentionQuery}
+                  mentionLoading={mentionLoading}
+                  selectMention={selectMention}
+                />
+
+                <ComposerStatusBlocks
+                  isPreparing={isPreparing}
+                  isRecording={isRecording}
+                  isTranscribing={isTranscribing}
+                  transcriptionPhase={transcriptionPhase}
+                  volumeLevel={volumeLevel}
+                  volumeHistory={volumeHistory}
+                  voiceCaptureMode={voiceCaptureMode}
+                  voiceUnsupportedInfoOpen={voiceUnsupportedInfoOpen}
+                  voiceUnsupportedMessage={voiceUnsupportedMessage}
+                  voiceError={voiceError}
+                  failedTranscription={failedTranscription}
+                  voiceEditProposal={voiceEditProposal}
+                  alternateVoiceRerun={alternateVoiceRerun}
+                  replyContext={replyContext ?? null}
+                  vscodeSelectionLabel={
+                    vscodeSelectionPayload ? formatVsCodeSelectionAttachmentLabel(vscodeSelectionPayload) : null
+                  }
+                  vscodeSelectionSummary={
+                    vscodeSelectionPayload ? formatVsCodeSelectionSummary(vscodeSelectionPayload) : null
+                  }
+                  vscodeSelectionTitle={
+                    vscodeSelectionPayload ? buildVsCodeSelectionPrompt(vscodeSelectionPayload) : null
+                  }
+                  onRetryTranscription={retryTranscription}
+                  onDismissVoiceError={() => {
+                    setFailedTranscription(null);
+                    setVoiceError(null);
+                  }}
+                  onAcceptVoiceEdit={acceptVoiceEdit}
+                  onUndoVoiceEdit={undoVoiceEdit}
+                  onRerunAlternateVoiceMode={rerunAlternateVoiceMode}
+                  onDismissUnsupportedInfo={() => setVoiceUnsupportedInfoOpen(false)}
+                  onDismissReply={() => useStore.getState().setReplyContext(sessionId, null)}
+                  onDismissVsCodeSelection={() => useStore.getState().dismissVsCodeSelection(currentVsCodeSelectionKey)}
+                  onSetVoiceModeEdit={() => {
+                    voiceCaptureModeRef.current = "edit";
+                    setVoiceCaptureMode("edit");
+                    persistPreferredVoiceMode("edit");
+                  }}
+                  onSetVoiceModeAppend={() => {
+                    voiceCaptureModeRef.current = "append";
+                    setVoiceCaptureMode("append");
+                    persistPreferredVoiceMode("append");
+                  }}
+                />
+                <PausedInputChip
+                  pause={pauseState}
+                  autoPause={codexResultErrorAutoPause}
+                  autoPauseRecoveryProgress={codexAutoPauseRecoveryProgress}
+                  heldCount={pausedInputQueueCount}
+                  autoPausedHeldCount={codexAutoPausedInputCount}
+                  directComposerMessagesSend={isConnected}
+                  onReleaseAutoPausedInputs={(pausedAt) =>
+                    sendToSession(sessionId, { type: "release_codex_auto_paused_inputs", pausedAt })
+                  }
+                />
+                <ComposerAnnotations
+                  sessionId={sessionId}
+                  threadKey={transcriptionThreadKey ?? threadKey}
+                  threadTitle={transcriptionThreadTitle}
+                  disabled={!canUseInput}
+                />
+                <ComposerReferencePreview references={plainReferencePreviews} />
+              </>
+            }
+            bottomChildren={
+              <>
+                <ComposerMetaToolbar
+                  sessionId={sessionId}
+                  sessionView={sessionView}
+                  isCodex={isCodex}
+                  isConnected={isConnected}
+                  canEditLaunchSettings={isBrowserServerConnected}
+                  imageUploadDisabled={imageUploadDisabled}
+                  imageUploadTitle={imageUploadTitle}
+                  showModelDropdown={showModelDropdown}
+                  setShowModelDropdown={setShowModelDropdown}
+                  modelDropdownRef={modelDropdownRef}
+                  claudeModelOptions={claudeModelOptions}
+                  codexModelOptions={codexModelOptions}
+                  onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
+                  codexReasoningEffort={codexReasoningEffort}
+                  codexEffectiveReasoningEffort={codexEffectiveReasoningEffort}
+                  codexEffectiveReasoningEffortReported={codexEffectiveReasoningEffortReported}
+                  onSelectCodexReasoning={(effort) =>
+                    sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
+                  }
+                  codexServiceTier={codexServiceTier}
+                  codexFastServiceTier={codexFastServiceTier}
+                  onSelectCodexServiceTier={(serviceTier) =>
+                    sendToSession(sessionId, { type: "set_codex_service_tier", serviceTier })
+                  }
+                  onResetCodexSettings={resetCodexModelSettings}
+                  permissionOptions={permissionOptions}
+                  permissionMode={permissionMode}
+                  showPermissionDropdown={showPermissionDropdown}
+                  setShowPermissionDropdown={setShowPermissionDropdown}
+                  permissionDropdownRef={permissionDropdownRef}
+                  pendingPermissionMode={pendingPermissionMode}
+                  onRequestPermissionMode={(mode) => {
+                    if (mode === permissionMode) {
+                      setShowPermissionDropdown(false);
+                      return;
+                    }
+                    setPendingPermissionMode(mode);
+                    setShowPermissionDropdown(false);
+                  }}
+                  onCancelPermissionMode={() => setPendingPermissionMode(null)}
+                  onConfirmPermissionMode={confirmPermissionChange}
+                  collapseAllButton={<CollapseAllButton sessionId={sessionId} />}
+                  pauseControl={
+                    <PauseOtherSourcesButton
+                      isPaused={isPaused}
+                      heldCount={pausedInputQueueCount}
+                      busy={pauseBusy}
+                      directComposerMessagesSend={isConnected}
+                      onToggle={handleTogglePause}
+                    />
+                  }
+                  onOpenFilePicker={() => fileInputRef.current?.click()}
+                  warmMicrophone={warmMicrophone}
+                  voiceSupported={voiceSupported}
+                  toggleVoiceUnsupportedInfo={toggleVoiceUnsupportedInfo}
+                  handleMicClick={handleMicClick}
+                  voiceButtonDisabled={voiceButtonDisabled}
+                  isPreparing={isPreparing}
+                  isRecording={isRecording}
+                  voiceButtonTitle={voiceButtonTitle}
+                  canSend={canSend}
+                  isRunning={isRunning}
+                  handleInterrupt={handleInterrupt}
+                  handleSend={handleSend}
+                  sendButtonTitle={sendButtonTitle}
+                  sendPressing={sendPressing}
+                />
+              </>
+            }
+          />
+        </div>
       </div>
-    </div>
+    </ComposerMinimizer>
   );
 }

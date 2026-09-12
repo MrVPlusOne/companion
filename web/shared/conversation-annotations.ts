@@ -4,6 +4,8 @@ export interface ConversationAnnotation {
   selectedText: string;
   comment: string;
   sourceMessageId?: string;
+  /** Rendered-text offsets within one source Markdown scope; text verifies the anchor after remounts. */
+  sourceAnchor?: { scopeIndex: number; start: number; end: number; text: string };
 }
 
 /** The original composer payload when annotations accompany a question answer. */
@@ -41,11 +43,28 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
     )
       throw new Error("Each annotation needs a unique ID, selected text, and a comment.");
     ids.add(entry.id);
+    const anchor = entry.sourceAnchor;
+    if (
+      anchor !== undefined &&
+      (!anchor ||
+        !Number.isSafeInteger(anchor.scopeIndex) ||
+        anchor.scopeIndex < 0 ||
+        !Number.isSafeInteger(anchor.start) ||
+        anchor.start < 0 ||
+        !Number.isSafeInteger(anchor.end) ||
+        anchor.end <= anchor.start ||
+        typeof anchor.text !== "string" ||
+        anchor.text.length !== anchor.end - anchor.start)
+    )
+      throw new Error("Invalid annotation source anchor.");
     return {
       id: entry.id,
       selectedText: entry.selectedText,
       comment: entry.comment,
       ...(entry.sourceMessageId !== undefined ? { sourceMessageId: entry.sourceMessageId } : {}),
+      ...(anchor
+        ? { sourceAnchor: { scopeIndex: anchor.scopeIndex, start: anchor.start, end: anchor.end, text: anchor.text } }
+        : {}),
     };
   });
 }

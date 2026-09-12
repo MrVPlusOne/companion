@@ -1187,7 +1187,10 @@ function AssistantMessage({
           ) : (
             <PawTrailAvatar />
           ))}
-        <div ref={contentRef} className="flex-1 min-w-0">
+        <div ref={contentRef} className="relative flex-1 min-w-0">
+          {!readOnly && (
+            <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
+          )}
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
           {!readOnly && hasTextContent && (
             <AssistantMessageMenu
@@ -1227,7 +1230,6 @@ function AssistantMessage({
               onSelectThread={onSelectThread}
             />
           )}
-          {!readOnly && <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} />}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
           {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
         </div>
@@ -1245,7 +1247,8 @@ function AssistantMessage({
         ) : (
           <PawTrailAvatar />
         ))}
-      <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
+      <div ref={contentRef} className="relative flex-1 min-w-0 space-y-3">
+        {!readOnly && <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />}
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {projection.shouldRenderContentFallback && (
           <div className="flow-root">

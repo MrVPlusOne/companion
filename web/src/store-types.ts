@@ -405,6 +405,8 @@ export interface AppState {
   ) => void;
   annotationEditor: AnnotationEditorState | null;
   setAnnotationEditor: (editor: AnnotationEditorState | null) => void;
+  annotationHover: { sessionId: string; annotationId: string; owner: string } | null;
+  setAnnotationHover: (hover: AppState["annotationHover"]) => void;
   composerDrafts: Map<string, ComposerDraft>;
   setComposerDraft: (sessionId: string, draft: ComposerDraft) => void;
   clearComposerDraft: (sessionId: string) => void;

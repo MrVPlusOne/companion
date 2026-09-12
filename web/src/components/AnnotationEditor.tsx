@@ -1,3 +1,4 @@
+import { VoiceInputIcon } from "./VoiceInputIcon.js";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
@@ -259,10 +260,11 @@ export function AnnotationEditor({
             type="button"
             disabled={voice.isTranscribing || voice.isPreparing || !!proposal}
             onClick={toggleVoice}
-            className="cursor-pointer rounded-lg border border-cc-border px-2 py-1.5 disabled:opacity-40"
+            title={voice.isRecording ? "Stop recording" : "Voice input"}
+            className={`flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover disabled:opacity-40 ${voice.isRecording ? "text-cc-primary bg-cc-primary/10" : ""}`}
             aria-label={voice.isRecording ? "Stop voice comment" : "Voice comment"}
           >
-            {voice.isRecording ? "Stop" : "Mic"}
+            <VoiceInputIcon active={voice.isRecording || voice.isPreparing} />
           </button>
           {text.trim() && (
             <select
