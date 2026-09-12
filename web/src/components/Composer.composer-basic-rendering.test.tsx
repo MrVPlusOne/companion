@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import { renderExpandedComposer as render } from "./composer-test-utils.js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render as renderCollapsedComposer } from "@testing-library/react";
 import { Profiler } from "react";
-import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
+import { screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
 import type { VoiceTranscriptionResult } from "../api.js";
@@ -670,11 +672,11 @@ describe("Composer basic rendering", () => {
     mediaState.touchDevice = true;
     setupMockStore({ session: { backend_type: "codex", isOrchestrator: true } });
 
-    const { container } = render(<Composer sessionId="s1" threadKey="q-1498" />);
+    const { container } = renderCollapsedComposer(<Composer sessionId="s1" threadKey="q-1498" />);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
 
     expect(textarea.placeholder).toBe("Type a message... (/ for commands, $ for skills/apps, @ for files)");
-    expect(screen.getByText("Type a message...")).toBeTruthy();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
   });
 
   it("keeps the generic placeholder on narrow desktop leader quest tabs", () => {
@@ -985,12 +987,12 @@ describe("Composer basic rendering", () => {
     );
   });
 
-  it("does not switch to the collapsed composer on narrow desktop layouts", () => {
+  it("starts compact on narrow desktop layouts too", () => {
     setViewportWidth(500);
     mediaState.touchDevice = false;
-    render(<Composer sessionId="s1" />);
+    renderCollapsedComposer(<Composer sessionId="s1" />);
 
-    expect(screen.queryByText("Type a message...")).toBeNull();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
   });
 
   it("does not replay a historical focus request when a drafted mobile composer mounts", () => {
@@ -1001,7 +1003,7 @@ describe("Composer basic rendering", () => {
     setupMockStore({ draftText: "Preserved mobile draft" });
     mockStoreState.focusComposerTrigger = 7;
 
-    const { container } = render(<Composer sessionId="s1" />);
+    const { container } = renderCollapsedComposer(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
 
     expect(textarea.value).toBe("Preserved mobile draft");
@@ -1059,7 +1061,7 @@ describe("Composer basic rendering", () => {
     expect(document.activeElement).toBe(textarea);
   });
 
-  it("keeps collapsed mobile mode labels out of the action bar and insets controls from the screen edge", () => {
+  it("shows only the compact input on mobile, hiding mode labels and all controls", () => {
     setViewportWidth(500);
     mediaState.touchDevice = true;
     setupMockStore({
@@ -1069,19 +1071,17 @@ describe("Composer basic rendering", () => {
       },
     });
 
-    render(<Composer sessionId="s1" />);
+    renderCollapsedComposer(<Composer sessionId="s1" />);
 
-    expect(screen.getByText("Type a message...")).toBeTruthy();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
 
-    const safeAreaShell = screen.getByTestId("collapsed-composer-safe-area-shell");
-    expect(safeAreaShell.textContent).not.toContain("Agent");
-    expect(safeAreaShell.textContent).not.toContain("Plan");
-    expect(safeAreaShell.className).toContain("safe-area-inset-right");
-    expect(within(safeAreaShell).getByLabelText("Upload image")).toBeTruthy();
-    expect(within(safeAreaShell).getByLabelText("Voice input")).toBeTruthy();
+    // Only the input is accessible; the complete toolbar stays mounted but hidden.
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByTestId("composer-footer-toolbar").closest("[hidden]")).toBeTruthy();
   });
 
-  it("uses the existing image upload input from the collapsed mobile composer", () => {
+  it("uses the existing image upload input after expanding the mobile composer", () => {
     setViewportWidth(500);
     mediaState.touchDevice = true;
 
@@ -1089,7 +1089,7 @@ describe("Composer basic rendering", () => {
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const fileInputClick = vi.spyOn(fileInput, "click").mockImplementation(() => undefined);
 
-    fireEvent.click(screen.getByLabelText("Upload image"));
+    fireEvent.click(screen.getByTitle("Upload image"));
 
     expect(fileInputClick).toHaveBeenCalledTimes(1);
   });
@@ -1144,13 +1144,13 @@ describe("Composer basic rendering", () => {
       });
 
       expect(screen.getByText("Preparing mic...")).toBeTruthy();
-      expect(screen.queryByText("Type a message...")).toBeNull();
+      expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("true");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("keeps the collapsed mobile mic interactive while the session is streaming", () => {
+  it("keeps the expanded mobile mic interactive while the session is streaming", () => {
     setViewportWidth(500);
     mediaState.touchDevice = true;
     setupMockStore({ sessionStatus: "running" });
@@ -1194,15 +1194,14 @@ describe("Composer basic rendering", () => {
     expect(screen.queryByText("Voice input requires HTTPS or localhost in this browser.")).toBeNull();
   });
 
-  it("reveals and keeps the mobile composer open while replying to a message", () => {
+  it("reveals a new reply and preserves it when focus leaves the composer", () => {
     setViewportWidth(500);
     mediaState.touchDevice = true;
 
-    render(<Composer sessionId="s1" />);
+    renderCollapsedComposer(<Composer sessionId="s1" />);
 
-    // Regression coverage for q-463: a reply picked from the message actions
-    // must force the full composer open and keep the reply target visible.
-    expect(screen.getByText("Type a message...")).toBeTruthy();
+    // Choosing a reply reveals its context; outside interaction now hides it without discarding it.
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
 
     act(() => {
       (
@@ -1216,13 +1215,18 @@ describe("Composer basic rendering", () => {
       });
     });
 
-    expect(screen.queryByText("Type a message...")).toBeNull();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Good plan from #618. One thing to clarify before approving.")).toBeTruthy();
 
-    fireEvent.mouseDown(document.body);
-
-    expect(screen.queryByText("Type a message...")).toBeNull();
-    expect(screen.getByText("Good plan from #618. One thing to clarify before approving.")).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen.getByText("Good plan from #618. One thing to clarify before approving.").closest("[hidden]"),
+    ).toBeTruthy();
+    act(() => screen.getByRole("textbox").focus());
+    expect(
+      screen.getByText("Good plan from #618. One thing to clarify before approving.").closest("[hidden]"),
+    ).toBeNull();
   });
 
   it("allows the mobile composer to collapse again after a notification reply is cleared", () => {
@@ -1233,8 +1237,7 @@ describe("Composer basic rendering", () => {
 
       render(<Composer sessionId="s1" />);
 
-      // Notification replies also use replyContext; clearing that context should
-      // release the expansion lock and restore the compact idle bar.
+      // Clearing the reply and leaving the composer restores the compact input.
       act(() => {
         (
           mockStoreState.setReplyContext as (
@@ -1247,16 +1250,17 @@ describe("Composer basic rendering", () => {
         });
       });
 
-      expect(screen.queryByText("Type a message...")).toBeNull();
+      expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("true");
       expect(screen.getByText("Approve q-460 plan? Re-run all 4 datasets before review.")).toBeTruthy();
 
       fireEvent.click(screen.getByLabelText("Cancel reply"));
+      fireEvent.pointerDown(document.body);
 
       act(() => {
         vi.advanceTimersByTime(350);
       });
 
-      expect(screen.getByText("Type a message...")).toBeTruthy();
+      expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
       expect(screen.queryByText("Approve q-460 plan? Re-run all 4 datasets before review.")).toBeNull();
     } finally {
       vi.useRealTimers();
@@ -1275,14 +1279,14 @@ it("restores automatic sizing after the draft changes while minimized", () => {
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.click(screen.getByLabelText("Minimize composer"));
     act(() => (mockStoreState.setComposerDraft as Function)("s1", { text: "A changed long draft", images: [] }));
-    fireEvent.click(screen.getByLabelText("Restore composer"));
+    act(() => screen.getByRole("textbox").focus());
     expect(textarea.style.height).toBe("140px");
   } finally {
     size.mockRestore();
   }
 });
 
-it("keeps an explicitly expanded empty mobile composer open through a tab switch", () => {
+it("minimizes on mobile thread navigation without reviving an old collapse request", () => {
   vi.useFakeTimers();
   try {
     setViewportWidth(430);
@@ -1294,8 +1298,8 @@ it("keeps an explicitly expanded empty mobile composer open through a tab switch
       </>,
     );
     act(() => vi.advanceTimersByTime(350));
-    fireEvent.click(screen.getByText("Type a message..."));
-    fireEvent.touchStart(screen.getByRole("tab"));
+    act(() => screen.getByRole("textbox").focus());
+    fireEvent.pointerDown(screen.getByRole("tab"));
     view.rerender(
       <>
         <button role="tab">Another thread</button>
@@ -1303,7 +1307,7 @@ it("keeps an explicitly expanded empty mobile composer open through a tab switch
       </>,
     );
     act(() => vi.advanceTimersByTime(350));
-    expect(screen.queryByText("Type a message...")).toBeNull();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
   } finally {
     vi.useRealTimers();
   }
@@ -1315,31 +1319,52 @@ it("does not let an earlier empty-draft timer undo explicit expansion", () => {
     setViewportWidth(430);
     mediaState.touchDevice = true;
     render(<Composer sessionId="s1" />);
-    fireEvent.click(screen.getByText("Type a message..."));
+    act(() => screen.getByRole("textbox").focus());
     act(() => vi.advanceTimersByTime(350));
-    expect(screen.queryByText("Type a message...")).toBeNull();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("true");
   } finally {
     vi.useRealTimers();
   }
 });
 
-// The navigation fix must preserve the existing idle collapse after an empty voice flow ends.
+// An outside request may minimize after active voice releases its reveal, without a delayed empty-draft timer.
 it("allows an empty mobile composer to collapse after voice capture finishes", () => {
   vi.useFakeTimers();
   try {
     setViewportWidth(430);
     mediaState.touchDevice = true;
     const view = render(<Composer sessionId="s1" />);
-    fireEvent.click(screen.getByText("Type a message..."));
+    act(() => screen.getByRole("textbox").focus());
     mockVoiceState.isRecordingOverride = true;
     view.rerender(<Composer sessionId="s1" />);
     act(() => vi.advanceTimersByTime(350));
-    expect(screen.queryByText("Type a message...")).toBeNull();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("true");
+    fireEvent.pointerDown(document.body);
     mockVoiceState.isRecordingOverride = false;
     view.rerender(<Composer sessionId="s1" />);
     act(() => vi.advanceTimersByTime(350));
-    expect(screen.getByText("Type a message...")).toBeTruthy();
+    expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("false");
   } finally {
     vi.useRealTimers();
   }
+});
+
+// Defaults are uniform at both sizes; first-line presentation must never mutate later draft lines.
+it.each([false, true])("starts with only the populated input visible (touch=%s)", (touch) => {
+  mediaState.touchDevice = touch;
+  setViewportWidth(touch ? 430 : 1440);
+  const draftText = "The first draft line\nThe second line is retained\nAnd so is the third";
+  setupMockStore({ draftText });
+  renderCollapsedComposer(<Composer sessionId="s1" />);
+  const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+  expect(textarea.value).toBe(draftText);
+  expect(textarea.getAttribute("aria-expanded")).toBe("false");
+  expect(textarea.wrap).toBe("off");
+  expect(textarea.style.height).toBe("24px");
+  expect(screen.queryAllByRole("button")).toHaveLength(0);
+  // Padding belongs to the input box too, even though the clipped textarea is only one line tall.
+  fireEvent.click(textarea.parentElement!);
+  expect(textarea.getAttribute("aria-expanded")).toBe("true");
+  expect(textarea.wrap).toBe("soft");
+  expect(screen.getByLabelText("Minimize composer").closest("[data-testid=composer-footer-toolbar]")).toBeTruthy();
 });

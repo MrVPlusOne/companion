@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
+import { renderExpandedComposer as render } from "./composer-test-utils.js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Profiler } from "react";
-import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
+import { screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
 import type { VoiceTranscriptionResult } from "../api.js";
@@ -1112,7 +1113,7 @@ it.each([
   mediaState.touchDevice = touch;
   setViewportWidth(touch ? 430 : 1440);
   const draft = {
-    text: "A long unsent message",
+    text: "First unsent line\nA second line that must survive minimization",
     images: [
       {
         id: "kept-image",
@@ -1132,14 +1133,35 @@ it.each([
   const textarea = container.querySelector("textarea")!;
   const image = screen.getByAltText("reference.png");
   fireEvent.click(screen.getByLabelText("Minimize composer"));
-  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(screen.getByRole("textbox")).toBe(textarea);
+  expect(textarea.getAttribute("aria-expanded")).toBe("false");
   expect(image.closest("[hidden]")).toBeTruthy();
   expect(container.querySelector("[data-testid=annotation-attachments]")?.closest("[hidden]")).toBeTruthy();
   expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
-  fireEvent.click(screen.getByLabelText("Restore composer"));
+  act(() => textarea.focus());
   expect(container.querySelector("textarea")).toBe(textarea);
   expect(textarea.value).toBe(draft.text);
   expect(image.closest("[hidden]")).toBeNull();
   expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
   expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
+});
+
+it.each([false, true])("returns to an unfocused input-only composer after sending (touch=%s)", async (touch) => {
+  // Sending must settle the same way on desktop and touch devices, including focus on the hidden send control.
+  mediaState.touchDevice = touch;
+  setViewportWidth(touch ? 430 : 1440);
+  setupMockStore({ draft: { text: "Send this draft", images: [] } });
+  render(<Composer sessionId="s1" />);
+  const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+  await userEvent.click(
+    screen.getByTitle(touch ? "Send: tap button; New line: Enter" : "Send: Enter; New line: Shift+Enter"),
+  );
+  expect(textarea.value).toBe("");
+  expect(textarea.getAttribute("aria-expanded")).toBe("false");
+  expect(document.activeElement).not.toBe(textarea);
+  expect(screen.queryAllByRole("button")).toHaveLength(0);
+  expect(mockSendToSession).toHaveBeenCalledWith(
+    "s1",
+    expect.objectContaining({ type: "user_message", content: "Send this draft" }),
+  );
 });

@@ -6,7 +6,15 @@ export function useComposerTextareaSize(ref: RefObject<HTMLTextAreaElement | nul
   const visible = useContext(ComposerVisibilityContext);
   useLayoutEffect(() => {
     const textarea = ref.current;
-    if (!textarea || !visible) return;
+    if (!textarea) return;
+    if (!visible) {
+      // Keep padding outside this one-line viewport: native textarea text can paint into bottom padding.
+      textarea.style.height = "24px";
+      // The compact view always shows the first line, including after editing further down the draft.
+      textarea.scrollTop = 0;
+      textarea.scrollLeft = 0;
+      return;
+    }
     const fit = () => {
       const previous = textarea.style.height;
       textarea.style.height = "auto";

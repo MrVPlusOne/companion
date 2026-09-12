@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
+import { renderExpandedComposer as render } from "./composer-test-utils.js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Profiler } from "react";
-import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
+import { screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
 import type { VoiceTranscriptionResult } from "../api.js";

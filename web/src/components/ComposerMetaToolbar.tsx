@@ -93,6 +93,7 @@ export function ComposerMetaToolbar({
   onCancelPermissionMode,
   onConfirmPermissionMode,
   collapseAllButton,
+  minimizeButton,
   pauseControl,
   onOpenFilePicker,
   warmMicrophone,
@@ -147,6 +148,7 @@ export function ComposerMetaToolbar({
   onCancelPermissionMode: () => void;
   onConfirmPermissionMode: () => void;
   collapseAllButton: ReactNode;
+  minimizeButton?: ReactNode;
   pauseControl: ReactNode;
   onOpenFilePicker: () => void;
   warmMicrophone: () => void;
@@ -403,6 +405,7 @@ export function ComposerMetaToolbar({
         </div>
 
         <div className="shrink-0">{collapseAllButton}</div>
+        {minimizeButton}
         <div className="shrink-0">{pauseControl}</div>
 
         {sessionView.model && (

@@ -1,82 +1,111 @@
-import { createContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useStore } from "../store.js";
+import { createContext, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 export const ComposerVisibilityContext = createContext(true);
 
-/** Hide the whole draft surface without unmounting editors, uploads, or attachment state. */
+/** Own the entire composer's focus boundary while keeping the draft and attachments mounted. */
 export function ComposerMinimizer({
   children,
   destination,
-  canMinimize = true,
-  reveal = false,
-  onRestore,
+  expanded,
+  onExpandedChange,
 }: {
   children: ReactNode;
   destination: string;
-  canMinimize?: boolean;
-  reveal?: boolean;
-  onRestore?: () => void;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 }) {
-  const [minimizedDestination, setMinimizedDestination] = useState<string | null>(null);
-  const minimized = minimizedDestination === destination && !reveal;
-  useEffect(() => setMinimizedDestination(null), [destination]);
-  const content = useRef<HTMLDivElement>(null);
-  const restoreFocus = useRef(false);
-  const focusTrigger = useStore((state) => state.focusComposerTrigger);
-  const previousTrigger = useRef(focusTrigger);
+  const root = useRef<HTMLDivElement>(null);
+  const pointerInside = useRef(false);
+  const insidePointerEvent = useRef<Event | null>(null);
+  const blurGeneration = useRef(0);
+
   useEffect(() => {
-    const previous = previousTrigger.current;
-    previousTrigger.current = focusTrigger;
-    if (typeof focusTrigger !== "number" || typeof previous !== "number" || focusTrigger <= previous) return;
-    if (!minimized) return;
-    onRestore?.();
-    restoreFocus.current = true;
-    setMinimizedDestination(null);
-  }, [focusTrigger, minimized, onRestore]);
+    const pointerDown = (event: PointerEvent) => {
+      pointerInside.current =
+        event === insidePointerEvent.current || (root.current?.contains(event.target as Node) ?? false);
+      insidePointerEvent.current = null;
+      if (!pointerInside.current) onExpandedChange(false);
+    };
+    const resetPointer = () => {
+      pointerInside.current = false;
+    };
+    document.addEventListener("pointerdown", pointerDown);
+    document.addEventListener("pointerup", resetPointer);
+    document.addEventListener("pointercancel", resetPointer);
+    document.addEventListener("keydown", resetPointer, true);
+    return () => {
+      blurGeneration.current++;
+      document.removeEventListener("pointerdown", pointerDown);
+      document.removeEventListener("pointerup", resetPointer);
+      document.removeEventListener("pointercancel", resetPointer);
+      document.removeEventListener("keydown", resetPointer, true);
+    };
+  }, [onExpandedChange]);
+
   useLayoutEffect(() => {
-    if (minimized || !restoreFocus.current) return;
-    restoreFocus.current = false;
-    content.current?.querySelector("textarea")?.focus();
-  }, [minimized]);
+    // A destination change retires old blur work. Desktop focus may intentionally survive navigation.
+    blurGeneration.current++;
+    onExpandedChange(root.current?.contains(document.activeElement) ?? false);
+  }, [destination, onExpandedChange]);
+
+  useLayoutEffect(() => {
+    if (expanded || !root.current?.contains(document.activeElement)) return;
+    // Hidden toolbar controls must not retain focus after send or manual minimization.
+    (document.activeElement as HTMLElement | null)?.blur();
+  }, [expanded]);
+
   return (
-    <div className="shrink-0 bg-cc-card" data-testid="composer-minimizer">
-      {(canMinimize || minimized) && (
-        <div className={`mx-auto flex max-w-3xl ${minimized ? "px-2 py-2" : "justify-end px-2 pt-1"}`}>
-          <button
-            type="button"
-            aria-label={minimized ? "Restore composer" : "Minimize composer"}
-            title={minimized ? "Restore composer" : "Minimize composer"}
-            aria-expanded={!minimized}
-            disabled={reveal}
-            onClick={() => {
-              if (minimized) {
-                onRestore?.();
-                restoreFocus.current = true;
-                setMinimizedDestination(null);
-              } else {
-                content.current?.querySelector("textarea")?.blur();
-                setMinimizedDestination(destination);
-              }
-            }}
-            className={`flex items-center gap-2 rounded-lg text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40 ${minimized ? "w-full border border-cc-border px-3 py-2 text-sm" : "h-7 w-7 justify-center"}`}
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              className="h-4 w-4"
-            >
-              <path d={minimized ? "m4 10 4-4 4 4" : "m4 6 4 4 4-4"} strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            {minimized && <span>Restore composer</span>}
-          </button>
-        </div>
-      )}
-      <div ref={content} hidden={minimized}>
-        <ComposerVisibilityContext.Provider value={!minimized}>{children}</ComposerVisibilityContext.Provider>
-      </div>
+    <div
+      ref={root}
+      className="shrink-0 bg-cc-card"
+      data-testid="composer-minimizer"
+      data-collapsed={!expanded}
+      onPointerDownCapture={(event) => {
+        // React-owned portals, such as an attachment lightbox, belong to this same interaction.
+        insidePointerEvent.current = event.nativeEvent;
+      }}
+      onFocusCapture={() => {
+        blurGeneration.current++;
+        onExpandedChange(true);
+      }}
+      onBlurCapture={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        // Clicking a non-focusable part of an internal control is still composer interaction.
+        if (!event.relatedTarget && pointerInside.current) return;
+        const generation = ++blurGeneration.current;
+        queueMicrotask(() => {
+          if (generation !== blurGeneration.current || root.current?.contains(document.activeElement)) return;
+          onExpandedChange(false);
+        });
+      }}
+    >
+      <ComposerVisibilityContext.Provider value={expanded}>{children}</ComposerVisibilityContext.Provider>
     </div>
+  );
+}
+
+/** Fit manual minimization into the existing toolbar without adding a row. */
+export function ComposerMinimizeButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label="Minimize composer"
+      title="Minimize composer"
+      aria-expanded="true"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-40"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className="h-4 w-4"
+      >
+        <path d="m4 6 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
   );
 }

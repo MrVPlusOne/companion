@@ -1,6 +1,6 @@
 import { useComposerTextareaSize } from "../use-composer-textarea-size.js";
-import { ComposerMinimizer } from "../ComposerMinimizer.js";
-import { useEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
+import { ComposerMinimizer, ComposerMinimizeButton, ComposerVisibilityContext } from "../ComposerMinimizer.js";
+import { useContext, useEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
 import { useStore } from "../../store.js";
 import { useTextSelection } from "../../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "../SelectionContextMenu.js";
@@ -18,9 +18,12 @@ export function PlaygroundAnnotationsSection() {
   const selection = useTextSelection(root);
   const draft = useStore((state) => state.composerDrafts.get(SESSION));
   const [sent, setSent] = useState<ChatMessage | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const editing = useStore((state) => state.annotationEditor?.sessionId === SESSION);
+  const visible = expanded || editing;
   useEffect(() => {
     useStore.getState().setComposerDraft(SESSION, {
-      text: "Please explain both points before changing anything.",
+      text: "Please explain both points before changing anything.\nKeep this second line and the attachments when minimized.",
       images: [],
       annotations: [
         {
@@ -50,7 +53,8 @@ export function PlaygroundAnnotationsSection() {
       <h2 className="text-lg font-semibold">Conversation annotations</h2>
       <p className="text-sm text-cc-muted">
         Select a passage to comment. Click a chip to open its editor at the passage, or hover for a preview. Minimize
-        the draft to read more of the feed. This preview changes only local fixture state.
+        the draft to read more of the feed: only its first line stays visible, and attachments return when you expand
+        the input. This preview changes only local fixture state.
       </p>
       <div
         ref={root}
@@ -64,37 +68,43 @@ export function PlaygroundAnnotationsSection() {
           <AnnotationSourceMarkers sessionId={SESSION} messageId="annotation-example" />
         </div>
         <SelectionContextMenu selection={selection} sessionId={SESSION} onClose={selection.dismiss} />
-        <ComposerMinimizer destination={SESSION}>
-          <div className="rounded-2xl border border-cc-border bg-cc-input-bg p-3">
-            <img
-              alt="Example attached image"
-              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='90'%3E%3Crect width='120' height='90' rx='8' fill='%233b4252'/%3E%3Cpath d='M12 72l30-28 22 18 24-36 20 46z' fill='%2388a6ac'/%3E%3C/svg%3E"
-              className="mb-2 h-24 rounded-lg border border-cc-border"
-            />
-            <ComposerAnnotations sessionId={SESSION} threadKey="main" />
+        <ComposerMinimizer destination={SESSION} expanded={visible} onExpandedChange={setExpanded}>
+          <div className="rounded-2xl border border-cc-border bg-cc-input-bg">
+            <div hidden={!visible}>
+              <img
+                alt="Example attached image"
+                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='90'%3E%3Crect width='120' height='90' rx='8' fill='%233b4252'/%3E%3Cpath d='M12 72l30-28 22 18 24-36 20 46z' fill='%2388a6ac'/%3E%3C/svg%3E"
+                className="mb-2 h-24 rounded-lg border border-cc-border"
+              />
+              <ComposerAnnotations sessionId={SESSION} threadKey="main" />
+            </div>
             <DraftTextarea
               aria-label="Annotation main message"
-              className="w-full bg-transparent p-2 text-sm outline-none"
               value={draft?.text ?? ""}
               onChange={(event) =>
                 useStore.getState().setComposerDraft(SESSION, { ...draft, text: event.target.value, images: [] })
               }
             />
-            <button
-              type="button"
-              className="rounded-lg bg-cc-primary px-3 py-2 text-sm text-white"
-              onClick={() =>
-                setSent({
-                  id: "stored-annotation-example",
-                  role: "user",
-                  content: draft?.text ?? "",
-                  timestamp: 1,
-                  metadata: { annotations: draft?.annotations },
-                })
-              }
-            >
-              Preview sent attachments
-            </button>
+            <div hidden={!visible}>
+              <div className="flex items-center gap-2 p-2">
+                <ComposerMinimizeButton disabled={editing} onClick={() => setExpanded(false)} />
+                <button
+                  type="button"
+                  className="rounded-lg bg-cc-primary px-3 py-2 text-sm text-white"
+                  onClick={() =>
+                    setSent({
+                      id: "stored-annotation-example",
+                      role: "user",
+                      content: draft?.text ?? "",
+                      timestamp: 1,
+                      metadata: { annotations: draft?.annotations },
+                    })
+                  }
+                >
+                  Preview sent attachments
+                </button>
+              </div>
+            </div>
           </div>
         </ComposerMinimizer>
         {sent && <MessageBubble message={sent} interactionMode="read-only" />}
@@ -111,6 +121,23 @@ export function PlaygroundAnnotationsSection() {
 
 function DraftTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const expanded = useContext(ComposerVisibilityContext);
   useComposerTextareaSize(ref, String(props.value ?? ""));
-  return <textarea {...props} ref={ref} />;
+  return (
+    <div
+      className={expanded ? "" : "px-4 py-2.5"}
+      onClick={() => {
+        if (!expanded) ref.current?.focus();
+      }}
+    >
+      <textarea
+        {...props}
+        ref={ref}
+        rows={1}
+        wrap={expanded ? "soft" : "off"}
+        aria-expanded={expanded}
+        className={`block w-full bg-transparent text-sm outline-none resize-none ${expanded ? "px-4 py-2" : "p-0 leading-6 overflow-hidden"}`}
+      />
+    </div>
+  );
 }

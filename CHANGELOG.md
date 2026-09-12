@@ -2,6 +2,10 @@
 
 ## 2026-09-12
 
+### Changed
+
+- **Compact composer** -- Desktop and mobile start with an input showing the draft's first line. Expand to edit; sending or leaving the composer minimizes it. Drafts and attachments survive, and the minimize button fits in the existing toolbar.
+
 ### Fixed
 
 - **Delivery comparisons** -- Commit chips identify their comparison baseline, and merge statistics and opened patches use the same first-parent view. Earlier saved totals stay inspectable, while reporting distinguishes pending and newly delivered batches without repeating historical commits.
