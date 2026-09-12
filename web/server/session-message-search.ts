@@ -97,6 +97,21 @@ const DEFAULT_FILTERS: MessageSearchFilters = {
   event: false,
 };
 
+/** Resolve one root-feed message's authoritative destination without returning history or payload text. */
+export function resolveSessionMessageTarget(
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  messageId: string,
+  isLeaderSession: boolean,
+): { messageId: string; threadKey: string } | null {
+  const entries = buildProjectedThreadEntries(history, ALL_THREADS_KEY, { includeMessage: isRootAgentHistoryMessage });
+  const matches = entries.filter((entry) => rawMessageId(entry.message, entry.history_index) === messageId);
+  if (matches.length !== 1 || matches[0].message.type !== "assistant") return null;
+  return {
+    messageId,
+    threadKey: isLeaderSession ? authoritativeMessageOwner(matches[0].message).threadKey : MAIN_THREAD_KEY,
+  };
+}
+
 export function searchSessionMessages(input: SearchSessionMessagesInput): MessageSearchResponse {
   const startedAt = Date.now();
   const query = (input.query ?? "").trim();

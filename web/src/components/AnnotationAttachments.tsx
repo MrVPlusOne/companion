@@ -8,7 +8,9 @@ export function AnnotationAttachments({
   onEdit,
   onRemove,
   sessionId,
+  disabled = false,
 }: {
+  disabled?: boolean;
   sessionId?: string;
   annotations: readonly ConversationAnnotation[];
   onEdit?: (annotation: ConversationAnnotation, position: { x: number; y: number }) => void;
@@ -25,6 +27,7 @@ export function AnnotationAttachments({
           sessionId={sessionId}
           onEdit={onEdit}
           onRemove={onRemove}
+          disabled={disabled}
         />
       ))}
     </div>
@@ -37,7 +40,9 @@ function AnnotationAttachment({
   sessionId,
   onEdit,
   onRemove,
+  disabled,
 }: {
+  disabled?: boolean;
   annotation: ConversationAnnotation;
   number: number;
   sessionId?: string;
@@ -45,6 +50,26 @@ function AnnotationAttachment({
   onRemove?: (id: string) => void;
 }) {
   const { preview, triggerProps, close } = useAnnotationPreview(annotation, number, sessionId);
+  if (onEdit)
+    return (
+      <>
+        <button
+          type="button"
+          disabled={disabled}
+          {...triggerProps}
+          aria-label={`Comment ${number}`}
+          className="rounded-xl border border-cc-border bg-cc-hover/60 px-3 py-2 text-sm text-cc-fg"
+          onClick={(event) => {
+            close();
+            const rect = event.currentTarget.getBoundingClientRect();
+            onEdit(annotation, { x: rect.left, y: rect.top });
+          }}
+        >
+          Comment {number}
+        </button>
+        {preview}
+      </>
+    );
   return (
     <>
       <details className="group/annotation min-w-0 max-w-full rounded-xl border border-cc-border bg-cc-hover/60 text-sm">
@@ -61,21 +86,8 @@ function AnnotationAttachment({
             {annotation.selectedText}
           </blockquote>
           <p className="whitespace-pre-wrap break-words">{annotation.comment}</p>
-          {(onEdit || onRemove) && (
+          {onRemove && (
             <div className="flex gap-3 text-xs">
-              {onEdit && (
-                <button
-                  type="button"
-                  className="cursor-pointer text-cc-primary"
-                  onClick={(event) => {
-                    close();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    onEdit(annotation, { x: rect.left, y: rect.top });
-                  }}
-                >
-                  Edit comment {number}
-                </button>
-              )}
               {onRemove && (
                 <button
                   type="button"

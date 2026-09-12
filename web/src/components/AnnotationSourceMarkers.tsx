@@ -31,15 +31,19 @@ export function AnnotationSourceMarkers({
   const annotations = useStore((state) =>
     sessionId ? (state.composerDrafts.get(sessionId)?.annotations ?? EMPTY) : EMPTY,
   );
+  const editor = useStore((state) => (state.annotationEditor?.sessionId === sessionId ? state.annotationEditor : null));
   const highlightedId = useStore((state) =>
     state.annotationHover?.sessionId === sessionId ? state.annotationHover?.annotationId : undefined,
   );
   const entries = useMemo(
     () =>
-      annotations
+      [
+        ...annotations,
+        ...(editor && !annotations.some((item) => item.id === editor.annotation.id) ? [editor.annotation] : []),
+      ]
         .map((annotation, index) => ({ annotation, number: index + 1 }))
         .filter((entry) => entry.annotation.sourceMessageId === messageId),
-    [annotations, messageId],
+    [annotations, editor, messageId],
   );
   const overlay = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -114,7 +118,7 @@ export function AnnotationSourceMarkers({
         if (!position) return null;
         return (
           <div key={annotation.id}>
-            {highlightedId === annotation.id &&
+            {(highlightedId === annotation.id || editor?.annotation.id === annotation.id) &&
               position.rects.map((rect, index) => (
                 <span
                   key={index}

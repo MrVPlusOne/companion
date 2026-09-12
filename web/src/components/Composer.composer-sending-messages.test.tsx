@@ -1134,7 +1134,7 @@ it.each([
   fireEvent.click(screen.getByLabelText("Minimize composer"));
   expect(screen.queryByRole("textbox")).toBeNull();
   expect(image.closest("[hidden]")).toBeTruthy();
-  expect(container.querySelector("details")?.closest("[hidden]")).toBeTruthy();
+  expect(container.querySelector("[data-testid=annotation-attachments]")?.closest("[hidden]")).toBeTruthy();
   expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
   fireEvent.click(screen.getByLabelText("Restore composer"));
   expect(container.querySelector("textarea")).toBe(textarea);

@@ -154,7 +154,10 @@ describe("useTextSelection", () => {
 
     expect(screen.getByTestId("selection-active").textContent).toBe("true");
     expect(screen.getByTestId("selection-text").textContent).toBe("Selected assistant text");
-    expect(screen.getByTestId("selection-position").textContent).not.toBe("none");
+    const [, menuY] = screen.getByTestId("selection-position").textContent!.split(",").map(Number);
+    // Touch actions stay near the selected block rather than docking at the opposite screen edge.
+    expect(menuY).toBeLessThanOrEqual(selectionState.rect.bottom + 56);
+    expect(menuY + 68).toBeGreaterThanOrEqual(selectionState.rect.top - 56);
     expect(removeAllRanges).not.toHaveBeenCalled();
     expect(selectionState.text).toBe("Selected assistant text");
   });

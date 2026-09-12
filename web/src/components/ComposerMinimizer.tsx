@@ -1,5 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "../store.js";
+
+export const ComposerVisibilityContext = createContext(true);
 
 /** Hide the whole draft surface without unmounting editors, uploads, or attachment state. */
 export function ComposerMinimizer({
@@ -17,6 +19,7 @@ export function ComposerMinimizer({
 }) {
   const [minimizedDestination, setMinimizedDestination] = useState<string | null>(null);
   const minimized = minimizedDestination === destination && !reveal;
+  useEffect(() => setMinimizedDestination(null), [destination]);
   const content = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef(false);
   const focusTrigger = useStore((state) => state.focusComposerTrigger);
@@ -72,7 +75,7 @@ export function ComposerMinimizer({
         </div>
       )}
       <div ref={content} hidden={minimized}>
-        {children}
+        <ComposerVisibilityContext.Provider value={!minimized}>{children}</ComposerVisibilityContext.Provider>
       </div>
     </div>
   );

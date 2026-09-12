@@ -1263,3 +1263,83 @@ describe("Composer basic rendering", () => {
     }
   });
 });
+
+// Hidden drafts report zero layout size; restoring must measure the visible textarea again.
+it("restores automatic sizing after the draft changes while minimized", () => {
+  const size = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.closest("[hidden]") ? 0 : 140;
+  });
+  try {
+    setupMockStore({ draftText: "Original long draft" });
+    render(<Composer sessionId="s1" />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.click(screen.getByLabelText("Minimize composer"));
+    act(() => (mockStoreState.setComposerDraft as Function)("s1", { text: "A changed long draft", images: [] }));
+    fireEvent.click(screen.getByLabelText("Restore composer"));
+    expect(textarea.style.height).toBe("140px");
+  } finally {
+    size.mockRestore();
+  }
+});
+
+it("keeps an explicitly expanded empty mobile composer open through a tab switch", () => {
+  vi.useFakeTimers();
+  try {
+    setViewportWidth(430);
+    mediaState.touchDevice = true;
+    const view = render(
+      <>
+        <button role="tab">Another thread</button>
+        <Composer sessionId="s1" threadKey="main" />
+      </>,
+    );
+    act(() => vi.advanceTimersByTime(350));
+    fireEvent.click(screen.getByText("Type a message..."));
+    fireEvent.touchStart(screen.getByRole("tab"));
+    view.rerender(
+      <>
+        <button role="tab">Another thread</button>
+        <Composer sessionId="s1" threadKey="another" />
+      </>,
+    );
+    act(() => vi.advanceTimersByTime(350));
+    expect(screen.queryByText("Type a message...")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not let an earlier empty-draft timer undo explicit expansion", () => {
+  vi.useFakeTimers();
+  try {
+    setViewportWidth(430);
+    mediaState.touchDevice = true;
+    render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByText("Type a message..."));
+    act(() => vi.advanceTimersByTime(350));
+    expect(screen.queryByText("Type a message...")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// The navigation fix must preserve the existing idle collapse after an empty voice flow ends.
+it("allows an empty mobile composer to collapse after voice capture finishes", () => {
+  vi.useFakeTimers();
+  try {
+    setViewportWidth(430);
+    mediaState.touchDevice = true;
+    const view = render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByText("Type a message..."));
+    mockVoiceState.isRecordingOverride = true;
+    view.rerender(<Composer sessionId="s1" />);
+    act(() => vi.advanceTimersByTime(350));
+    expect(screen.queryByText("Type a message...")).toBeNull();
+    mockVoiceState.isRecordingOverride = false;
+    view.rerender(<Composer sessionId="s1" />);
+    act(() => vi.advanceTimersByTime(350));
+    expect(screen.getByText("Type a message...")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -73,11 +73,11 @@ describe("composer annotation attachments", () => {
       annotations: [first, { ...second, comment: "Second comment" }],
     });
     fireEvent.click(screen.getByLabelText("Comment 2"));
-    fireEvent.click(screen.getByText("Edit comment 2"));
     fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Revised comment" } });
     fireEvent.click(screen.getByText("Save"));
     expect(useStore.getState().composerDrafts.get("session")?.annotations?.[1].comment).toBe("Revised comment");
-    fireEvent.click(screen.getByText("Remove comment 2"));
+    fireEvent.click(screen.getByLabelText("Comment 2"));
+    fireEvent.click(screen.getByLabelText("Delete comment"));
     expect(useStore.getState().composerDrafts.get("session")?.annotations).toEqual([first]);
     expect(mocks.send).not.toHaveBeenCalled();
   });

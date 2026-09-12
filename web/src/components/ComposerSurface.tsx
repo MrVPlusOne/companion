@@ -1,3 +1,4 @@
+import { useComposerTextareaSize } from "./use-composer-textarea-size.js";
 import { VoiceInputIcon } from "./VoiceInputIcon.js";
 import type { RefObject, ReactNode } from "react";
 import { Lightbox } from "./Lightbox.js";
@@ -154,6 +155,7 @@ export function ComposerInputSurface({
   topChildren?: ReactNode;
   bottomChildren?: ReactNode;
 }) {
+  useComposerTextareaSize(textareaRef, text);
   return (
     <div className="max-w-3xl mx-auto">
       {imageSrcs.length > 0 && (

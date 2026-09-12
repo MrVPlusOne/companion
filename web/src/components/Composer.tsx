@@ -689,19 +689,6 @@ export function Composer({
 
   useComposerNavigationFocus({ textareaRef, sessionId, threadKey, usesTouchKeyboard });
 
-  const isUserInput = useRef(false);
-
-  useEffect(() => {
-    if (isUserInput.current) {
-      isUserInput.current = false;
-      return;
-    }
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-  }, [text]);
-
   useEffect(() => {
     setVoiceEditProposal(null);
     setFailedTranscription(null);
@@ -972,6 +959,7 @@ export function Composer({
       });
       store.removePermission(sessionId, pendingAskUserPerm.request_id);
       store.clearComposerDraft(sessionId);
+      setComposerExpanded(false);
       setAlternateVoiceRerun(null);
       closeAutocompleteMenus();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -1004,6 +992,7 @@ export function Composer({
         });
         if (!switched) return;
         store.clearComposerDraft(sessionId);
+        setComposerExpanded(false);
         setAlternateVoiceRerun(null);
         closeAutocompleteMenus();
         if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -1016,6 +1005,7 @@ export function Composer({
     // Keep reply metadata separate from stored user text; send concise context to the assistant.
     const currentReplyContext = useStore.getState().replyContexts.get(sessionId);
     const clearComposerUi = () => {
+      setComposerExpanded(false);
       closeAutocompleteMenus();
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
@@ -1194,7 +1184,6 @@ export function Composer({
   }
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    isUserInput.current = true;
     const newText = e.target.value;
     const cursorPos = e.target.selectionStart;
     if (voiceEditProposal) {
@@ -1204,9 +1193,6 @@ export function Composer({
       setAlternateVoiceRerun(null);
     }
     setText(newText);
-    const ta = e.target;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
     handleAutocompleteInput(newText, cursorPos);
   }
 
@@ -1578,26 +1564,37 @@ export function Composer({
     setComposerExpanded(true);
   }, [usesTouchKeyboard, isNarrowLayout, hasActiveReplyContext]);
 
-  // Auto-collapse when composer becomes empty (after send clears text), but
-  // never hide the voice UI while the capture/transcription flow is active or
-  // while a reply target is still active.
+  // Clearing a reply or finishing voice releases its expansion lock. Empty drafts and navigation
+  // do not schedule a collapse; successful sends explicitly collapse their own composer.
+  const previousInteraction = useRef(hasActiveReplyContext || isVoiceInteractionActive);
   useEffect(() => {
-    if (!usesTouchKeyboard || !isNarrowLayout) return;
-    if (hasActiveReplyContext) return;
-    if (isVoiceInteractionActive) return;
-    if (!text.trim() && images.length === 0) {
-      const timer = setTimeout(() => setComposerExpanded(false), 300);
-      return () => clearTimeout(timer);
-    }
-  }, [usesTouchKeyboard, isNarrowLayout, hasActiveReplyContext, isVoiceInteractionActive, text, images.length]);
+    const wasActive = previousInteraction.current;
+    previousInteraction.current = hasActiveReplyContext || isVoiceInteractionActive;
+    if (!wasActive || previousInteraction.current || !usesTouchKeyboard || !isNarrowLayout) return;
+    if (isVoiceInteractionActive || text.trim() || images.length || annotations?.length || annotationEditorOpen) return;
+    const timer = setTimeout(() => setComposerExpanded(false), 300);
+    return () => clearTimeout(timer);
+  }, [
+    hasActiveReplyContext,
+    usesTouchKeyboard,
+    isNarrowLayout,
+    isVoiceInteractionActive,
+    text,
+    images.length,
+    annotations?.length,
+    annotationEditorOpen,
+    threadKey,
+  ]);
 
-  // Collapse on tap outside the composer when empty
+  // Tapping the conversation can collapse an empty composer; navigation controls cannot.
   const composerRootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!usesTouchKeyboard || !isNarrowLayout || isCollapsed || isVoiceInteractionActive || hasActiveReplyContext)
       return;
     const handler = (e: MouseEvent | TouchEvent) => {
       if (
+        e.target instanceof Element &&
+        e.target.closest("[data-feed-session-id]")?.getAttribute("data-feed-session-id") === sessionId &&
         !hasActiveReplyContext &&
         !isVoiceInteractionActive &&
         !text.trim() &&
@@ -1622,6 +1619,7 @@ export function Composer({
     isVoiceInteractionActive,
     text,
     images.length,
+    sessionId,
   ]);
 
   const expandComposer = useCallback(() => {

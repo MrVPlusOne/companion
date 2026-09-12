@@ -406,6 +406,9 @@ export interface ComposerDraft {
 }
 
 export interface AnnotationEditorState {
+  threadKey?: string;
+  navigateToSource?: boolean;
+  sourceUnavailable?: boolean;
   sessionId: string;
   annotation: ConversationAnnotation;
   position?: { x: number; y: number };

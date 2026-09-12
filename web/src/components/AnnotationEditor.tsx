@@ -26,6 +26,7 @@ export function AnnotationEditor({
   threadKey,
   threadTitle,
   position,
+  sourceUnavailable,
   onSave,
   onCancel,
   onRemove,
@@ -36,6 +37,7 @@ export function AnnotationEditor({
   threadKey: string;
   threadTitle?: string;
   position?: { x: number; y: number };
+  sourceUnavailable?: boolean;
   onSave: (comment: string) => void;
   onCancel: () => void;
   onRemove?: () => void;
@@ -61,11 +63,11 @@ export function AnnotationEditor({
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    textarea.current?.focus();
+    textarea.current?.focus({ preventScroll: true });
     return () => {
       generation.current++;
       capture.current = null;
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
     };
   }, []);
 
@@ -186,6 +188,11 @@ export function AnnotationEditor({
         <blockquote className="mb-3 max-h-24 overflow-auto whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-3 text-xs text-cc-muted">
           {annotation.selectedText}
         </blockquote>
+        {sourceUnavailable && (
+          <p role="status" className="mb-2 text-xs text-cc-muted">
+            The quoted passage is unavailable in this view. You can still edit this comment.
+          </p>
+        )}
         <textarea
           ref={textarea}
           aria-label="Comment"

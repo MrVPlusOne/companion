@@ -1,5 +1,6 @@
+import { useComposerTextareaSize } from "../use-composer-textarea-size.js";
 import { ComposerMinimizer } from "../ComposerMinimizer.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
 import { useStore } from "../../store.js";
 import { useTextSelection } from "../../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "../SelectionContextMenu.js";
@@ -48,10 +49,14 @@ export function PlaygroundAnnotationsSection() {
     >
       <h2 className="text-lg font-semibold">Conversation annotations</h2>
       <p className="text-sm text-cc-muted">
-        Select a passage to comment. Hover a comment chip or floating marker to see its passage and preview; minimize
+        Select a passage to comment. Click a chip to open its editor at the passage, or hover for a preview. Minimize
         the draft to read more of the feed. This preview changes only local fixture state.
       </p>
-      <div ref={root} className="rounded-2xl border border-cc-border bg-cc-card p-4 space-y-4">
+      <div
+        ref={root}
+        data-annotation-preview-session={SESSION}
+        className="rounded-2xl border border-cc-border bg-cc-card p-4 space-y-4"
+      >
         <div className="relative" data-message-id="annotation-example" data-message-role="assistant">
           <div data-chat-selection-scope="true" className="whitespace-pre-wrap text-sm">
             {QUOTE}
@@ -67,7 +72,7 @@ export function PlaygroundAnnotationsSection() {
               className="mb-2 h-24 rounded-lg border border-cc-border"
             />
             <ComposerAnnotations sessionId={SESSION} threadKey="main" />
-            <textarea
+            <DraftTextarea
               aria-label="Annotation main message"
               className="w-full bg-transparent p-2 text-sm outline-none"
               value={draft?.text ?? ""}
@@ -102,4 +107,10 @@ export function PlaygroundAnnotationsSection() {
       </div>
     </section>
   );
+}
+
+function DraftTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useComposerTextareaSize(ref, String(props.value ?? ""));
+  return <textarea {...props} ref={ref} />;
 }

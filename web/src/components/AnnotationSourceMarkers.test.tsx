@@ -93,12 +93,18 @@ describe("comment passage previews", () => {
     act(() => vi.advanceTimersByTime(150));
     expect(screen.queryByRole("tooltip")).toBeNull();
     expect(screen.queryByTestId("annotation-passage-highlight")).toBeNull();
-    fireEvent.focus(screen.getByLabelText("Edit comment 2"));
+    act(() => screen.getByLabelText("Edit comment 2").focus());
     expect(screen.getByRole("tooltip").textContent).toContain("Second feedback");
     expect(screen.getByTestId("annotation-passage-highlight").style.top).toBe("70px");
     fireEvent.click(screen.getByLabelText("Edit comment 2"));
     expect(useStore.getState().annotationEditor?.annotation.id).toBe("second");
     expect(useStore.getState().annotationHover).toBeNull();
+    // Editor ownership survives pointer exit even on touch, where hover does not exist.
+    fireEvent.pointerLeave(screen.getByLabelText("Edit comment 2"));
+    act(() => vi.advanceTimersByTime(150));
+    expect(screen.getByTestId("annotation-passage-highlight").style.top).toBe("70px");
+    act(() => useStore.getState().setAnnotationEditor(null));
+    expect(screen.queryByTestId("annotation-passage-highlight")).toBeNull();
   });
 
   it("keeps marker placement tied to passage order when comments were created in reverse order", () => {

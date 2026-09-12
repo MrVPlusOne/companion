@@ -83,3 +83,27 @@ describe("GET /sessions/:id/message-search", () => {
     expect(res.status).toBe(404);
   });
 });
+
+it("returns one source target without message content and rejects unavailable targets", async () => {
+  const app = makeRoute([
+    {
+      type: "assistant",
+      message: {
+        id: "source",
+        type: "message",
+        role: "assistant",
+        model: "claude",
+        content: [{ type: "text", text: "Full source text" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1,
+    } as BrowserIncomingMessage,
+  ]);
+  const response = await app.request("/sessions/123/message-target/source");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ messageId: "source", threadKey: "main" });
+  expect((await app.request("/sessions/123/message-target/missing")).status).toBe(404);
+  expect((await app.request("/sessions/missing/message-target/source")).status).toBe(404);
+});

@@ -78,5 +78,12 @@ describe("explicit composer minimization", () => {
       </ComposerMinimizer>,
     );
     expect(screen.getByRole("textbox")).toBeTruthy();
+    // Leaving the destination retires the old minimize request; returning is not a new request.
+    view.rerender(
+      <ComposerMinimizer destination="one:main">
+        <textarea aria-label="Draft" />
+      </ComposerMinimizer>,
+    );
+    expect(screen.getByRole("textbox")).toBeTruthy();
   });
 });

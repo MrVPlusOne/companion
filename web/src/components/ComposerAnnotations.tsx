@@ -1,3 +1,4 @@
+import { useAnnotationSourceNavigation } from "./use-annotation-source-navigation.js";
 import { useEffect } from "react";
 import { useStore } from "../store.js";
 import { AnnotationAttachments } from "./AnnotationAttachments.js";
@@ -14,14 +15,20 @@ export function ComposerAnnotations({
   threadTitle?: string;
   disabled?: boolean;
 }) {
+  const openSource = useAnnotationSourceNavigation(sessionId, threadKey);
   const draft = useStore((state) => state.composerDrafts.get(sessionId));
   const editor = useStore((state) => state.annotationEditor);
   const annotations = draft?.annotations ?? [];
-  const activeEditor = editor?.sessionId === sessionId ? editor : null;
+  const activeEditor =
+    editor?.sessionId === sessionId && (!editor.threadKey || editor.threadKey === threadKey) ? editor : null;
   useEffect(
     () => () => {
       const state = useStore.getState();
-      if (state.annotationEditor?.sessionId === sessionId) state.setAnnotationEditor(null);
+      if (
+        state.annotationEditor?.sessionId === sessionId &&
+        (!state.annotationEditor.threadKey || state.annotationEditor.threadKey === threadKey)
+      )
+        state.setAnnotationEditor(null);
     },
     [sessionId, threadKey],
   );
@@ -40,14 +47,16 @@ export function ComposerAnnotations({
       <AnnotationAttachments
         sessionId={sessionId}
         annotations={annotations}
-        onEdit={
-          disabled
-            ? undefined
-            : (annotation, position) => useStore.getState().setAnnotationEditor({ sessionId, annotation, position })
-        }
+        disabled={disabled}
+        onEdit={(annotation) => void openSource(annotation)}
         onRemove={disabled ? undefined : remove}
       />
-      {activeEditor && !disabled && (
+      {activeEditor?.navigateToSource && (
+        <p role="status" className="text-xs text-cc-muted">
+          Opening comment at its source…
+        </p>
+      )}
+      {activeEditor && !activeEditor.navigateToSource && !disabled && (
         <AnnotationEditor
           key={`${sessionId}:${threadKey}:${activeEditor.annotation.id}`}
           sessionId={sessionId}
@@ -55,6 +64,7 @@ export function ComposerAnnotations({
           threadTitle={threadTitle}
           annotation={activeEditor.annotation}
           position={activeEditor.position}
+          sourceUnavailable={activeEditor.sourceUnavailable}
           context={{
             activeId: activeEditor.annotation.id,
             activeNumber: annotations.some((entry) => entry.id === activeEditor.annotation.id)

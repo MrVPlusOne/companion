@@ -43,6 +43,8 @@ export function useAnnotationPreview(annotation: ConversationAnnotation, number:
     };
   }, [anchor, close]);
   const show = (event: SyntheticEvent<HTMLElement>) => {
+    if ("pointerType" in event && event.pointerType === "touch") return;
+    if (useStore.getState().annotationEditor?.annotation.id === annotation.id) return;
     cancelHide();
     setAnchor(event.currentTarget);
     if (sessionId) useStore.getState().setAnnotationHover({ sessionId, annotationId: annotation.id, owner });
@@ -90,7 +92,9 @@ export function useAnnotationPreview(annotation: ConversationAnnotation, number:
     triggerProps: {
       onPointerEnter: show,
       onPointerLeave: hide,
-      onFocus: show,
+      onFocus: (event: SyntheticEvent<HTMLElement>) => {
+        if (event.currentTarget.matches(":focus-visible")) show(event);
+      },
       onBlur: hide,
       "aria-describedby": anchor ? owner : undefined,
     },

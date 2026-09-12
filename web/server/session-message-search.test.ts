@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
-import { searchSessionMessages } from "./session-message-search.js";
+import { resolveSessionMessageTarget, searchSessionMessages } from "./session-message-search.js";
 
 function user(
   id: string,
@@ -368,4 +368,21 @@ describe("searchSessionMessages", () => {
     expect(response.results.every((result) => result.starred)).toBe(true);
     expect(response.results.map((result) => result.messageId)).not.toContain("unstarred");
   });
+});
+
+// Navigation returns only authoritative identity, never text or an assumed complete client corpus.
+it("resolves an exact old message's owner with the same root-feed projection used by search", () => {
+  const source = assistant("old-source", "A repeated phrase", 1, "q-42");
+  const recent = assistant("recent", "A repeated phrase", 2);
+  expect(resolveSessionMessageTarget([source, recent], "old-source", true)).toEqual({
+    messageId: "old-source",
+    threadKey: "q-42",
+  });
+  expect(resolveSessionMessageTarget([source], "old-source", false)?.threadKey).toBe("main");
+  expect(resolveSessionMessageTarget([source], "missing", true)).toBeNull();
+});
+it("does not expose a child-only message as a normal feed navigation target", () => {
+  const child = assistant("child-source", "Private child text", 1);
+  child.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
+  expect(resolveSessionMessageTarget([child], "child-source", true)).toBeNull();
 });

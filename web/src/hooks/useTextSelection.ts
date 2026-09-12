@@ -171,30 +171,20 @@ function findOwnedChatSelectionRange(sourceRange: Range, message: HTMLElement): 
   return ownedRange;
 }
 
-/** Calculate menu position: above the selection on desktop, below on touch
- *  (where the native iOS callout and handles appear above). */
-function computeMenuPosition(rect: DOMRect, preferBelow: boolean): { x: number; y: number } {
-  const MENU_WIDTH_ESTIMATE = 180;
-  const MENU_HEIGHT_ESTIMATE = 68;
-  const GAP = 6;
-
-  let x = rect.left + rect.width / 2 - MENU_WIDTH_ESTIMATE / 2;
-  x = Math.max(8, Math.min(x, window.innerWidth - MENU_WIDTH_ESTIMATE - 8));
-
-  if (preferBelow) {
-    // Touch: keep the DOM selection intact and move Takode's menu away from
-    // the native callout zone around the selected text.
-    const edgeGap = Math.max(12, GAP);
-    const selectionMidpoint = rect.top + rect.height / 2;
-    const y =
-      selectionMidpoint < window.innerHeight / 2 ? window.innerHeight - MENU_HEIGHT_ESTIMATE - edgeGap : edgeGap;
-    return { x, y: Math.max(4, Math.min(y, window.innerHeight - MENU_HEIGHT_ESTIMATE - 4)) };
-  }
-
-  // Desktop: place above selection so the highlighted text stays visible
-  const aboveY = rect.top - GAP - MENU_HEIGHT_ESTIMATE;
-  const y = aboveY >= 4 ? aboveY : rect.bottom + GAP;
-  return { x, y };
+/** Keep actions beside the selection, leaving room for native touch handles/callout. */
+function computeMenuPosition(rect: DOMRect, touch: boolean): { x: number; y: number } {
+  const width = 180;
+  const height = 68;
+  const gap = touch ? 56 : 6;
+  const viewport = window.visualViewport;
+  const left = viewport?.offsetLeft ?? 0;
+  const top = viewport?.offsetTop ?? 0;
+  const right = left + (viewport?.width ?? window.innerWidth);
+  const bottom = top + (viewport?.height ?? window.innerHeight);
+  const x = Math.max(left + 8, Math.min(rect.left + rect.width / 2 - width / 2, right - width - 8));
+  const above = rect.top - gap - height;
+  const y = above >= top + 4 ? above : rect.bottom + gap;
+  return { x, y: Math.max(top + 4, Math.min(y, bottom - height - 4)) };
 }
 
 /**

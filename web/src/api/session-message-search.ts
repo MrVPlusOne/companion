@@ -139,3 +139,18 @@ export async function searchGlobalStarredMessages(
   }
   return res.json() as Promise<GlobalStarredMessageSearchResponse>;
 }
+
+/** Read the server-owned route for one stable source message, including messages outside the loaded window. */
+export async function resolveSessionMessageTarget(
+  sessionId: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<{ messageId: string; threadKey: string } | null> {
+  const response = await fetch(
+    `${BASE}/sessions/${encodeURIComponent(sessionId)}/message-target/${encodeURIComponent(messageId)}`,
+    { signal },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Source navigation failed (${response.status})`);
+  return response.json();
+}
