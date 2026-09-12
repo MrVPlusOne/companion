@@ -1,3 +1,4 @@
+import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import type { ChatMessage } from "../types.js";
 
 /**
@@ -10,7 +11,9 @@ export function getMessageMarkdown(message: ChatMessage): string {
     const textParts = blocks.filter((b) => b.type === "text").map((b) => (b as { type: "text"; text: string }).text);
     if (textParts.length > 0) return textParts.join("\n\n");
   }
-  return message.content;
+  return message.role === "user"
+    ? formatAnnotatedMessage(message.content, message.metadata?.annotations)
+    : message.content;
 }
 
 /**

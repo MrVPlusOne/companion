@@ -824,6 +824,7 @@ function handleParsedMessage(
       if (!hasServerImages || hasRestorableImages) {
         store.setComposerDraft(sessionId, {
           text: data.input.content,
+          annotations: data.input.annotations ?? restoredUpload?.annotations,
           images: fallbackImages,
         });
         store.setReplyContext(sessionId, data.input.replyContext ?? restoredUpload?.replyContext ?? null);
@@ -1159,7 +1160,14 @@ function handleParsedMessage(
         content: data.summary,
         timestamp: data.timestamp,
         variant: "approved",
-        ...(data.answers?.length ? { metadata: { answers: data.answers } } : {}),
+        ...(data.answers?.length || data.annotationMessage
+          ? {
+              metadata: {
+                ...(data.answers?.length ? { answers: data.answers } : {}),
+                ...(data.annotationMessage ? { annotationMessage: data.annotationMessage } : {}),
+              },
+            }
+          : {}),
       };
       store.appendMessage(sessionId, approvedMsg);
       break;
@@ -1308,6 +1316,7 @@ function handleParsedMessage(
       }
       clearPendingUploadsCoveredByHistory(sessionId, [data]);
       const metadata: ChatMessage["metadata"] = {
+        ...(data.annotations?.length ? { annotations: data.annotations } : {}),
         ...(data.replyContext ? { replyContext: data.replyContext } : {}),
         ...(data.vscodeSelection ? { vscodeSelection: data.vscodeSelection } : {}),
         ...(data.threadRefs ? { threadRefs: data.threadRefs } : {}),

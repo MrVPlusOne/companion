@@ -1359,3 +1359,21 @@ describe("buildPeekDefault compactionEvents", () => {
     expect(result.compactionEvents).toBeUndefined();
   });
 });
+
+// Full inspection includes all user-authored content, while compact inspection keeps its established budget.
+it("reveals structured annotations in read without adding raw fields to compact peek", () => {
+  const history: BrowserIncomingMessage[] = [
+    {
+      type: "user_message",
+      content: "",
+      timestamp: 1,
+      annotations: [{ id: "comment", selectedText: "reference", comment: "long comment ".repeat(1000) }],
+    },
+  ];
+  const read = buildReadResponse(history, 0)!;
+  expect(read.content).toContain("[comment 1] long comment");
+  expect(read.content.length).toBeGreaterThan(10_000);
+  const peek = buildPeekRange(history, { from: 0, count: 1 });
+  expect(peek.messages[0].content.length).toBeLessThan(1000);
+  expect(peek.messages[0]).not.toHaveProperty("rawMessage");
+});

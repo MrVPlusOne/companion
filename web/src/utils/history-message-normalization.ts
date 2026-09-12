@@ -293,6 +293,7 @@ export function normalizeHistoryMessageToChatMessages(
       ...(histMsg.leaderTimerMessageId ? { leaderTimerMessageId: histMsg.leaderTimerMessageId } : {}),
     };
     const metadata: ChatMessage["metadata"] = {
+      ...(histMsg.annotations?.length ? { annotations: histMsg.annotations } : {}),
       ...(histMsg.replyContext ? { replyContext: histMsg.replyContext } : {}),
       ...(histMsg.vscodeSelection ? { vscodeSelection: histMsg.vscodeSelection } : {}),
       ...(stableMessageId ? {} : { starStableMessageId: false }),
@@ -508,7 +509,14 @@ export function normalizeHistoryMessageToChatMessages(
         timestamp: histMsg.timestamp,
         historyIndex,
         variant: "approved",
-        ...(histMsg.answers?.length ? { metadata: { answers: histMsg.answers } } : {}),
+        ...(histMsg.answers?.length || histMsg.annotationMessage
+          ? {
+              metadata: {
+                ...(histMsg.answers?.length ? { answers: histMsg.answers } : {}),
+                ...(histMsg.annotationMessage ? { annotationMessage: histMsg.annotationMessage } : {}),
+              },
+            }
+          : {}),
       },
     ];
   }

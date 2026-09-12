@@ -1,3 +1,4 @@
+import type { ConversationAnnotation } from "../shared/conversation-annotations.js";
 import type { ImageRef } from "./image-store.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { CodexAutoPauseRecoveryLink } from "./codex-auto-pause-types.js";
@@ -40,6 +41,7 @@ export interface PendingCodexInput {
   historyFollowUps?: ProgrammaticHistoryFollowUp[];
   /** True only for browser-facing compact snapshots, never for model delivery state. */
   payloadTruncated?: boolean;
+  annotations?: ConversationAnnotation[];
   replyContext?: ReplyContext;
   needsInputReminderText?: string;
   needsInputResolutionNoticeText?: string;

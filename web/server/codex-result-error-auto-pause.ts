@@ -513,6 +513,7 @@ function pendingCodexInputToAutoPauseMessage(input: PendingCodexInput): BrowserU
           },
         }
       : {}),
+    ...(input.annotations?.length ? { annotations: input.annotations } : {}),
     ...(input.replyContext ? { replyContext: input.replyContext } : {}),
     ...(input.vscodeSelection ? { vscodeSelection: input.vscodeSelection } : {}),
     ...(input.agentSource ? { agentSource: input.agentSource } : {}),

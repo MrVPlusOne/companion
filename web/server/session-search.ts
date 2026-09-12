@@ -1,3 +1,4 @@
+import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.js";
 import type { SearchExcerpt } from "./session-store.js";
 import { multiWordMatch, normalizeForSearch } from "../shared/search-utils.js";
@@ -249,7 +250,7 @@ function messageMatchCandidate(
 
     // Search user messages and server-authored recovery summaries.
     if (msg.type === "user_message") {
-      const content = (msg.content || "").trim();
+      const content = formatAnnotatedMessage(msg.content || "", msg.annotations).trim();
       if (!content) continue;
       if (!matches(content)) continue;
 

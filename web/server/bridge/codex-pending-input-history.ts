@@ -1,3 +1,4 @@
+import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import { isCodexTurnRecoverySourceId } from "../../shared/injected-event-message.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { BrowserIncomingMessage, CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
@@ -118,7 +119,10 @@ export function addPendingCodexInput(
     : -1;
   if (beforeIndex >= 0) session.pendingCodexInputs.splice(beforeIndex, 0, input);
   else session.pendingCodexInputs.push(input);
-  session.lastUserMessage = formatReplyContentForPreview(input.content || "", input.replyContext).slice(0, 80);
+  session.lastUserMessage = formatReplyContentForPreview(
+    formatAnnotatedMessage(input.content || "", input.annotations),
+    input.replyContext,
+  ).slice(0, 80);
   session.lastMessagePreviewAt = input.timestamp;
   if (isActualHumanUserInput(input)) deps.touchUserMessage(session.id, input.timestamp);
   deps.broadcastPendingCodexInputs(session);
@@ -467,6 +471,7 @@ function commitPendingCodexInput(
     timestamp: pending.timestamp,
     id: pending.id,
     ...(pending.imageRefs?.length ? { images: pending.imageRefs } : {}),
+    ...(pending.annotations?.length ? { annotations: pending.annotations } : {}),
     ...(pending.replyContext ? { replyContext: pending.replyContext } : {}),
     ...(pending.clientMsgId ? { client_msg_id: pending.clientMsgId } : {}),
     ...(pending.vscodeSelection ? { vscodeSelection: pending.vscodeSelection } : {}),
@@ -488,7 +493,10 @@ function commitPendingCodexInput(
     deps.invalidateLeaderThreadTabsForSession?.(session.id);
   }
   const userMsgHistoryIdx = session.messageHistory.length - 1;
-  session.lastUserMessage = formatReplyContentForPreview(pending.content || "", pending.replyContext).slice(0, 80);
+  session.lastUserMessage = formatReplyContentForPreview(
+    formatAnnotatedMessage(pending.content || "", pending.annotations),
+    pending.replyContext,
+  ).slice(0, 80);
   session.lastMessagePreviewAt = pending.timestamp;
   if (isActualHumanUserMessage(userHistoryEntry)) deps.touchUserMessage(session.id, pending.timestamp);
   deps.broadcastToBrowsers(session, userHistoryEntry);

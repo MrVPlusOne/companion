@@ -1,3 +1,10 @@
+import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
+import { callEnhancementLLM } from "./transcription-llm.js";
+import {
+  ANNOTATION_VOICE_SYSTEM_PROMPT,
+  buildAnnotationEnhancementPrompt,
+  type AnnotationVoiceContext,
+} from "../shared/annotation-voice-context.js";
 /**
  * Tier-2 transcription enhancement: uses conversation context from the active
  * session to correct misheard technical terms via an LLM polish pass.
@@ -74,9 +81,6 @@ const ENHANCER_MSG_FLOOR = 600;
 
 /** Max total characters for the enhancer conversation context. */
 const ENHANCER_CONTEXT_MAX_CHARS = 10_000;
-
-/** Timeout for the enhancement LLM call. */
-const ENHANCEMENT_TIMEOUT_MS = 30_000;
 
 /** If enhanced text is this many times longer than raw, discard as hallucination. */
 const HALLUCINATION_LENGTH_RATIO = 3;
@@ -366,7 +370,10 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
       const content =
         typeof (msg as { content?: unknown }).content === "string" ? (msg as { content: string }).content : "";
       currentTurn = {
-        userContent: formatReplyContentForContext(content, (msg as { replyContext?: ReplyContext }).replyContext),
+        userContent: formatReplyContentForContext(
+          formatAnnotatedMessage(content, msg.type === "user_message" ? msg.annotations : undefined),
+          (msg as { replyContext?: ReplyContext }).replyContext,
+        ),
         assistantText: "",
       };
     } else if (msg.type === "assistant" || msg.type === "leader_user_message") {
@@ -448,6 +455,7 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
 // ─── Prompt construction ────────────────────────────────────────────────────
 
 export interface EnhancementContextInput {
+  annotationContext?: AnnotationVoiceContext;
   /** Which voice flow is being processed. */
   mode?: "dictation" | "edit" | "append";
   /** Full current composer text (used by voice-edit and voice-append modes). */
@@ -507,6 +515,15 @@ export function buildEnhancementPrompt(
   extra?: EnhancementContextInput,
   enhancementMode?: "default" | "bullet",
 ): string {
+  if (extra?.annotationContext)
+    return buildAnnotationEnhancementPrompt(
+      extra.annotationContext,
+      extra.composerText ?? "",
+      rawTranscript,
+      "dictation",
+      enhancementMode,
+      extra.customVocabulary,
+    );
   const parts: string[] = [];
 
   // 1. Session metadata (broadest context — vocabulary and domain knowledge)
@@ -544,6 +561,15 @@ export function buildVoiceEditPrompt(
   conversationContext: string,
   extra?: EnhancementContextInput,
 ): string {
+  if (extra?.annotationContext)
+    return buildAnnotationEnhancementPrompt(
+      extra.annotationContext,
+      currentComposerText,
+      instructionText,
+      "edit",
+      undefined,
+      extra.customVocabulary,
+    );
   const parts: string[] = [];
 
   // 1. Session metadata (broadest context)
@@ -576,6 +602,15 @@ export function buildVoiceAppendPrompt(
   conversationContext: string,
   extra?: EnhancementContextInput,
 ): string {
+  if (extra?.annotationContext)
+    return buildAnnotationEnhancementPrompt(
+      extra.annotationContext,
+      existingDraftText,
+      newSpeechText,
+      "append",
+      undefined,
+      extra.customVocabulary,
+    );
   const parts: string[] = [];
 
   // 1. Session metadata (broadest context)
@@ -746,7 +781,10 @@ export function buildSttPrompt(input: SttPromptInput): string {
         const content =
           typeof (msg as { content?: unknown }).content === "string" ? (msg as { content: string }).content : "";
         currentTurn = {
-          userText: formatReplyContentForContext(content, (msg as { replyContext?: ReplyContext }).replyContext),
+          userText: formatReplyContentForContext(
+            formatAnnotatedMessage(content, msg.type === "user_message" ? msg.annotations : undefined),
+            (msg as { replyContext?: ReplyContext }).replyContext,
+          ),
           assistantText: "",
         };
       } else if (msg.type === "assistant" || msg.type === "leader_user_message") {
@@ -850,78 +888,6 @@ export function buildSttPrompt(input: SttPromptInput): string {
 
 // ─── LLM call ───────────────────────────────────────────────────────────────
 
-/** Result from callEnhancementLLM — either the enhanced text or an error message. */
-type LLMCallResult = { ok: true; text: string } | { ok: false; error: string };
-
-/**
- * Call an OpenAI-compatible chat completions API to enhance the transcript.
- * Returns the enhanced text on success, or an error message on failure.
- */
-async function callEnhancementLLM(
-  prompt: string,
-  config: TranscriptionConfig,
-  apiKey: string,
-  systemPrompt: string,
-): Promise<LLMCallResult> {
-  const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = config.enhancementModel || "gpt-5-mini";
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), ENHANCEMENT_TIMEOUT_MS);
-
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: prompt },
-        ],
-        max_completion_tokens: 512,
-        reasoning_effort: "low",
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      const errorMsg = `API error ${res.status}: ${body.slice(0, 300) || res.statusText}`;
-      console.warn(`[transcription-enhancer] ${errorMsg}`);
-      return { ok: false, error: errorMsg };
-    }
-
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: {
-        prompt_tokens?: number;
-        completion_tokens?: number;
-        completion_tokens_details?: { reasoning_tokens?: number };
-      };
-    };
-    const text = json.choices?.[0]?.message?.content?.trim();
-    if (json.usage) {
-      const u = json.usage;
-      const reasoning = u.completion_tokens_details?.reasoning_tokens ?? 0;
-      console.log(
-        `[transcription-enhancer] tokens: prompt=${u.prompt_tokens ?? "?"} completion=${u.completion_tokens ?? "?"} (reasoning=${reasoning})`,
-      );
-    }
-    if (!text) return { ok: false, error: "Empty response from LLM" };
-    return { ok: true, text };
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    console.warn("[transcription-enhancer] LLM call failed:", errorMsg);
-    return { ok: false, error: errorMsg };
-  }
-}
-
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export interface EnhancementResult {
@@ -960,7 +926,9 @@ export async function enhanceTranscript(
   extra?: EnhancementContextInput,
 ): Promise<EnhancementResult> {
   const model = config.enhancementModel || "gpt-5-mini";
-  const systemPrompt = getDictationSystemPrompt(config.enhancementMode);
+  const systemPrompt = extra?.annotationContext
+    ? ANNOTATION_VOICE_SYSTEM_PROMPT
+    : getDictationSystemPrompt(config.enhancementMode);
 
   // Skip if enhancement is disabled
   if (!config.enhancementEnabled) {
@@ -985,6 +953,7 @@ export async function enhanceTranscript(
 
   // Check if we have any meaningful context at all
   const hasExtra = !!(
+    extra?.annotationContext ||
     extra?.composerText ||
     extra?.taskTitles?.length ||
     extra?.sessionName ||
@@ -1002,7 +971,7 @@ export async function enhanceTranscript(
   // Build prompt and call LLM
   const prompt = buildEnhancementPrompt(rawText, conversationContext, extra, config.enhancementMode);
   const t0 = Date.now();
-  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt);
+  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt, !!extra?.annotationContext);
   const durationMs = Date.now() - t0;
 
   if (!llmResult.ok) {
@@ -1050,7 +1019,9 @@ export async function enhanceTranscriptFromReplayContext(
   extra?: EnhancementContextInput,
 ): Promise<EnhancementResult> {
   const model = config.enhancementModel || "gpt-5-mini";
-  const systemPrompt = getDictationSystemPrompt(config.enhancementMode);
+  const systemPrompt = extra?.annotationContext
+    ? ANNOTATION_VOICE_SYSTEM_PROMPT
+    : getDictationSystemPrompt(config.enhancementMode);
 
   if (!config.enhancementEnabled) {
     return {
@@ -1069,6 +1040,7 @@ export async function enhanceTranscriptFromReplayContext(
   }
 
   const hasExtra = !!(
+    extra?.annotationContext ||
     extra?.composerText ||
     extra?.taskTitles?.length ||
     extra?.sessionName ||
@@ -1085,7 +1057,7 @@ export async function enhanceTranscriptFromReplayContext(
 
   const prompt = buildEnhancementPrompt(rawText, conversationContext, extra, config.enhancementMode);
   const t0 = Date.now();
-  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt);
+  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt, !!extra?.annotationContext);
   const durationMs = Date.now() - t0;
 
   if (!llmResult.ok) {
@@ -1145,10 +1117,21 @@ export async function applyVoiceEdit(
 ): Promise<VoiceEditResult> {
   const model = config.enhancementModel || "gpt-5-mini";
   const conversationContext = history ? buildTranscriptionContext(history) : "";
-  const prompt = buildVoiceEditPrompt(instructionText, currentComposerText, conversationContext, extra);
-  const systemPrompt = getVoiceEditSystemPrompt(config.enhancementMode);
+  const prompt = extra?.annotationContext
+    ? buildAnnotationEnhancementPrompt(
+        extra.annotationContext,
+        currentComposerText,
+        instructionText,
+        "edit",
+        config.enhancementMode,
+        extra.customVocabulary,
+      )
+    : buildVoiceEditPrompt(instructionText, currentComposerText, conversationContext, extra);
+  const systemPrompt = extra?.annotationContext
+    ? ANNOTATION_VOICE_SYSTEM_PROMPT
+    : getVoiceEditSystemPrompt(config.enhancementMode);
   const t0 = Date.now();
-  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt);
+  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt, !!extra?.annotationContext);
   const durationMs = Date.now() - t0;
 
   if (!llmResult.ok) {
@@ -1193,10 +1176,21 @@ export async function applyVoiceAppend(
 ): Promise<VoiceAppendResult> {
   const model = config.enhancementModel || "gpt-5-mini";
   const conversationContext = history ? buildTranscriptionContext(history) : "";
-  const prompt = buildVoiceAppendPrompt(rawSpeechText, existingDraftText, conversationContext, extra);
-  const systemPrompt = getVoiceAppendSystemPrompt(config.enhancementMode);
+  const prompt = extra?.annotationContext
+    ? buildAnnotationEnhancementPrompt(
+        extra.annotationContext,
+        existingDraftText,
+        rawSpeechText,
+        "append",
+        config.enhancementMode,
+        extra.customVocabulary,
+      )
+    : buildVoiceAppendPrompt(rawSpeechText, existingDraftText, conversationContext, extra);
+  const systemPrompt = extra?.annotationContext
+    ? ANNOTATION_VOICE_SYSTEM_PROMPT
+    : getVoiceAppendSystemPrompt(config.enhancementMode);
   const t0 = Date.now();
-  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt);
+  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt, !!extra?.annotationContext);
   const durationMs = Date.now() - t0;
 
   if (!llmResult.ok) {

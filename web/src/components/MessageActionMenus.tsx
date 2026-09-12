@@ -1,3 +1,4 @@
+import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import { useCallback, useMemo, useState, type MouseEvent, type RefObject } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
@@ -78,8 +79,10 @@ export function UserMessageMenu({
   }, []);
 
   const handleCopy = useCallback(() => {
-    writeClipboardText(message.content).then(showCopied).catch(console.error);
-  }, [message.content, showCopied]);
+    writeClipboardText(formatAnnotatedMessage(message.content, message.metadata?.annotations))
+      .then(showCopied)
+      .catch(console.error);
+  }, [message.content, message.metadata?.annotations, showCopied]);
 
   const handleCopyLink = useCallback(() => {
     const link = buildCopyMessageLink(sessionId, message, sdkSessions);
@@ -92,11 +95,19 @@ export function UserMessageMenu({
     try {
       await api.revertToMessage(sessionId, message.id);
       const store = useStore.getState();
-      store.setComposerDraft(sessionId, { text: message.content, images: [] });
+      store.setComposerDraft(sessionId, {
+        text: message.content,
+        images: [],
+        annotations: message.metadata?.annotations,
+      });
       if (message.images?.length) {
         try {
           const images = await restoreMessageImagesToDraft(sessionId, message.images);
-          store.setComposerDraft(sessionId, { text: message.content, images });
+          store.setComposerDraft(sessionId, {
+            text: message.content,
+            images,
+            annotations: message.metadata?.annotations,
+          });
         } catch (imageErr) {
           console.error("Failed to restore images after revert:", imageErr);
         }
@@ -104,7 +115,7 @@ export function UserMessageMenu({
     } catch (err) {
       console.error("Revert failed:", err);
     }
-  }, [sessionId, message.id, message.content, message.images]);
+  }, [sessionId, message.id, message.content, message.images, message.metadata?.annotations]);
 
   const toggle = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {

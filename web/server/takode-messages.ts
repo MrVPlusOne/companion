@@ -1,3 +1,4 @@
+import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 /**
  * Message processing for the Takode orchestration peek/read API.
  *
@@ -719,7 +720,7 @@ function stringifyToolResult(block: {
 function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): string {
   switch (msg.type) {
     case "user_message": {
-      const text = msg.content || "";
+      const text = formatAnnotatedMessage(msg.content || "", msg.annotations);
       if (sessionId) {
         const paths = extractImagePaths(sessionId, msg);
         if (paths?.length) {
@@ -758,7 +759,12 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
     }
 
     case "permission_approved":
-      return `Approved: ${msg.tool_name} — ${msg.summary}`;
+      return (
+        `Approved: ${msg.tool_name} — ${msg.summary}` +
+        (msg.annotationMessage
+          ? `\n\n${formatAnnotatedMessage(msg.annotationMessage.content, msg.annotationMessage.annotations)}`
+          : "")
+      );
 
     case "permission_denied":
       return `Denied: ${msg.tool_name} — ${msg.summary}`;

@@ -64,6 +64,7 @@ vi.mock("../store.js", () => {
   const useStore: any = (selector: (state: Record<string, unknown>) => unknown) => {
     const state = {
       messages: mockStoreValues.messages ?? new Map(),
+      composerDrafts: mockStoreValues.composerDrafts ?? new Map(),
       messageFrozenCounts: mockStoreValues.messageFrozenCounts ?? new Map(),
       messageFrozenRevisions: mockStoreValues.messageFrozenRevisions ?? new Map(),
       historyLoading: mockStoreValues.historyLoading ?? new Map(),

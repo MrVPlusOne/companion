@@ -1,3 +1,4 @@
+import type { AnnotationVoiceContext } from "../../shared/annotation-voice-context.js";
 import { subscribeTranscriptionProgress } from "../transcription-progress.js";
 import type {
   VoiceTranscriptionClientTiming,
@@ -22,6 +23,7 @@ export interface VoiceTranscriptionOptions {
   threadKey?: string;
   threadTitle?: string;
   focusedContext?: string;
+  annotationContext?: AnnotationVoiceContext;
   composerText?: string;
   onPhase?: (phase: VoiceTranscriptionPhase) => void;
   requestId?: string;
@@ -92,7 +94,10 @@ export async function transcribe(audio: Blob, options?: VoiceTranscriptionOption
   const requestId = options?.requestId ?? createTranscriptionRequestId();
   const audioFileName = resolveAudioUploadFilename(audio.type);
   const canUseRawAudioTransport =
-    mode === "dictation" && options?.composerText === undefined && options?.focusedContext === undefined;
+    mode === "dictation" &&
+    options?.composerText === undefined &&
+    options?.focusedContext === undefined &&
+    options?.annotationContext === undefined;
   const transport = canUseRawAudioTransport ? "raw" : "multipart";
   const emitProgress = (event: Omit<VoiceTranscriptionProgressEvent, "requestId" | "timestamp">) => {
     options?.onProgress?.({ requestId, timestamp: Date.now(), ...event });
@@ -146,6 +151,7 @@ export async function transcribe(audio: Blob, options?: VoiceTranscriptionOption
     if (options?.threadKey) form.append("threadKey", options.threadKey);
     if (options?.threadTitle) form.append("threadTitle", options.threadTitle);
     if (options?.focusedContext !== undefined) form.append("focusedContext", options.focusedContext);
+    if (options?.annotationContext) form.append("annotationContext", JSON.stringify(options.annotationContext));
     if (options?.composerText !== undefined) form.append("composerText", options.composerText);
     if (options?.requestId) form.append("requestId", requestId);
     body = form;

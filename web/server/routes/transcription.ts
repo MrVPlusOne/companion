@@ -1,3 +1,9 @@
+import {
+  readAnnotationVoiceContext,
+  buildAnnotationVoiceReference,
+  ANNOTATION_STT_INSTRUCTION,
+  type AnnotationVoiceContext,
+} from "../../shared/annotation-voice-context.js";
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import {
@@ -533,12 +539,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   function buildEnhancementReplayContext({
     mode,
     composerText,
+    annotationContext,
     focusedContext,
     sessionContext,
     config,
   }: {
     mode: TranscriptionMode;
     composerText?: string;
+    annotationContext?: AnnotationVoiceContext;
     focusedContext?: string;
     sessionContext: ReturnType<typeof getTranscriptionSessionContext>;
     config: ReturnType<typeof getSettings>["transcriptionConfig"];
@@ -546,6 +554,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const extra = {
       mode,
       ...(composerText ? { composerText } : {}),
+      ...(annotationContext ? { annotationContext } : {}),
       taskTitles: sessionContext.taskHistory.map((task) => task.title),
       ...(sessionContext.sessionName ? { sessionName: sessionContext.sessionName } : {}),
       ...(sessionContext.threadTitle ? { threadTitle: sessionContext.threadTitle } : {}),
@@ -871,6 +880,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     let sessionId: string | undefined;
     let rawMode = "dictation";
     let composerText: string | undefined;
+    let annotationContext: AnnotationVoiceContext | undefined;
     let requestedBackend: string | undefined;
     let rawThreadKey: string | undefined;
     let rawThreadTitle: string | undefined;
@@ -879,6 +889,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
     if (contentType.toLowerCase().startsWith("multipart/form-data")) {
       const body = await c.req.parseBody();
+      try {
+        annotationContext = readAnnotationVoiceContext(
+          typeof body["annotationContext"] === "string" ? JSON.parse(body["annotationContext"]) : undefined,
+        );
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : "Invalid annotation context." }, 400);
+      }
       const audioFile = body["audio"];
       if (!audioFile || typeof audioFile === "string") {
         return c.json({ error: "audio field is required (multipart)" }, 400);
@@ -1075,7 +1092,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           ? sanitizeTranscriptionKeywords(transcriptionConfig.customVocabulary)
           : { keywords: [], droppedKeywordCount: 0 };
         const sttLanguageHints = usesGptTranscribeContext ? transcriptionConfig.sttLanguageHints || [] : [];
-        const sessionContext = getTranscriptionSessionContext(sessionId, threadKey, threadTitle);
+        const sessionContext = getTranscriptionSessionContext(
+          annotationContext ? undefined : sessionId,
+          threadKey,
+          threadTitle,
+        );
         let sttPrompt = "";
         if (sessionId) {
           sttPrompt = buildSttPrompt({
@@ -1089,6 +1110,15 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             messageHistory: sessionContext.messageHistory,
             customVocabulary: usesGptTranscribeContext ? undefined : transcriptionConfig.customVocabulary || undefined,
           });
+        }
+        if (annotationContext) {
+          sttPrompt =
+            ANNOTATION_STT_INSTRUCTION +
+            buildAnnotationVoiceReference(
+              annotationContext,
+              composerText ?? "",
+              usesGptTranscribeContext ? undefined : transcriptionConfig.customVocabulary,
+            ).text;
         }
         const sttContext = {
           promptLength: sttPrompt.length,
@@ -1117,7 +1147,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         };
         const enhancementReplayContext =
           mode === "dictation"
-            ? buildEnhancementReplayContext({ mode, focusedContext, sessionContext, config: transcriptionConfig })
+            ? buildEnhancementReplayContext({
+                mode,
+                focusedContext,
+                sessionContext,
+                config: transcriptionConfig,
+                annotationContext,
+                composerText,
+              })
             : undefined;
         debugSttPrompt = sttPrompt;
         debugSttContext = sttContext;
@@ -1136,7 +1173,12 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             });
             return;
           }
-          rawText = await transcribeWithGemini(buf, uploadFormat.mimeType, apiKey);
+          rawText = await transcribeWithGemini(
+            buf,
+            uploadFormat.mimeType,
+            apiKey,
+            annotationContext ? sttPrompt : undefined,
+          );
           sttModel = "gemini";
         } else if (backend === "openai") {
           const apiKey = resolveOpenAIKey();
@@ -1221,6 +1263,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             enhancementKey!,
             {
               mode,
+              annotationContext,
               composerText,
               taskTitles: sessionContext.taskHistory.map((t) => t.title),
               sessionName: sessionContext.sessionName,
@@ -1303,6 +1346,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             enhancementKey!,
             {
               mode,
+              annotationContext,
               composerText,
               taskTitles: sessionContext.taskHistory.map((t) => t.title),
               sessionName: sessionContext.sessionName,
@@ -1383,6 +1427,8 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             enhancementKey!,
             {
               mode,
+              annotationContext,
+              composerText,
               taskTitles: sessionContext.taskHistory.map((t) => t.title),
               sessionName: sessionContext.sessionName,
               threadTitle: sessionContext.threadTitle,

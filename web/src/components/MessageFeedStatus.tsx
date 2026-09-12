@@ -869,9 +869,14 @@ export function PendingUserUploadList({
               mediaType,
             })),
             timestamp: upload.timestamp,
-            ...(upload.vscodeSelection || upload.replyContext || upload.threadKey || upload.questId
+            ...(upload.annotations?.length ||
+            upload.vscodeSelection ||
+            upload.replyContext ||
+            upload.threadKey ||
+            upload.questId
               ? {
                   metadata: {
+                    ...(upload.annotations?.length ? { annotations: upload.annotations } : {}),
                     ...(upload.replyContext ? { replyContext: upload.replyContext } : {}),
                     ...(upload.vscodeSelection ? { vscodeSelection: upload.vscodeSelection } : {}),
                     ...(upload.threadKey ? { threadKey: upload.threadKey } : {}),
@@ -888,7 +893,11 @@ export function PendingUserUploadList({
           const handleRestoreToDraft = () => {
             const store = useStore.getState();
             store.removePendingUserUpload(sessionId, upload.id);
-            store.setComposerDraft(sessionId, { text: upload.content, images: upload.images });
+            store.setComposerDraft(sessionId, {
+              text: upload.content,
+              images: upload.images,
+              annotations: upload.annotations,
+            });
             store.setReplyContext(sessionId, upload.replyContext ?? null);
             store.focusComposer();
           };
@@ -900,6 +909,7 @@ export function PendingUserUploadList({
               content: upload.content,
               deliveryContent: upload.prepared.deliveryContent,
               imageRefs: upload.prepared.imageRefs,
+              ...(upload.annotations?.length ? { annotations: upload.annotations } : {}),
               ...(upload.replyContext ? { replyContext: upload.replyContext } : {}),
               ...(upload.vscodeSelection ? { vscodeSelection: upload.vscodeSelection } : {}),
               ...(upload.threadKey ? { threadKey: upload.threadKey } : {}),

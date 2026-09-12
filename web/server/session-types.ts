@@ -1,3 +1,4 @@
+import type { ConversationAnnotation, AnnotationMessage } from "../shared/conversation-annotations.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { BackendSessionState } from "./backend-session-state.js";
 import type { ThreadRoutingError } from "../shared/thread-routing-error.js";
@@ -615,6 +616,7 @@ export type BrowserOutgoingMessage =
       historyFollowUps?: ProgrammaticHistoryFollowUp[];
       /** Server-only firing provenance; removed from untrusted browser ingress. */
       timerFiring?: import("./timer-types.js").TimerFiring;
+      annotations?: ConversationAnnotation[];
       replyContext?: ReplyContext;
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;
@@ -663,6 +665,7 @@ export type BrowserOutgoingMessage =
     }
   | {
       type: "permission_response";
+      annotationMessage?: AnnotationMessage;
       request_id: string;
       behavior: "allow" | "deny";
       updated_input?: Record<string, unknown>;
@@ -1028,6 +1031,7 @@ export type BrowserIncomingMessageBase =
       client_msg_id?: string;
       cliUuid?: string;
       images?: import("./image-store.js").ImageRef[];
+      annotations?: ConversationAnnotation[];
       replyContext?: ReplyContext;
       agentSource?: { sessionId: string; sessionLabel?: string };
       vscodeSelection?: VsCodeSelectionMetadata;
@@ -1136,6 +1140,7 @@ export type BrowserIncomingMessageBase =
     }
   | {
       type: "permission_approved";
+      annotationMessage?: AnnotationMessage;
       id: string;
       tool_name: string;
       tool_use_id: string;

@@ -1,3 +1,4 @@
+import { AnnotationAttachments, AnnotationSourceMarkers } from "./AnnotationAttachments.js";
 import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, useEffect, memo } from "react";
 import type { ChatMessage, ContentBlock, ToolResultPreview } from "../types.js";
 import { isSubagentToolName } from "../types.js";
@@ -158,6 +159,20 @@ export const MessageBubble = memo(function MessageBubble({
       );
     }
     if (message.variant === "approved") {
+      const annotationMessage = message.metadata?.annotationMessage;
+      if (annotationMessage)
+        return (
+          <div className="flex justify-end">
+            <div className="max-w-[85%] rounded-xl border border-cc-border bg-cc-user-bubble p-3">
+              <p className="mb-2 text-xs text-cc-muted">{message.content}</p>
+              <AnnotationAttachments annotations={annotationMessage.annotations} />
+              {annotationMessage.content && (
+                <p className="whitespace-pre-wrap break-words text-sm">{annotationMessage.content}</p>
+              )}
+            </div>
+          </div>
+        );
+
       const answers = message.metadata?.answers;
       if (answers?.length) {
         return (
@@ -932,6 +947,9 @@ function UserMessage({
       >
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
+        {message.metadata?.annotations?.length ? (
+          <AnnotationAttachments annotations={message.metadata.annotations} />
+        ) : null}
         {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
         {message.metadata?.vscodeSelection && (
           <div className="mb-2 flex">
@@ -1209,6 +1227,7 @@ function AssistantMessage({
               onSelectThread={onSelectThread}
             />
           )}
+          {!readOnly && <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} />}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
           {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
         </div>

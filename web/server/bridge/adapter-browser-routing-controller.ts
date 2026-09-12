@@ -1,3 +1,5 @@
+import { normalizeAdapterUserMessage, prepareAnnotatedUserMessage } from "./user-message-delivery.js";
+import { formatAnnotatedMessage, readAnnotationMessage } from "../../shared/conversation-annotations.js";
 import { randomUUID } from "node:crypto";
 import { evaluatePermission, type RecentToolCall } from "../auto-approver.js";
 import type { AutoApprovalConfig } from "../auto-approval-store.js";
@@ -262,7 +264,7 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
   const pending = findPendingAskUserQuestionPermission(session, route, msg.content);
   if (!pending) return false;
 
-  const answers = buildAskUserQuestionAnswers(pending.input, msg.content);
+  const answers = buildAskUserQuestionAnswers(pending.input, formatAnnotatedMessage(msg.content, msg.annotations));
   if (!answers) return false;
 
   const actorSessionId = msg.agentSource?.sessionId;
@@ -271,6 +273,7 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
     request_id: pending.request_id,
     behavior: "allow",
     updated_input: { ...pending.input, answers },
+    ...(msg.annotations?.length ? { annotationMessage: { content: msg.content, annotations: msg.annotations } } : {}),
     ...(actorSessionId ? { actorSessionId } : {}),
   };
 
@@ -471,7 +474,10 @@ export async function routeBrowserMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: AdapterBrowserRoutingDeps,
 ): Promise<boolean | void> {
+  if (msg.type === "permission_response" && msg.annotationMessage)
+    msg = { ...msg, annotationMessage: readAnnotationMessage(msg.annotationMessage) };
   if (msg.type === "user_message") {
+    msg = prepareAnnotatedUserMessage(session.id, msg);
     const isThreadOutcomeReminder = msg.agentSource?.sessionId === THREAD_RESPONSE_REMINDER_SOURCE_ID;
     const reminderGuard = msg.leaderThreadOutcomeReminderGuard;
     if (isThreadOutcomeReminder || reminderGuard !== undefined) {
@@ -520,6 +526,7 @@ export async function routeBrowserMessage(
     typeof msg.content === "string" &&
     msg.content.trim().toLowerCase() === "/status" &&
     !msg.imageRefs?.length &&
+    !msg.annotations?.length &&
     session.backendType === "codex"
   ) {
     // Serve Codex `/status` from Takode's server-held session state so the
@@ -532,7 +539,8 @@ export async function routeBrowserMessage(
     msg.type === "user_message" &&
     typeof msg.content === "string" &&
     msg.content.trim().toLowerCase() === "/recycle" &&
-    !msg.imageRefs?.length
+    !msg.imageRefs?.length &&
+    !msg.annotations?.length
   ) {
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     // Match the composer's pending owner and retain where the command was sent.
@@ -561,6 +569,7 @@ export async function routeBrowserMessage(
     typeof msg.content === "string" &&
     msg.content.trim().toLowerCase() === "/compact" &&
     !msg.imageRefs?.length &&
+    !msg.annotations?.length &&
     session.backendType !== "codex"
   ) {
     handleForceCompact(session, deps);
@@ -571,6 +580,7 @@ export async function routeBrowserMessage(
     msg.type === "user_message" &&
     typeof msg.content === "string" &&
     !msg.imageRefs?.length &&
+    !msg.annotations?.length &&
     session.backendType !== "codex" &&
     isCliSlashCommand(session, msg.content.trim())
   ) {
@@ -1020,6 +1030,7 @@ export function handlePermissionResponse(
       if (pending.tool_name !== "AskUserQuestion" || answers) {
         const approvedMsg: BrowserIncomingMessage = {
           type: "permission_approved",
+          ...(msg.annotationMessage ? { annotationMessage: msg.annotationMessage } : {}),
           id: `approval-${msg.request_id}`,
           request_id: msg.request_id,
           tool_name: pending.tool_name,
@@ -1230,6 +1241,7 @@ export function ingestUserMessage(
       timestamp: ts,
       id: deps.nextUserMessageId(ts),
       ...(imageRefs?.length ? { images: imageRefs } : {}),
+      ...(msg.annotations?.length ? { annotations: msg.annotations } : {}),
       ...(msg.replyContext ? { replyContext: msg.replyContext } : {}),
       ...(msg.client_msg_id ? { client_msg_id: msg.client_msg_id } : {}),
       ...(msg.vscodeSelection ? { vscodeSelection: msg.vscodeSelection } : {}),
@@ -1271,7 +1283,10 @@ export function ingestUserMessage(
       session.messageHistory.push(userHistoryEntry);
       deps.promoteLeaderThreadTabForMessageAttention?.(session.id, userHistoryEntry);
       userMsgHistoryIdx = session.messageHistory.length - 1;
-      session.lastUserMessage = formatReplyContentForPreview(msg.content || "", msg.replyContext).slice(0, 80);
+      session.lastUserMessage = formatReplyContentForPreview(
+        formatAnnotatedMessage(msg.content || "", msg.annotations),
+        msg.replyContext,
+      ).slice(0, 80);
       session.lastMessagePreviewAt = ts;
       if (isActualHumanUserMessage(userHistoryEntry)) {
         deps.touchUserMessage(session.id, ts);
@@ -1444,6 +1459,7 @@ function handleSdkPermissionResponse(
   if (msg.behavior === "allow") {
     const approvedMsg: BrowserIncomingMessage = {
       type: "permission_approved",
+      ...(msg.annotationMessage ? { annotationMessage: msg.annotationMessage } : {}),
       id: `approval-${msg.request_id}`,
       request_id: msg.request_id,
       tool_name: pending.tool_name,
@@ -1505,6 +1521,7 @@ function handleCodexPermissionResponse(
     if (pending.tool_name !== "AskUserQuestion" || answers) {
       const approvedMsg: BrowserIncomingMessage = {
         type: "permission_approved",
+        ...(msg.annotationMessage ? { annotationMessage: msg.annotationMessage } : {}),
         id: `approval-${msg.request_id}`,
         request_id: msg.request_id,
         tool_name: pending.tool_name,
@@ -1551,50 +1568,6 @@ function handleCodexPermissionResponse(
     );
   }
   deps.persistSession(session);
-}
-function normalizeAdapterUserMessage(
-  session: AdapterBrowserRoutingSessionLike,
-  msg: BrowserUserMessage,
-  userImageRefs: ImageRef[] | undefined,
-  deps: AdapterBrowserRoutingDeps,
-): BrowserOutgoingMessage | null {
-  let adapterMsg: BrowserOutgoingMessage = msg.takodeHerdBatch
-    ? (({ takodeHerdBatch: _takodeHerdBatch, ...rest }) => rest)(msg)
-    : msg;
-  if (typeof msg.deliveryContent === "string") {
-    const delivered = { ...adapterMsg, content: msg.deliveryContent } as BrowserOutgoingMessage;
-    delete (delivered as { deliveryContent?: unknown }).deliveryContent;
-    delete (delivered as { historyFollowUps?: unknown }).historyFollowUps;
-    delete (delivered as { draftImages?: unknown }).draftImages;
-    delete (delivered as { imageRefs?: unknown }).imageRefs;
-    delete (delivered as { images?: unknown }).images;
-    delete (delivered as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
-    delete (delivered as { autoPauseRecoveries?: unknown }).autoPauseRecoveries;
-    return delivered;
-  }
-  const resolvedImageRefs = userImageRefs ?? msg.imageRefs;
-  if (!resolvedImageRefs?.length) {
-    const stripped = { ...adapterMsg } as BrowserOutgoingMessage;
-    delete (stripped as { historyFollowUps?: unknown }).historyFollowUps;
-    delete (stripped as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
-    delete (stripped as { autoPauseRecoveries?: unknown }).autoPauseRecoveries;
-    return stripped;
-  }
-  let annotatedContent = msg.content || "";
-  const resolvedPaths = deriveAttachmentPaths(session.id, resolvedImageRefs);
-  if (resolvedPaths.length > 0) {
-    annotatedContent += formatAttachmentPathAnnotation(resolvedPaths);
-  }
-  adapterMsg = { ...msg, content: annotatedContent } as BrowserOutgoingMessage;
-  const stripped = { ...adapterMsg, content: annotatedContent } as BrowserOutgoingMessage;
-  delete (stripped as { deliveryContent?: unknown }).deliveryContent;
-  delete (stripped as { historyFollowUps?: unknown }).historyFollowUps;
-  delete (stripped as { draftImages?: unknown }).draftImages;
-  delete (stripped as { imageRefs?: unknown }).imageRefs;
-  delete (stripped as { images?: unknown }).images;
-  delete (stripped as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
-  delete (stripped as { autoPauseRecoveries?: unknown }).autoPauseRecoveries;
-  return stripped;
 }
 function queueAdapterMessage(session: AdapterBrowserRoutingSessionLike, raw: string): void {
   const alreadyQueued = session.pendingMessages.some((queued) => queued === raw);
@@ -1721,7 +1694,7 @@ export function routeAdapterBrowserMessage(
     }
     let adapterMsg: BrowserOutgoingMessage = msg;
     if (msg.type === "user_message") {
-      const normalized = normalizeAdapterUserMessage(session, msg, userImageRefs, deps);
+      const normalized = normalizeAdapterUserMessage(session, msg, userImageRefs);
       if (!normalized) return true;
       adapterMsg = normalized;
     }
@@ -1781,6 +1754,7 @@ export function routeAdapterBrowserMessage(
           ...(deliveryContent ? { deliveryContent } : {}),
           ...(msg.historyFollowUps?.length ? { historyFollowUps: msg.historyFollowUps } : {}),
           ...(msg.timerFiring ? { timerFiring: msg.timerFiring } : {}),
+          ...(msg.annotations?.length ? { annotations: msg.annotations } : {}),
           ...(msg.replyContext ? { replyContext: msg.replyContext } : {}),
           ...(ingested.needsInputReminderText ? { needsInputReminderText: ingested.needsInputReminderText } : {}),
           ...(ingested.needsInputResolutionNoticeText

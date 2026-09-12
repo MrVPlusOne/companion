@@ -1,3 +1,4 @@
+import type { ConversationAnnotation, AnnotationMessage } from "../shared/conversation-annotations.js";
 import type {
   BoardParticipantStatus,
   BoardRow,
@@ -322,6 +323,8 @@ export interface ChatMessage {
     compactMarkerKind?: "compaction" | "session_recycled";
     threadStatusMarkers?: LeaderThreadStatus[];
     threadRoutingError?: ThreadRoutingError;
+    annotations?: ConversationAnnotation[];
+    annotationMessage?: AnnotationMessage;
     replyContext?: ReplyContext;
     vscodeSelection?: VsCodeSelectionMetadata;
     quest?: {
@@ -373,6 +376,7 @@ export interface PendingUserUpload {
   timestamp: number;
   stage: "delivering" | "failed";
   error?: string;
+  annotations?: ConversationAnnotation[];
   replyContext?: ReplyContext;
   vscodeSelection?: VsCodeSelectionMetadata;
   threadKey?: string;
@@ -394,3 +398,15 @@ export interface TaskItem {
 }
 
 export type { PublicSdkSessionInfo as SdkSessionInfo } from "../server/session-info.js";
+
+export interface ComposerDraft {
+  text: string;
+  images: ComposerDraftImage[];
+  annotations?: ConversationAnnotation[];
+}
+
+export interface AnnotationEditorState {
+  sessionId: string;
+  annotation: ConversationAnnotation;
+  position?: { x: number; y: number };
+}

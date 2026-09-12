@@ -1,3 +1,4 @@
+import type { ComposerDraft, AnnotationEditorState } from "./types.js";
 import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent, QuestSummary } from "./api.js";
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
@@ -5,7 +6,6 @@ import type { ReplyContext } from "../shared/reply-context.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
-  ComposerDraftImage,
   HistoryWindowState,
   LeaderProjectionSnapshot,
   McpServerDetail,
@@ -403,8 +403,10 @@ export interface AppState {
       lastSeenContentBottom?: number | null;
     },
   ) => void;
-  composerDrafts: Map<string, { text: string; images: ComposerDraftImage[] }>;
-  setComposerDraft: (sessionId: string, draft: { text: string; images: ComposerDraftImage[] }) => void;
+  annotationEditor: AnnotationEditorState | null;
+  setAnnotationEditor: (editor: AnnotationEditorState | null) => void;
+  composerDrafts: Map<string, ComposerDraft>;
+  setComposerDraft: (sessionId: string, draft: ComposerDraft) => void;
   clearComposerDraft: (sessionId: string) => void;
   pendingUserUploads: Map<string, PendingUserUpload[]>;
   pendingUserUploadRestorations: Map<string, Map<string, PendingUserUpload>>;

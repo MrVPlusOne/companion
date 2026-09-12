@@ -49,3 +49,16 @@ describe("SessionStore root-feed search excerpts", () => {
     ]);
   });
 });
+
+// Annotation-only requests must remain discoverable after full history is unloaded.
+it("includes structured comments in bounded archived search excerpts", () => {
+  const excerpts = SessionStore.extractSearchExcerpts([
+    {
+      type: "user_message",
+      content: "",
+      timestamp: 1,
+      annotations: [{ id: "comment", selectedText: "cache", comment: "What happens on expiry?" }],
+    },
+  ]);
+  expect(excerpts[0].content).toBe("> cache\n[comment 1] What happens on expiry?");
+});

@@ -1,3 +1,4 @@
+import { formatAnnotatedMessage, type ConversationAnnotation } from "../shared/conversation-annotations.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { formatReplyContentForPreview, type ReplyContext } from "../shared/reply-context.js";
 import { isCompactionRecoveryPrompt, isLeaderKickoffPrompt } from "../shared/injected-event-message.js";
@@ -8,6 +9,7 @@ export interface UserMessageSourceLike {
   content?: unknown;
   timestamp?: unknown;
   codexSubagent?: unknown;
+  annotations?: ConversationAnnotation[];
   replyContext?: ReplyContext;
 }
 
@@ -29,7 +31,11 @@ export function restoreSessionMessagePreview(session: {
     if (typeof candidate.content !== "string") continue;
     if (typeof candidate.timestamp !== "number" || !Number.isFinite(candidate.timestamp)) continue;
     if (candidate.timestamp < (latest?.timestamp ?? -1)) continue;
-    latest = { content: candidate.content, replyContext: candidate.replyContext, timestamp: candidate.timestamp };
+    latest = {
+      content: formatAnnotatedMessage(candidate.content, candidate.annotations),
+      replyContext: candidate.replyContext,
+      timestamp: candidate.timestamp,
+    };
   }
   session.lastUserMessage = latest
     ? formatReplyContentForPreview(latest.content, latest.replyContext).slice(0, 80)

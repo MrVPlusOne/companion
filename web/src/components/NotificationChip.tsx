@@ -419,7 +419,7 @@ function NotificationItem({
             previewText: notif.summary || "Needs your input",
           });
           if (answerText !== undefined) {
-            store.setComposerDraft(sessionId, { text: answerText, images: current?.images ?? [] });
+            store.setComposerDraft(sessionId, { ...current, text: answerText, images: current?.images ?? [] });
           }
           store.focusComposer();
         },

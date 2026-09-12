@@ -577,6 +577,94 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex user_message takode events", () => {
+  it.each([
+    "codex",
+    "claude-sdk",
+  ])("preserves annotation-only input through %s transport and authoritative history", async (backend) => {
+    // Exercise real ingress/queue/history code with fake provider adapters and this suite's disposable SessionStore.
+    const sid = "annotation-transport";
+    const browser = makeBrowserSocket(sid);
+    const adapter = backend === "codex" ? makeCodexAdapterMock() : makeClaudeSdkAdapterMock();
+    if (backend === "codex") {
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter as ReturnType<typeof makeCodexAdapterMock>);
+    } else {
+      bridge.attachClaudeSdkAdapter(sid, adapter as any);
+      adapter.emitSessionMeta({ cliSessionId: "annotation-thread", model: "claude-sonnet", cwd: "/repo" });
+    }
+    bridge.handleBrowserOpen(browser, sid);
+    const annotations = [
+      {
+        id: "comment-a",
+        selectedText: "selected text\nsecond line",
+        comment: "Explain this?",
+        sourceMessageId: "source-message",
+      },
+    ];
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "",
+        annotations,
+        client_msg_id: "annotation-send",
+        inputSource: "composer",
+      }),
+    );
+    await flushAsync();
+    expect(JSON.stringify(adapter.sendBrowserMessage.mock.calls)).toContain("[comment 1] Explain this?");
+    if (backend === "codex") (adapter as ReturnType<typeof makeCodexAdapterMock>).emitTurnStarted("annotation-turn");
+    await flushAsync();
+    const history = bridge
+      .getSession(sid)!
+      .messageHistory.find(
+        (message: any) => message.type === "user_message" && message.client_msg_id === "annotation-send",
+      ) as any;
+    expect(history).toMatchObject({ content: "", annotations });
+    expect(history.content).not.toContain("[comment 1]");
+  });
+
+  it.each([
+    "codex",
+    "claude-sdk",
+  ])("retains structured annotation attachments on %s question answers", async (backend) => {
+    // Answers use the permission channel, so preserve the original structured composer payload on its receipt.
+    const sid = "annotated-question-answer";
+    const browser = makeBrowserSocket(sid);
+    const adapter = backend === "codex" ? makeCodexAdapterMock() : makeClaudeSdkAdapterMock();
+    if (backend === "codex") {
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter as ReturnType<typeof makeCodexAdapterMock>);
+    } else bridge.attachClaudeSdkAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    const session = bridge.getSession(sid)!;
+    session.pendingPermissions.set("question", {
+      request_id: "question",
+      tool_name: "AskUserQuestion",
+      tool_use_id: "question-tool",
+      input: { questions: [{ question: "Proceed?", options: [] }] },
+    } as any);
+    const annotationMessage = {
+      content: "Discuss first",
+      annotations: [{ id: "comment", selectedText: "plan", comment: "What about rollback?" }],
+    };
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "permission_response",
+        request_id: "question",
+        behavior: "allow",
+        updated_input: { answers: { "0": "> plan\n[comment 1] What about rollback?\n\n---\nDiscuss first" } },
+        annotationMessage,
+      }),
+    );
+    await flushAsync();
+    expect(bridge.getSession(sid)!.messageHistory).toContainEqual(
+      expect.objectContaining({ type: "permission_approved", annotationMessage }),
+    );
+    expect(JSON.stringify(adapter.sendBrowserMessage.mock.calls)).toContain("[comment 1] What about rollback?");
+  });
+
   it("emits takode user_message for direct human worker messages", async () => {
     const sid = "worker-codex-1";
     const browser = makeBrowserSocket(sid);

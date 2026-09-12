@@ -1,3 +1,4 @@
+import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import { mkdirSync } from "node:fs";
 import { readdir, readFile, writeFile, unlink, appendFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -697,7 +698,7 @@ export class SessionStore {
     for (const msg of messages) {
       if (!isRootAgentHistoryMessage(msg)) continue;
       if (msg.type === "user_message") {
-        const content = (msg.content || "").trim();
+        const content = formatAnnotatedMessage(msg.content || "", msg.annotations).trim();
         if (!content) continue;
         excerpts.push({
           type: "user_message",

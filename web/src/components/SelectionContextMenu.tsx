@@ -38,6 +38,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     const newText = currentText + separator + blockquote + "\n\n";
 
     store.setComposerDraft(sessionId, {
+      ...currentDraft,
       text: newText,
       images: currentDraft?.images ?? [],
     });
@@ -46,6 +47,25 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     store.focusComposer();
 
     // Clear both the menu and the browser selection
+    selection.clear();
+    onClose();
+  }, [selection, sessionId, onClose]);
+
+  const handleComment = useCallback(() => {
+    if (!selection.plainText.trim()) return;
+    const node = selection.range?.startContainer;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const sourceMessageId = element?.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+    useStore.getState().setAnnotationEditor({
+      sessionId,
+      annotation: {
+        id: crypto.randomUUID(),
+        selectedText: selection.plainText,
+        comment: "",
+        ...(sourceMessageId ? { sourceMessageId } : {}),
+      },
+      ...(selection.position ? { position: selection.position } : {}),
+    });
     selection.clear();
     onClose();
   }, [selection, sessionId, onClose]);
@@ -81,6 +101,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
   const items = useMemo<ContextMenuItem[]>(
     () => [
       { label: "Quote selected", onClick: handleQuote },
+      { label: "Comment", onClick: handleComment },
       {
         label: "Copy",
         onClick: () => {},
@@ -91,7 +112,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
         ],
       },
     ],
-    [handleQuote, handleCopyRichText, handleCopyMarkdown, handleCopyPlainText],
+    [handleQuote, handleComment, handleCopyRichText, handleCopyMarkdown, handleCopyPlainText],
   );
 
   if (!selection.isActive || !selection.position) return null;

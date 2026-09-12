@@ -137,7 +137,12 @@ export function resolveAudioUploadFormat(
  * Transcribe audio using Google Gemini API (inline base64 audio).
  * Uses gemini-2.0-flash for fast, cost-effective transcription.
  */
-export async function transcribeWithGemini(audioBuffer: Buffer, mimeType: string, apiKey: string): Promise<string> {
+export async function transcribeWithGemini(
+  audioBuffer: Buffer,
+  mimeType: string,
+  apiKey: string,
+  sttPrompt?: string,
+): Promise<string> {
   const base64Audio = audioBuffer.toString("base64");
 
   const response = await fetch(
@@ -156,7 +161,7 @@ export async function transcribeWithGemini(audioBuffer: Buffer, mimeType: string
                 },
               },
               {
-                text: "Transcribe this audio. Return only the transcription text, nothing else.",
+                text: sttPrompt || "Transcribe this audio. Return only the transcription text, nothing else.",
               },
             ],
           },

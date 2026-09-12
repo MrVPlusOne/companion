@@ -1,3 +1,6 @@
+import { sendComposerDraft } from "./composer-message-send.js";
+import { ComposerAnnotations } from "./ComposerAnnotations.js";
+import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -35,7 +38,6 @@ import {
   getImageFiles,
   getPastedImageFiles,
   hasDraggedImageFiles,
-  nextPendingUploadId,
   readFileAsBase64,
 } from "./composer-image-utils.js";
 import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./composer-reference-utils.js";
@@ -63,7 +65,6 @@ import {
   type VsCodeSelectionContextPayload,
 } from "../utils/vscode-context.js";
 import { isNarrowComposerLayout } from "../utils/layout.js";
-import { formatReplyContentForAssistant } from "../utils/reply-context.js";
 import {
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
   getMatchingShortcutAction,
@@ -123,13 +124,15 @@ export function Composer({
   const replyContext = useStore((s) => s.replyContexts.get(sessionId));
   const text = draft?.text ?? "";
   const images = draft?.images ?? EMPTY_COMPOSER_IMAGES;
+  const annotations = draft?.annotations;
+  const annotationEditorOpen = useStore((state) => state.annotationEditor?.sessionId === sessionId);
   const setText = useCallback(
     (t: string | ((prev: string) => string)) => {
       const store = useStore.getState();
       const current = store.composerDrafts.get(sessionId);
       const prevText = current?.text ?? "";
       const newText = typeof t === "function" ? t(prevText) : t;
-      store.setComposerDraft(sessionId, { text: newText, images: current?.images ?? [] });
+      store.setComposerDraft(sessionId, { ...current, text: newText, images: current?.images ?? [] });
     },
     [sessionId],
   );
@@ -139,7 +142,7 @@ export function Composer({
       const current = store.composerDrafts.get(sessionId);
       const prevImages = current?.images ?? [];
       const newImages = typeof updater === "function" ? updater(prevImages) : updater;
-      store.setComposerDraft(sessionId, { text: current?.text ?? "", images: newImages });
+      store.setComposerDraft(sessionId, { ...current, text: current?.text ?? "", images: newImages });
     },
     [sessionId],
   );
@@ -939,7 +942,14 @@ export function Composer({
   async function handleSend() {
     const store = useStore.getState();
     const msg = text.trim();
-    if ((!msg && images.length === 0) || !canUseInput || voiceEditProposal || !allImagesReady) return;
+    if (
+      (!msg && images.length === 0 && !annotations?.length) ||
+      !canUseInput ||
+      voiceEditProposal ||
+      annotationEditorOpen ||
+      !allImagesReady
+    )
+      return;
 
     // Auto-answer pending AskUserQuestion if user types a response.
     // The typed text becomes the "Other..." answer for each question.
@@ -950,11 +960,12 @@ export function Composer({
         : [];
       const answers: Record<string, string> = {};
       for (let i = 0; i < Math.max(1, questions.length); i++) {
-        answers[String(i)] = msg;
+        answers[String(i)] = formatAnnotatedMessage(msg, annotations);
       }
       sendToSession(sessionId, {
         type: "permission_response",
         request_id: pendingAskUserPerm.request_id,
+        ...(annotations?.length ? { annotationMessage: { content: msg, annotations } } : {}),
         behavior: "allow",
         updated_input: { ...pendingAskUserPerm.input, answers },
       });
@@ -983,7 +994,7 @@ export function Composer({
 
     // Codex local slash shortcuts for mode switching.
     // These must not be sent as normal user turns.
-    if (isCodex) {
+    if (isCodex && !annotations?.length && images.length === 0) {
       const targetMode = parseCodexModeSlashCommand(msg);
       if (targetMode) {
         const switched = sendToSession(sessionId, {
@@ -1003,11 +1014,6 @@ export function Composer({
 
     // Keep reply metadata separate from stored user text; send concise context to the assistant.
     const currentReplyContext = useStore.getState().replyContexts.get(sessionId);
-    const finalContent = msg;
-    const replyDeliveryContent = currentReplyContext
-      ? formatReplyContentForAssistant(finalContent, currentReplyContext)
-      : finalContent;
-
     const clearComposerUi = () => {
       closeAutocompleteMenus();
       if (textareaRef.current) {
@@ -1038,83 +1044,19 @@ export function Composer({
       }
     };
 
-    if (isCodex || images.length > 0) {
-      const pendingId = nextPendingUploadId();
-      const paths = images.map((img) => img.prepared?.path).filter((path): path is string => !!path);
-      const imageRefs = images
-        .map((img) => img.prepared?.imageRef)
-        .filter((ref): ref is NonNullable<(typeof images)[number]["prepared"]>["imageRef"] => !!ref);
-      const attachmentAnnotation =
-        paths.length > 0
-          ? `\n[📎 Image attachments -- read these files with the Read tool before responding:\n${paths
-              .map((path, index) => `Attachment ${index + 1}: ${path}`)
-              .join("\n")}]`
-          : "";
-      const deliveryContent = `${replyDeliveryContent}${attachmentAnnotation}`;
-
-      // Codex turns and all image-backed sends get a browser-local owner
-      // before transport. Server pending or committed history replaces it by
-      // exact client id; failed pre-admission sends remain editable.
-      store.addPendingUserUpload(sessionId, {
-        id: pendingId,
-        content: finalContent,
-        images,
-        timestamp: Date.now(),
-        stage: "delivering",
-        ...(currentReplyContext ? { replyContext: currentReplyContext } : {}),
-        ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
+    const result = sendComposerDraft(
+      sessionId,
+      { text, images, annotations },
+      {
         threadKey,
-        ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
-        prepared: { deliveryContent, imageRefs },
-      });
-      store.clearComposerDraft(sessionId);
-      setAlternateVoiceRerun(null);
-      store.setReplyContext(sessionId, null);
-      clearComposerUi();
-
-      const sent = sendToSession(sessionId, {
-        type: "user_message",
-        content: finalContent,
-        ...(deliveryContent !== finalContent ? { deliveryContent } : {}),
-        ...(currentReplyContext ? { replyContext: currentReplyContext } : {}),
-        ...(imageRefs.length > 0 ? { imageRefs } : {}),
-        inputSource: "composer",
-        session_id: sessionId,
-        client_msg_id: pendingId,
-        threadKey,
-        ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
-        ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
-      });
-
-      if (sent) {
-        store.requestBottomAlignOnNextUserMessage(sessionId);
-        finalizeReplyNotification();
-      }
-      store.updatePendingUserUpload(sessionId, pendingId, (upload) => ({
-        ...upload,
-        stage: sent ? "delivering" : "failed",
-        error: sent ? undefined : "Connection lost before delivery.",
-      }));
-      return;
-    }
-
-    const sent = sendToSession(sessionId, {
-      type: "user_message",
-      content: finalContent,
-      ...(currentReplyContext ? { deliveryContent: replyDeliveryContent, replyContext: currentReplyContext } : {}),
-      inputSource: "composer",
-      session_id: sessionId,
-      threadKey,
-      ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
-      ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
-    });
-    if (!sent) return;
-
-    store.requestBottomAlignOnNextUserMessage(sessionId);
-    store.clearComposerDraft(sessionId);
+        questId,
+        vscodeSelection: vscodeSelectionPayload ?? undefined,
+      },
+      isCodex,
+    );
+    if (result === "failed") return;
     setAlternateVoiceRerun(null);
-    finalizeReplyNotification();
-    store.setReplyContext(sessionId, null);
+    if (result === "sent") finalizeReplyNotification();
     clearComposerUi();
   }
 
@@ -1126,6 +1068,7 @@ export function Composer({
     if (!voiceSupported) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (useStore.getState().annotationEditor?.sessionId === sessionId) return;
       if (e.key === "Escape" && (isRecording || isPreparing)) {
         e.preventDefault();
         cancelRecording();
@@ -1597,7 +1540,12 @@ export function Composer({
         : failedImageCount > 0
           ? `Remove or retry ${failedImageCount} failed image${failedImageCount === 1 ? "" : "s"} before sending.`
           : null;
-  const canSend = (text.trim().length > 0 || images.length > 0) && canUseInput && !voiceEditProposal && allImagesReady;
+  const canSend =
+    (text.trim().length > 0 || images.length > 0 || !!annotations?.length) &&
+    canUseInput &&
+    !voiceEditProposal &&
+    !annotationEditorOpen &&
+    allImagesReady;
   const isVoiceInteractionActive = isPreparing || isRecording || isTranscribing;
   const hasActiveReplyContext = !!replyContext;
   const placeholder = buildComposerPlaceholder({
@@ -1618,7 +1566,9 @@ export function Composer({
     !hasActiveReplyContext &&
     !isVoiceInteractionActive &&
     !text.trim() &&
-    images.length === 0;
+    images.length === 0 &&
+    !annotations?.length &&
+    !annotationEditorOpen;
 
   // Replying should immediately reveal the full composer on mobile so the
   // reply target context stays visible instead of falling back to the compact bar.
@@ -1718,7 +1668,12 @@ export function Composer({
                 ? "Accept or undo the voice edit first"
                 : voiceIdleTitle);
   const voiceButtonDisabled =
-    !isBrowserServerConnected || !canUseInput || isTranscribing || isPreparing || !!voiceEditProposal;
+    !isBrowserServerConnected ||
+    !canUseInput ||
+    isTranscribing ||
+    isPreparing ||
+    !!voiceEditProposal ||
+    annotationEditorOpen;
   const compactVoiceButtonDisabled = voiceButtonDisabled;
   const imageUploadDisabled = !isBrowserServerConnected || !canUseInput;
   const imageUploadTitle = !isBrowserServerConnected
@@ -1895,6 +1850,12 @@ export function Composer({
                 onReleaseAutoPausedInputs={(pausedAt) =>
                   sendToSession(sessionId, { type: "release_codex_auto_paused_inputs", pausedAt })
                 }
+              />
+              <ComposerAnnotations
+                sessionId={sessionId}
+                threadKey={transcriptionThreadKey ?? threadKey}
+                threadTitle={transcriptionThreadTitle}
+                disabled={!canUseInput}
               />
               <ComposerReferencePreview references={plainReferencePreviews} />
             </>
