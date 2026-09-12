@@ -1865,12 +1865,13 @@ export function PlaygroundInteractiveSections() {
               </div>
               <p className="text-[10px] text-cc-muted">
                 Click "Seed board data" first. The constrained width keeps several open tabs visible while hidden tabs
-                collapse into More for tab sizing, phase color, close affordance, overflow, and insertion checks. Hover
-                q-42 to inspect the shared quest hover card with a medium-long repeated Journey clamped around current
-                row 12. The retained q-1932 tab is absent from the paged quest list and recovers its canonical title
-                only from the bounded title projection. q-88 is completed but has authoritative Thread Waiting; use the
-                dedicated control to keep it visible while Main remains selected. The active-output route targets q-42
-                so Main stays visually quiet.
+                collapse into More for tab sizing, phase color, close affordance, overflow, and insertion checks. Move
+                between More rows to check that no preview covers the menu and selection stays unobstructed. Hover
+                visible q-42 to inspect the shared quest hover card with a medium-long repeated Journey clamped around
+                current row 12. The retained q-1932 tab is absent from the paged quest list and recovers its canonical
+                title only from the bounded title projection. q-88 is completed but has authoritative Thread Waiting;
+                use the dedicated control to keep it visible while Main remains selected. The active-output route
+                targets q-42 so Main stays visually quiet.
               </p>
             </div>
           </Card>

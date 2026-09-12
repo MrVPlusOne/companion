@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -407,6 +408,61 @@ describe("WorkBoardBar overflow tabs", () => {
       expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
       expect(tab).not.toHaveClass("flex-none");
     }
+  });
+
+  it("keeps More rows preview-free while preserving visible rail previews and keyboard selection", async () => {
+    // Cached quest details reproduce the obstructing card without relying on a network fetch.
+    // Opening More must also dismiss an existing rail preview before the pointer enters its rows.
+    const user = userEvent.setup();
+    const onSelectThread = vi.fn();
+    resetStore({
+      quests: THREAD_ROWS.map((row) => ({
+        id: `${row.questId}-v1`,
+        questId: row.questId,
+        version: 1,
+        title: row.title,
+        description: "Quest details belong in the visible rail preview.",
+        status: "done",
+        completedAt: 1,
+        verificationItems: [],
+        tags: [],
+        createdAt: 1,
+        updatedAt: 1,
+        statusChangedAt: 1,
+      })),
+    });
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={THREAD_ROWS.map((row) => row.threadKey)}
+        onSelectThread={onSelectThread}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    const railTab = screen.getAllByTestId("thread-tab")[0]!;
+    await user.hover(railTab);
+    expect(screen.getByTestId("quest-hover-card")).toHaveTextContent("Quest 1 thread");
+    fireEvent.click(screen.getByTestId("thread-tabs-more-button"));
+    expect(screen.queryByTestId("quest-hover-card")).not.toBeInTheDocument();
+
+    const rows = screen.getAllByTestId("thread-tabs-more-row");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      await user.hover(row);
+      expect(screen.queryByTestId("quest-hover-card")).not.toBeInTheDocument();
+      expect(within(row).getByTestId("thread-tabs-more-row-title")).toHaveTextContent(/Quest [34] thread/);
+      expect(row).toHaveTextContent("Done");
+    }
+    const select = within(rows[1]!).getByTestId("thread-tabs-more-row-select");
+    select.focus();
+    await user.keyboard("{Enter}");
+    expect(onSelectThread).toHaveBeenCalledWith("q-4");
+    expect(screen.queryByTestId("thread-tabs-more-list")).not.toBeInTheDocument();
+
+    await user.hover(railTab);
+    expect(screen.getByTestId("quest-hover-card")).toHaveTextContent("Quest 1 thread");
   });
 
   it("keeps More-menu interactions free of close-hover frozen widths", async () => {

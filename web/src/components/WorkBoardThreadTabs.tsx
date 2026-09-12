@@ -470,8 +470,6 @@ function MoreThreadTabRow({
   onMove,
   onSelect,
   onClose,
-  onHover,
-  onHoverEnd,
 }: {
   view: ThreadTabView;
   reorderable: boolean;
@@ -481,8 +479,6 @@ function MoreThreadTabRow({
   onMove: (direction: -1 | 1) => void;
   onSelect: () => void;
   onClose?: () => void;
-  onHover: QuestTabHover;
-  onHoverEnd: () => void;
 }) {
   const { tab, threadKey, selected, activeOutput, questId, titleColor } = view;
   return (
@@ -498,8 +494,6 @@ function MoreThreadTabRow({
       data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
       data-blue-notification={tab.blueNudge ? "true" : "false"}
       data-reorderable={reorderable ? "true" : "false"}
-      onMouseEnter={(event) => onHover(view, event.currentTarget.getBoundingClientRect())}
-      onMouseLeave={questId ? onHoverEnd : undefined}
     >
       {reorderMode && reorderable && (
         <div className="flex shrink-0 flex-col gap-0.5">
@@ -817,7 +811,10 @@ export function ThreadTabRail({
           <div className="relative shrink-0" data-testid="thread-tabs-more-wrapper">
             <button
               type="button"
-              onClick={() => setMoreTabsOpen((open) => !open)}
+              onClick={() => {
+                hover.hideImmediately();
+                setMoreTabsOpen((open) => !open);
+              }}
               className={`relative inline-flex h-full min-w-[4.25rem] items-center justify-center gap-1 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${
                 moreTabsOpen || selectedHidden
                   ? "border-cc-primary/45 bg-cc-card text-cc-fg"
@@ -915,8 +912,6 @@ export function ThreadTabRail({
                           closeMoreTabs();
                         }}
                         onClose={onCloseThreadTab ? () => onCloseThreadTab(view.threadKey) : undefined}
-                        onHover={hover.show}
-                        onHoverEnd={hover.scheduleHide}
                       />
                     );
                   })}
